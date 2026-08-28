@@ -24,7 +24,7 @@ export function LoginScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Log in</Text>
+      <Text style={styles.title}>Welcome back</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"

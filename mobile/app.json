@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "MedHelp",
+    "slug": "medhelp",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.medhelp.app"
+    },
+    "android": {
+      "package": "com.medhelp.app"
+    }
+  }
+}

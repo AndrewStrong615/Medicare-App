@@ -23,7 +23,7 @@ from app.main import app
 
 # Import models so their tables are registered on Base.metadata before
 # create_all runs.
-from app.models import medication_reminder, user  # noqa: F401
+from app.models import medication, user  # noqa: F401
 
 
 @pytest.fixture()
@@ -57,3 +57,29 @@ def client(db_session):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+def _register(client, email: str, password: str = "synthetic-password-1") -> str:
+    """Create a synthetic account and return its bearer token."""
+    signup = client.post("/auth/signup", json={"email": email, "password": password})
+    assert signup.status_code == 201, signup.text
+    login = client.post("/auth/login", json={"email": email, "password": password})
+    assert login.status_code == 200, login.text
+    return login.json()["access_token"]
+
+
+@pytest.fixture()
+def auth_headers(client):
+    """Bearer headers for a synthetic signed-in user."""
+    token = _register(client, "list.owner@example.com")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def other_user_headers(client):
+    """
+    A second signed-in user, for proving one account cannot read another's
+    medication data.
+    """
+    token = _register(client, "other.person@example.com")
+    return {"Authorization": f"Bearer {token}"}

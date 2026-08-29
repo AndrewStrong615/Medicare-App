@@ -40,6 +40,36 @@ export function validatePassword(password: string): string | null {
   return null;
 }
 
+/**
+ * Validates an optional YYYY-MM-DD date.
+ *
+ * Checks the calendar, not just the shape: "2026-02-30" matches the pattern
+ * but is not a real day, and Date would silently roll it forward to March.
+ */
+export function validateIsoDate(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null; // optional
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) return "Use the format YYYY-MM-DD, for example 2026-03-14.";
+
+  const [, year, month, day] = match;
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return "That date doesn't exist. Check the day and month.";
+  }
+  // Round-trip: a rolled-over date won't match what was typed.
+  const roundTrip =
+    parsed.getUTCFullYear() === Number(year) &&
+    parsed.getUTCMonth() + 1 === Number(month) &&
+    parsed.getUTCDate() === Number(day);
+  if (!roundTrip) {
+    return "That date doesn't exist. Check the day and month.";
+  }
+
+  return null;
+}
+
 /** Login accepts any non-empty password so existing accounts stay reachable. */
 export function validateLoginPassword(password: string): string | null {
   if (!password) return "Enter your password.";

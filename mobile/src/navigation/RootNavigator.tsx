@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/screens/HomeScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
+import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen";
+import { MedicationListScreen } from "@/screens/medications/MedicationListScreen";
 import { MedicationRemindersScreen } from "@/screens/medication-reminders/MedicationRemindersScreen";
 import { SignupScreen } from "@/screens/auth/SignupScreen";
 import { SymptomDetailScreen } from "@/screens/symptom-lookup/SymptomDetailScreen";
@@ -52,6 +54,16 @@ export function RootNavigator() {
           name="SymptomDetail"
           component={SymptomDetailScreen}
           options={{ title: "Health Topic" }}
+        />
+        <Stack.Screen
+          name="MedicationList"
+          component={MedicationListScreen}
+          options={{ title: "My Medications" }}
+        />
+        <Stack.Screen
+          name="MedicationEdit"
+          component={MedicationEditScreen}
+          options={{ title: "Medication" }}
         />
         <Stack.Screen
           name="MedicationReminders"

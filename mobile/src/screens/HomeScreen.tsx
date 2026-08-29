@@ -27,6 +27,11 @@ export function HomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate("SymptomLookup")}
         />
         <NavCard
+          title="My Medications"
+          description="Keep a list of what you take, dosages, and refill dates."
+          onPress={() => navigation.navigate("MedicationList")}
+        />
+        <NavCard
           title="Medication Reminders"
           description="Keep track of what to take and when."
           onPress={() => navigation.navigate("MedicationReminders")}

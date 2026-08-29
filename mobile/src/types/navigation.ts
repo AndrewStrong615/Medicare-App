@@ -1,3 +1,4 @@
+import type { Medication } from "@/services/medicationService";
 import type { EmergencyGuidance, SymptomTopic } from "@/services/symptomService";
 
 export type RootStackParamList = {
@@ -17,5 +18,8 @@ export type RootStackParamList = {
     disclaimer: string;
     emergency: EmergencyGuidance | null;
   };
+  MedicationList: undefined;
+  // No `medication` means "add"; passing one means "edit that record".
+  MedicationEdit: { medication?: Medication } | undefined;
   MedicationReminders: undefined;
 };

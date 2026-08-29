@@ -66,11 +66,24 @@ export function MedicationListScreen({ navigation }: Props) {
         </Text>
       </View>
 
-      <AppButton
-        label="Add a medication"
-        onPress={() => navigation.navigate("MedicationEdit", {})}
-        accessibilityHint="Opens a form to add a medication to your list"
-      />
+      {/*
+        Two ways in, and typing it in stays the primary one. Scanning is a
+        shortcut that prefills the same form; it is not a replacement for
+        manual entry and never saves anything on its own.
+      */}
+      <View style={styles.addActions}>
+        <AppButton
+          label="Add a medication"
+          onPress={() => navigation.navigate("MedicationEdit", {})}
+          accessibilityHint="Opens a form to add a medication to your list"
+        />
+        <AppButton
+          label="Scan a label instead"
+          variant="secondary"
+          onPress={() => navigation.navigate("MedicationScan")}
+          accessibilityHint="Uses the camera to read a prescription label and fill in the form for you"
+        />
+      </View>
 
       {error && <ErrorNotice message={error} onRetry={isOffline ? load : undefined} />}
 
@@ -118,6 +131,9 @@ export function MedicationListScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   header: {
     gap: spacing.xs,
+  },
+  addActions: {
+    gap: spacing.sm,
   },
   title: {
     ...typography.display,

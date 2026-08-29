@@ -8,6 +8,7 @@ import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen";
 import { MedicationListScreen } from "@/screens/medications/MedicationListScreen";
 import { MedicationRemindersScreen } from "@/screens/medication-reminders/MedicationRemindersScreen";
+import { MedicationScanScreen } from "@/screens/medications/MedicationScanScreen";
 import { SignupScreen } from "@/screens/auth/SignupScreen";
 import { SymptomIntakeScreen } from "@/screens/intake/SymptomIntakeScreen";
 import { colors } from "@/theme";
@@ -65,6 +66,11 @@ export function RootNavigator() {
           name="MedicationList"
           component={MedicationListScreen}
           options={{ title: "My Medications" }}
+        />
+        <Stack.Screen
+          name="MedicationScan"
+          component={MedicationScanScreen}
+          options={{ title: "Scan a label" }}
         />
         <Stack.Screen
           name="MedicationEdit"

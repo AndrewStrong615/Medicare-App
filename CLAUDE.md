@@ -329,6 +329,63 @@ The general "When to see a doctor" copy is intentionally non-specific.
 Condition-specific criteria ("seek care if your fever exceeds X") would be
 clinical content this app is not permitted to author.
 
+## Medication label scanning (implemented)
+
+A user can photograph a prescription label instead of typing the medication in.
+Manual entry is unchanged and remains the primary path.
+
+**The OCR runs on the device.** Apple Vision on iOS, Google ML Kit Text
+Recognition v2 on Android, both via `expo-mlkit-ocr`. This was a data-handling
+decision before it was an engineering one:
+
+- A prescription label carries the patient's name, address, prescriber,
+  pharmacy, Rx number, drug and dose **in one photograph**. It is about the
+  most identifying artefact a user could hand this app.
+- Sending it to a cloud OCR service (Google Cloud Vision, AWS Textract, Azure
+  AI Vision) would make that vendor a processor of PHI and require a signed
+  BAA. All three will sign one; **this project has none with anyone**, and
+  procuring one is a legal decision, not an engineering one.
+- On-device recognition means **no BAA question arises at all**: no image and
+  no recognised text leaves the phone. `app/services/labelScanner.ts` makes no
+  network call, which is a property you can verify by reading it, and a test
+  asserts `fetch` is never called during a read.
+- The cost is accuracy on hard photographs — curled labels on round bottles,
+  low light, worn thermal print. Cloud OCR is better at those. That is the
+  trade, and it is why every read is confirmed by the user rather than trusted.
+- It needs a **development build**; `expo-mlkit-ocr` does not run in Expo Go.
+  When the native module is absent the feature reports itself unavailable and
+  the user is sent to manual entry.
+
+Rules for anyone extending this:
+
+- **Nothing scanned is ever saved without the user confirming it on screen.**
+  The scan screen cannot write a medication; every path out of it opens the
+  ordinary form, prefilled, and the user presses the same save button as
+  someone who typed it in. A misread dose that saved itself would change when
+  a person takes a medication with nobody having looked at it. Tests assert
+  this on both screens.
+- **Directions are carried across verbatim.** `labelParser.ts` copies the sig
+  line as printed and does not expand BID/TID/QHS or reword anything.
+  Decoding an abbreviation into dosing instructions would be app-authored
+  clinical content, and a wrong expansion changes medication timing. Same rule
+  as the MedlinePlus verbatim requirement above.
+- **Doses are never restated or converted.** "250 mg/5 mL" stays a
+  concentration. Only spacing and unit capitalisation are tidied.
+- **Drug names are never corrected against a dictionary.** A misread name
+  stays misread so the user can see it is wrong. Snapping OCR output to the
+  nearest real drug turns a legible mistake into a plausible one.
+- **Only the four fields the form already stores are extracted.** The
+  patient's name, address and Rx number are deliberately not read out — the
+  app has no field for them, and the raw OCR text is discarded inside
+  `readLabel` rather than returned to any screen.
+- A failed or low-confidence read **falls back to manual entry with whatever
+  was extracted prefilled**, never to a dead end.
+
+Not yet reviewed by a clinician or by counsel. Scanning does not estimate
+urgency and authors no clinical content, so it is not covered by the intake
+blocker below — but the parsing heuristics have only been tested against
+synthetic labels written by an engineer, not against a corpus of real ones.
+
 ## Open data-handling findings (awaiting a decision)
 
 Found during review, deliberately not changed. Each needs a call before the

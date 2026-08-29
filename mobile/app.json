@@ -7,10 +7,37 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.medhelp.app"
+      "bundleIdentifier": "com.medhelp.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "MedHelp uses the camera only to read a prescription label. The photo is read on this device and is never uploaded.",
+        "NSPhotoLibraryUsageDescription": "MedHelp uses your photos only to read a prescription label you choose. The photo is read on this device and is never uploaded."
+      }
     },
     "android": {
       "package": "com.medhelp.app"
-    }
+    },
+    "plugins": [
+      [
+        "expo-mlkit-ocr",
+        {
+          "iosEngine": "auto"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.0"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MedHelp uses your photos only to read a prescription label you choose. The photo is read on this device and is never uploaded.",
+          "cameraPermission": "MedHelp uses the camera only to read a prescription label. The photo is read on this device and is never uploaded."
+        }
+      ]
+    ]
   }
 }

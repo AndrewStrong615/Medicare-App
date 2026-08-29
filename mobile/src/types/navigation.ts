@@ -1,4 +1,5 @@
 import type { FollowUpRequest, IntakeAssessment } from "@/services/intakeService";
+import type { ParsedLabel } from "@/services/labelParser";
 import type { Medication } from "@/services/medicationService";
 
 export type RootStackParamList = {
@@ -20,7 +21,14 @@ export type RootStackParamList = {
   IntakeResult: { assessment: IntakeAssessment };
 
   MedicationList: undefined;
+  // Reads a prescription label with the camera. It only ever prefills the
+  // form below — it never saves a medication itself.
+  MedicationScan: undefined;
   // No `medication` means "add"; passing one means "edit that record".
-  MedicationEdit: { medication?: Medication } | undefined;
+  // `scanned` prefills the form from a label photo, and is always reviewed by
+  // the user before it can be saved.
+  MedicationEdit:
+    | { medication?: Medication; scanned?: ParsedLabel }
+    | undefined;
   MedicationReminders: undefined;
 };

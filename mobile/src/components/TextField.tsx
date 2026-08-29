@@ -34,6 +34,8 @@ interface TextFieldProps {
   returnKeyType?: ReturnKeyTypeOptions;
   onSubmitEditing?: () => void;
   editable?: boolean;
+  /** Grows the field for longer free-text entry. */
+  multiline?: boolean;
 }
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
@@ -52,6 +54,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
     returnKeyType,
     onSubmitEditing,
     editable = true,
+    multiline = false,
   },
   ref
 ) {
@@ -70,7 +73,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           focused && styles.inputFocused,
           !!error && styles.inputError,
           !editable && styles.inputDisabled,
+          multiline && styles.inputMultiline,
         ]}
+        multiline={multiline}
+        textAlignVertical={multiline ? "top" : "auto"}
         value={value}
         onChangeText={onChangeText}
         onFocus={() => setFocused(true)}
@@ -125,6 +131,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     ...typography.body,
     color: colors.textPrimary,
+  },
+  inputMultiline: {
+    minHeight: 120,
+    paddingTop: spacing.md,
   },
   inputFocused: {
     borderColor: colors.borderFocus,

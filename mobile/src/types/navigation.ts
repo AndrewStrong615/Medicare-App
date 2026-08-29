@@ -1,5 +1,5 @@
+import type { IntakeAssessment } from "@/services/intakeService";
 import type { Medication } from "@/services/medicationService";
-import type { EmergencyGuidance, SymptomTopic } from "@/services/symptomService";
 
 export type RootStackParamList = {
   // `accountCreated` is set by the sign-up flow so the sign-in screen can
@@ -7,17 +7,11 @@ export type RootStackParamList = {
   Login: { accountCreated?: boolean } | undefined;
   Signup: undefined;
   Home: undefined;
-  SymptomLookup: undefined;
-  // Care guidance and the disclaimer travel with the topic so the detail
-  // screen can never render medical content without them. Emergency guidance
-  // travels too: someone who searched "chest pain" must not lose the
-  // instruction to call 911 simply by tapping into an article.
-  SymptomDetail: {
-    topic: SymptomTopic;
-    careGuidance: string;
-    disclaimer: string;
-    emergency: EmergencyGuidance | null;
-  };
+
+  // Symptom intake and its urgency estimate.
+  SymptomIntake: undefined;
+  IntakeResult: { assessment: IntakeAssessment };
+
   MedicationList: undefined;
   // No `medication` means "add"; passing one means "edit that record".
   MedicationEdit: { medication?: Medication } | undefined;

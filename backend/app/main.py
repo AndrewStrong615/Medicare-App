@@ -3,7 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, medications, symptoms
+from app.api import auth, intake, medications
 
 app = FastAPI(
     title="MedHelp API",
@@ -51,7 +51,7 @@ async def validation_error_handler(
 
 
 app.include_router(auth.router)
-app.include_router(symptoms.router)
+app.include_router(intake.router)
 app.include_router(medications.router)
 
 

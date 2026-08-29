@@ -23,7 +23,7 @@ from app.main import app
 
 # Import models so their tables are registered on Base.metadata before
 # create_all runs.
-from app.models import medication, user  # noqa: F401
+from app.models import intake, medication, user  # noqa: F401
 
 
 @pytest.fixture()

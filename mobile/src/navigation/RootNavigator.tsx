@@ -2,13 +2,13 @@ import { NavigationContainer, type Theme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/screens/HomeScreen";
+import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen";
 import { MedicationListScreen } from "@/screens/medications/MedicationListScreen";
 import { MedicationRemindersScreen } from "@/screens/medication-reminders/MedicationRemindersScreen";
 import { SignupScreen } from "@/screens/auth/SignupScreen";
-import { SymptomDetailScreen } from "@/screens/symptom-lookup/SymptomDetailScreen";
-import { SymptomLookupScreen } from "@/screens/symptom-lookup/SymptomLookupScreen";
+import { SymptomIntakeScreen } from "@/screens/intake/SymptomIntakeScreen";
 import { colors } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
@@ -46,14 +46,14 @@ export function RootNavigator() {
         <Stack.Screen name="Signup" component={SignupScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
         <Stack.Screen
-          name="SymptomLookup"
-          component={SymptomLookupScreen}
-          options={{ title: "Symptom Lookup" }}
+          name="SymptomIntake"
+          component={SymptomIntakeScreen}
+          options={{ title: "Check my symptoms" }}
         />
         <Stack.Screen
-          name="SymptomDetail"
-          component={SymptomDetailScreen}
-          options={{ title: "Health Topic" }}
+          name="IntakeResult"
+          component={IntakeResultScreen}
+          options={{ title: "What to do next" }}
         />
         <Stack.Screen
           name="MedicationList"

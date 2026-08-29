@@ -19,5 +19,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # Used by the symptom-intake triage classifier. Empty means the intake
+    # feature reports itself unavailable — it never falls back to guessing.
+    anthropic_api_key: str = ""
+
 
 settings = Settings()

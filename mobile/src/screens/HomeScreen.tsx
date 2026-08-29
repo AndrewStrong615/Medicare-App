@@ -22,9 +22,9 @@ export function HomeScreen({ navigation }: Props) {
 
       <View style={styles.cards}>
         <NavCard
-          title="Symptom Lookup"
-          description="Read general information about common symptoms and conditions."
-          onPress={() => navigation.navigate("SymptomLookup")}
+          title="Check my symptoms"
+          description="Describe what's wrong and get an estimate of how soon you may need care."
+          onPress={() => navigation.navigate("SymptomIntake")}
         />
         <NavCard
           title="My Medications"

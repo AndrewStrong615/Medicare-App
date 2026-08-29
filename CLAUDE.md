@@ -134,6 +134,53 @@ carrying free-text health input written by the user.
 - Validation errors are stripped of the submitted value before being
   returned (`app/main.py`), so a rejected query is not echoed back.
 
+## ⛔ BLOCKING: symptom intake requires clinical and legal sign-off
+
+The symptom-intake feature (`backend/app/core/triage.py`) estimates how soon a
+user should be seen — EMERGENT, URGENT, or SELF_CARE — from free text, using a
+language model. **It must not be put in front of real users until both of the
+following are signed off and recorded here.** This is a release blocker, not a
+recommendation.
+
+1. **A licensed clinician** must review the tier definitions, the system
+   prompt, the deterministic red-flag lists, and a corpus of real
+   classifications. Nothing in this feature was written or reviewed by a
+   clinician; the tier boundaries are a software engineer's construction.
+2. **Legal counsel** must determine whether this is a regulated medical
+   device in each target market. Software that recommends time-critical care
+   ("go to an ER now") from symptom input is materially different from
+   reference content, and the earlier informational-only posture of this app
+   does not cover it. Also unresolved: liability for an under-triage, and what
+   the audit trail must retain.
+
+Additional known limits a reviewer should be told about:
+
+- The classifier has **no validated error profile**. Unlike an instrument such
+  as ESI or Manchester Triage, nobody has measured its under-triage rate. The
+  architecture biases toward over-triage, which is the safer direction, but
+  "biased safe" is not the same as "measured safe".
+- The audit trail exists (`intake_assessments`) but **nobody is reviewing it
+  yet**. Logging classifications is only useful if someone qualified reads
+  them; assign that owner.
+- Intake descriptions are the most sensitive free text in the app and are
+  **not yet encrypted at rest**.
+
+### How the safety architecture works
+
+Read `backend/app/core/triage.py` before changing any of it. Four properties
+hold, each asserted by tests in `backend/tests/test_triage.py`:
+
+1. Deterministic red-flag screening runs **first**, on every request. A match
+   sets a floor of EMERGENT before the model is consulted.
+2. The model can only **escalate**. Tiers are reconciled with `max()`, so a
+   model answer of SELF_CARE cannot lower a red-flag EMERGENT.
+3. Failure is **never** SELF_CARE. If the model errors, times out, refuses, or
+   returns something unparseable, the request fails with a 503 that points the
+   user at real care. It never falls back to reassurance.
+4. The prompt forbids diagnostic language ("you have X") and treatment advice,
+   and instructs escalation whenever uncertain — including when the
+   description is vague or too short to judge.
+
 ## Emergency routing (implemented)
 
 `backend/app/core/emergency.py` screens every symptom query for red-flag

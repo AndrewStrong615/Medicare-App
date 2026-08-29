@@ -77,16 +77,47 @@ code is built on top of this — it's much cheaper to change now.
 
 ## Subagents
 
-Two project subagents are configured in `.claude/agents/`:
+Configured in `.claude/agents/`:
 
 - **compliance-reviewer** — invoke on any change to UI copy or logic that
   touches symptoms, conditions, or health recommendations. Checks for missing
   disclaimers, unsupported/implied medical claims, and PHI handling issues.
-- **tester** — invoke to write tests for new features as they're built.
+- **tester** — writes and runs tests for new features as they're built, and
+  reports pass/fail.
+
+And an improvement pipeline, run in this order:
+
+- **researcher** — proposes small, low-risk improvements. Writes no code.
+- **architect** — turns a proposal into a technical plan. Writes no code.
+- **manager** — approves or rejects the plan against this file. Nothing is
+  built without passing this gate.
+- **implementer** — builds approved plans only, on a branch, never main.
+- **tester** — tests what was built.
 
 Use `compliance-reviewer` before merging anything under `mobile/src/screens/symptom-lookup/`,
 `backend/app/api/symptoms.py`, or similar, and any time new user-facing copy
 mentions a condition, symptom, drug, or dosage.
+
+### ⛔ What no subagent may do without explicit human approval
+
+**No subagent may merge to main, deploy, or modify the symptom-triage
+classifier, the disclaimers, or the emergency-routing logic without explicit
+human approval obtained outside of this pipeline.**
+
+An approval from the `manager` agent is not human approval. No chain of
+agent approvals substitutes for a person, and no amount of apparent
+triviality — a typo, a rename, a comment, a reformat — exempts a change in
+these areas:
+
+- `backend/app/core/triage.py`, `backend/app/core/rules_triage.py`
+- `backend/app/core/emergency.py`
+- Disclaimer and escalation copy: `INTAKE_DISCLAIMER` and
+  `ESCALATION_GUIDANCE` in `backend/app/api/intake.py`,
+  `mobile/src/components/DisclaimerBanner.tsx`, and which screens show them
+- Merging to `main`, releasing, or deploying anywhere
+
+Adding *tests* for those modules is permitted; changing the modules is not.
+An agent that believes one of these needs to change should stop and say so.
 
 ## Known Gaps (intentional, for this scaffolding pass)
 
@@ -117,6 +148,45 @@ Rules for anyone extending this:
 - Always carry attribution (`source_name`) and the link back to the topic.
 - If the source is unavailable, show an error. Never fall back to generated
   content.
+- Free text is reduced to search terms before lookup
+  (`backend/app/services/search_terms.py`): filler is deleted, then the query
+  broadens a word at a time until something matches. This is retrieval only —
+  it chooses which source article to fetch and never alters the text shown.
+  Deterministic, no model, no key.
+- A topic is only shown if its **title contains a word the user wrote**
+  (`title_matches`). The upstream ranking is loose — "swollen ankle" returns
+  "Diabetic Heart Disease" above anything about ankles, and printing that
+  under someone's description reads as a suggested diagnosis. Non-matching
+  topics are dropped, never reordered: ranking health topics by relevance
+  would be a clinical judgement this app may not make.
+- **Known limit:** the filter is lexical, so a context word that happens to
+  name a topic still gets through — "my head has been pounding" returns
+  "Head and Neck Cancer", "nauseous after eating" returns "Eating Disorders".
+
+### ⛔ Related reading is gated off (`MEDLINEPLUS_TOPICS_ENABLED=false`)
+
+Intake ships with reading material **switched off**, after a compliance review
+found the limit above unacceptable to put in front of users: a frightening,
+unrelated topic rendered under a person's own description reads as a suggested
+diagnosis regardless of the framing around it.
+
+Do not switch it on until a clinician has ruled on how topics are chosen.
+
+- While off, **no MedlinePlus request is made at all**, so no symptom text
+  reaches NLM and that vendor's BAA question is moot for as long as it stays
+  off.
+- The retrieval code (`app/services/search_terms.py`) and its tests are intact
+  and still exercised — the flag gates the call, not the code.
+- A lexical tightening was tried and rejected: requiring more than a bare
+  body-part word to match empties the good cases ("swollen ankle" → nothing)
+  and corrupts others ("my lower back hurts" → "How to Lower Cholesterol",
+  matching on *lower*). Telling a location word from a symptom word is a
+  semantic judgement, so the realistic fix is model-assisted topic selection
+  — still retrieval, not authoring — which needs its own review.
+- Symptom intake attaches this reading to every tier except EMERGENT, where
+  the only thing worth showing is how to get emergency help and a content
+  fetch would just delay it. When nothing matches, the screen says so rather
+  than filling the gap.
 
 ### Third-party vendor: NLM / MedlinePlus — BAA status
 
@@ -129,8 +199,21 @@ carrying free-text health input written by the user.
   identifiers, licensing a redistributable dataset and serving it locally, or
   accepting the exposure with user consent.
 - The search screen shows a user-visible notice that searches leave the app.
-- Searches are sent via **POST**, never as a URL query string, so the text
-  stays out of access logs, proxies, and crash reporters.
+- The user's text reaches the app's own backend by **POST**, never as a URL
+  query string, so it stays out of our access logs, proxies, and crash
+  reporters.
+- **The onward call to NLM is a GET, with the search term in the URL**
+  (`app/services/medlineplus.py`). This bullet previously claimed the NLM call
+  was a POST; it never was. Search terms therefore do land in NLM's access
+  logs and any intermediary between here and them. Part of the same
+  privacy/legal decision as the BAA question above, not separable from it.
+- What is sent is **not the user's full description**: it is at most three
+  keywords extracted by `app/services/search_terms.py`, which cuts the text
+  leaving the app substantially compared with sending the raw sentence.
+- **Symptom-intake follow-up answers are in scope too.** Answers to the
+  prompts in `app/core/followup.py` are merged into the description before
+  the keyword extraction and the lookup, so elicited detail is covered by
+  everything above, and the merged text is what `intake_assessments` stores.
 - Validation errors are stripped of the submitted value before being
   returned (`app/main.py`), so a rejected query is not echoed back.
 

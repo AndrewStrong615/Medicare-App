@@ -186,6 +186,77 @@ class TestFailureIsNeverReassurance:
             triage._reconcile(None, None)
 
 
+class TestModelResponseHandling:
+    """
+    The branches around the SDK response itself. Patched at the client, not at
+    `_classify_with_model`, so the response handling actually runs.
+    """
+
+    @pytest.fixture()
+    def model_response(self, monkeypatch):
+        class _Block:
+            def __init__(self, text):
+                self.type = "text"
+                self.text = text
+
+        class _Response:
+            def __init__(self, stop_reason, text):
+                self.stop_reason = stop_reason
+                self.content = [_Block(text)] if text is not None else []
+                self.model = "claude-opus-5"
+
+        def _set(stop_reason="end_turn", text='{"tier": "URGENT", "reasoning": "Synthetic."}'):
+            response = _Response(stop_reason, text)
+
+            class _Messages:
+                def create(self, **kwargs):
+                    return response
+
+            class _Client:
+                messages = _Messages()
+
+            monkeypatch.setattr(triage, "_build_client", lambda: _Client())
+
+        return _set
+
+    def test_a_truncated_response_is_a_failure_not_a_tier(self, model_response):
+        # Thinking tokens share the max_tokens ceiling, so a truncated reply is
+        # a real possibility. It used to parse as garbage and vanish into the
+        # rule fallback with no way to tell it from a malformed response.
+        model_response(stop_reason="max_tokens", text='{"tier": "SELF_CA')
+
+        with pytest.raises(TriageUnavailable):
+            triage._classify_with_model("synthetic description")
+
+    def test_a_refusal_is_a_failure_not_a_tier(self, model_response):
+        model_response(stop_reason="refusal", text=None)
+
+        with pytest.raises(TriageUnavailable):
+            triage._classify_with_model("synthetic description")
+
+    def test_a_truncated_response_still_leaves_the_rule_tier_standing(
+        self, model_response, monkeypatch
+    ):
+        # The whole point of the fallback: a broken model call costs quality,
+        # never the tier, and never resolves downward.
+        monkeypatch.setattr(triage, "credentials_available", lambda: True)
+        model_response(stop_reason="max_tokens", text='{"tier": "SELF_CA')
+
+        result = assess("my knee feels strange lately")
+
+        assert result.tier is Tier.URGENT
+        assert result.model_tier is None
+
+    def test_a_good_response_is_parsed(self, model_response):
+        model_response()
+
+        tier, reasoning, model_id = triage._classify_with_model("synthetic description")
+
+        assert tier is Tier.URGENT
+        assert reasoning == "Synthetic."
+        assert model_id == "claude-opus-5"
+
+
 class TestReconciliation:
     @pytest.mark.parametrize(
         "floor,model,expected",

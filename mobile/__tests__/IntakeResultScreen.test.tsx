@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import type { IntakeAssessment, Tier } from "@/services/intakeService";
@@ -15,14 +15,16 @@ const ESCALATION =
 
 function assessment(overrides: Partial<IntakeAssessment> = {}): IntakeAssessment {
   return {
+    status: "assessed",
     id: "assessment-1",
     tier: "SELF_CARE" as Tier,
     reasoning: "Synthetic reasoning text.",
     redFlagMatch: false,
     escalatedBySafetyNet: false,
     emergency: null,
-    selfCareTopics: [],
-    selfCareSourceNote: null,
+    relatedTopics: [],
+    topicsSourceNote: null,
+    topicsDisabled: false,
     disclaimer: DISCLAIMER,
     escalationGuidance: ESCALATION,
     ...overrides,
@@ -44,12 +46,17 @@ describe("IntakeResultScreen", () => {
   describe.each<Tier>(["EMERGENT", "URGENT", "SELF_CARE"])("on every tier (%s)", (tier) => {
     it("offers a way to call emergency services", () => {
       // The classification is a suggestion; a user who disagrees must be able
-      // to act without navigating anywhere.
+      // to act without navigating anywhere. This one holds on EMERGENT too —
+      // it is the whole point of that screen.
       renderResult({ tier });
 
       expect(screen.getByText("Call 911")).toBeTruthy();
     });
+  });
 
+  // Everything below the call path is prose, and on EMERGENT prose competes
+  // with the dial button. These hold on the tiers whose reader has time.
+  describe.each<Tier>(["URGENT", "SELF_CARE"])("on unhurried tiers (%s)", (tier) => {
     it("states that this is not a diagnosis", () => {
       renderResult({ tier });
 
@@ -93,6 +100,35 @@ describe("IntakeResultScreen", () => {
       expect(screen.getByText("Get emergency care now.")).toBeTruthy();
       expect(screen.getByText("Find the nearest emergency room")).toBeTruthy();
     });
+
+    it("leads with the alert and nothing else to read", () => {
+      // In an emergency every extra paragraph sits between the user and the
+      // dial button, so the explanatory copy starts collapsed.
+      renderResult({ tier: "EMERGENT" });
+
+      expect(screen.queryByText("Synthetic reasoning text.")).toBeNull();
+      expect(screen.queryByText(DISCLAIMER)).toBeNull();
+      expect(screen.queryByText("If this changes or gets worse")).toBeNull();
+      expect(screen.queryByText("Urgent — be seen soon")).toBeNull();
+    });
+
+    it("keeps the explanation and the disclaimer one tap away", () => {
+      // Demoted, not deleted.
+      renderResult({ tier: "EMERGENT" });
+
+      fireEvent.press(screen.getByText("Why am I seeing this?"));
+
+      expect(screen.getByText("Synthetic reasoning text.")).toBeTruthy();
+      expect(screen.getByText(DISCLAIMER)).toBeTruthy();
+      expect(screen.getByText("This doesn't seem right")).toBeTruthy();
+    });
+
+    it("does not bury health topics behind the alert", () => {
+      // Reading material is not fetched on this tier at all.
+      renderResult({ tier: "EMERGENT" });
+
+      expect(screen.queryByText("General information")).toBeNull();
+    });
   });
 
   describe("URGENT", () => {
@@ -102,13 +138,50 @@ describe("IntakeResultScreen", () => {
       expect(screen.getByText(/does not contact a provider for you/i)).toBeTruthy();
       expect(screen.getByText("Find urgent care nearby")).toBeTruthy();
     });
+
+    it("also gives the user something to read, not just an instruction to go", () => {
+      renderResult({
+        tier: "URGENT",
+        relatedTopics: [
+          {
+            topicId: "ankleinjuries",
+            title: "Ankle Injuries and Disorders",
+            summary: "Synthetic summary.",
+            url: "https://medlineplus.gov/ankleinjuriesanddisorders.html",
+            sourceName: "MedlinePlus, US National Library of Medicine",
+            groups: ["Bones, Joints and Muscles"],
+          },
+        ],
+        topicsSourceNote: "General information from MedlinePlus.",
+      });
+
+      expect(screen.getByText("Ankle Injuries and Disorders")).toBeTruthy();
+      // The source's own categories, framed as association rather than as a
+      // claim about this user.
+      expect(screen.getByText(/May be associated with/i)).toBeTruthy();
+    });
+
+    it("says why the section is empty rather than filling it in", () => {
+      renderResult({ tier: "URGENT", relatedTopics: [] });
+
+      expect(screen.getByText(/won't write its own/i)).toBeTruthy();
+    });
+
+    it("hides the section entirely while the feature is gated off", () => {
+      // Not the same as finding nothing. Saying "we couldn't find a topic
+      // matching what you described" would be a lie when no lookup was made.
+      renderResult({ tier: "URGENT", relatedTopics: [], topicsDisabled: true });
+
+      expect(screen.queryByText("General information")).toBeNull();
+      expect(screen.queryByText(/won't write its own/i)).toBeNull();
+    });
   });
 
   describe("SELF_CARE", () => {
     it("shows sourced reading material with attribution", () => {
       renderResult({
         tier: "SELF_CARE",
-        selfCareTopics: [
+        relatedTopics: [
           {
             topicId: "sorethroat",
             title: "Sore Throat",
@@ -118,7 +191,7 @@ describe("IntakeResultScreen", () => {
             groups: ["Symptoms"],
           },
         ],
-        selfCareSourceNote: "General information from MedlinePlus.",
+        topicsSourceNote: "General information from MedlinePlus.",
       });
 
       expect(screen.getByText("Sore Throat")).toBeTruthy();
@@ -134,7 +207,7 @@ describe("IntakeResultScreen", () => {
 
   describe("safety-net escalation", () => {
     it("tells the user when the estimate was raised", () => {
-      renderResult({ tier: "EMERGENT", escalatedBySafetyNet: true, redFlagMatch: true });
+      renderResult({ tier: "URGENT", escalatedBySafetyNet: true, redFlagMatch: true });
 
       expect(screen.getByText(/raised this to a more urgent level/i)).toBeTruthy();
     });

@@ -42,8 +42,19 @@ export function SymptomIntakeScreen({ navigation }: Props) {
     setSubmitting(true);
 
     try {
-      const assessment = await submitIntake(trimmed, consent);
-      navigation.navigate("IntakeResult", { assessment });
+      const result = await submitIntake(trimmed, consent);
+      if (result.status === "needs_detail") {
+        // The server could not make sense of this and is asking rather than
+        // guessing. A red-flag description never lands here — it comes back
+        // as an assessment with its emergency guidance already attached.
+        navigation.navigate("IntakeFollowUp", {
+          followUp: result,
+          description: trimmed,
+          consent,
+        });
+      } else {
+        navigation.navigate("IntakeResult", { assessment: result });
+      }
     } catch (caught) {
       if (caught instanceof IntakeError) {
         setError(caught.message);

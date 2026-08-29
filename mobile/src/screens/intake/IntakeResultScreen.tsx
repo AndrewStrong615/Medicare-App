@@ -46,6 +46,8 @@ function TierBadge({ label, tone }: { label: string; tone: "emergent" | "urgent"
 export function IntakeResultScreen({ navigation, route }: Props) {
   const { assessment } = route.params;
   const [reported, setReported] = useState(false);
+  // Emergency-tier details are collapsed by default; see the comment below.
+  const [showDetails, setShowDetails] = useState(false);
 
   const report = () => {
     setReported(true);
@@ -54,16 +56,32 @@ export function IntakeResultScreen({ navigation, route }: Props) {
 
   const isEmergent = assessment.tier === "EMERGENT";
 
-  return (
-    <Screen>
-      {/*
-        Emergency access is unconditional — present on every tier, including
-        SELF_CARE. The classification is a suggestion the user may override.
-      */}
-      <EmergencyCallBar compact={isEmergent} />
+  /*
+    The emergency screen is deliberately almost empty.
 
-      {isEmergent && (
-        <View style={styles.emergentPanel} accessibilityRole="alert" accessibilityLiveRegion="assertive">
+    Every other tier can afford paragraphs — the reader has time. This one is
+    read by someone who may be frightened, in pain, or holding the phone for
+    somebody else, and each extra block of text is another thing between them
+    and the dial button. Tier badge, reasoning, escalation guidance and
+    disclaimer all say some version of "get help now", which the red panel has
+    already said, so on this tier they collapse behind a toggle instead of
+    competing with it.
+
+    Nothing is deleted, only demoted: "Why am I seeing this?" still reaches the
+    reasoning, the disclaimer, and the report-this-is-wrong path. Note that the
+    disclaimer requirement in CLAUDE.md covers screens showing symptom or
+    condition information — this tier shows none, only how to get help.
+  */
+  if (isEmergent) {
+    return (
+      <Screen>
+        <EmergencyCallBar compact />
+
+        <View
+          style={styles.emergentPanel}
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+        >
           <Text style={styles.emergentHeadline}>
             {assessment.emergency?.headline ?? "Get emergency care now."}
           </Text>
@@ -78,24 +96,65 @@ export function IntakeResultScreen({ navigation, route }: Props) {
             accessibilityHint="Opens your maps app with directions to nearby emergency departments"
           />
         </View>
-      )}
+
+        <AppButton
+          label={showDetails ? "Hide details" : "Why am I seeing this?"}
+          variant="secondary"
+          onPress={() => setShowDetails((open) => !open)}
+          accessibilityHint="Shows why this was treated as an emergency"
+        />
+
+        {showDetails && (
+          <View style={styles.section}>
+            <Text style={styles.reasoning}>{assessment.reasoning}</Text>
+            {assessment.escalatedBySafetyNet && (
+              <Text style={styles.escalationNote}>
+                MedHelp raised this to a more urgent level than its first
+                estimate, because part of what you described can be associated
+                with more serious problems.
+              </Text>
+            )}
+            <Text style={styles.escalationBody}>{assessment.escalationGuidance}</Text>
+            <Text style={styles.disclaimerText}>{assessment.disclaimer}</Text>
+            {reported ? (
+              <Text style={styles.reportedNote}>
+                Thanks — that's been noted for review. Please still seek care if
+                you're worried.
+              </Text>
+            ) : (
+              <AppButton
+                label="This doesn't seem right"
+                variant="secondary"
+                onPress={report}
+                accessibilityHint="Tells us the urgency estimate may be wrong, so it can be reviewed"
+              />
+            )}
+            <AppButton
+              label="Describe something else"
+              variant="secondary"
+              onPress={() => navigation.navigate("SymptomIntake")}
+            />
+          </View>
+        )}
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen>
+      {/*
+        Emergency access is unconditional — present on every tier, including
+        SELF_CARE. The classification is a suggestion the user may override.
+      */}
+      <EmergencyCallBar />
 
       <View style={styles.header}>
+        {/* EMERGENT returned above, so only these two tiers reach here. */}
         <TierBadge
           label={
-            assessment.tier === "EMERGENT"
-              ? "Emergency care"
-              : assessment.tier === "URGENT"
-                ? "Urgent — be seen soon"
-                : "Usually self-care"
+            assessment.tier === "URGENT" ? "Urgent — be seen soon" : "Usually self-care"
           }
-          tone={
-            assessment.tier === "EMERGENT"
-              ? "emergent"
-              : assessment.tier === "URGENT"
-                ? "urgent"
-                : "self"
-          }
+          tone={assessment.tier === "URGENT" ? "urgent" : "self"}
         />
         <Text style={styles.reasoning}>{assessment.reasoning}</Text>
         {assessment.escalatedBySafetyNet && (
@@ -124,27 +183,63 @@ export function IntakeResultScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {assessment.tier === "SELF_CARE" && assessment.selfCareTopics.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionHeading}>General information</Text>
-          {assessment.selfCareTopics.map((topic) => (
-            <View key={topic.topicId} style={styles.topic}>
-              <Text style={styles.topicTitle}>{topic.title}</Text>
-              <Text style={styles.topicSummary}>{topic.summary}</Text>
-              <AppButton
-                label="Read the full topic"
-                variant="secondary"
-                onPress={() => {
-                  Linking.openURL(topic.url).catch(() => {});
-                }}
-                style={styles.topicLink}
-              />
-            </View>
-          ))}
-          {assessment.selfCareSourceNote && (
-            <Text style={styles.sourceNote}>{assessment.selfCareSourceNote}</Text>
+      {/*
+        Hidden entirely while the server has the feature gated off, rather
+        than shown empty. The empty state below says "we couldn't find a topic
+        matching what you described", which would be a lie when no lookup was
+        ever made — and an empty box invites the user to wonder what they did
+        wrong. See `medlineplus_topics_enabled` in the backend config.
+
+        EMERGENT returned above, where the only useful content is how to get
+        emergency help. Text is MedlinePlus's, rendered verbatim with
+        attribution — the app writes no health content of its own.
+      */}
+      {!assessment.topicsDisabled && (
+      <View style={styles.section}>
+        <Text style={styles.sectionHeading}>General information</Text>
+          {assessment.relatedTopics.length > 0 ? (
+            <>
+              <Text style={styles.sectionBody}>
+                Health topics matched to the words you used. This is background
+                reading, not a diagnosis and not a description of your
+                situation.
+              </Text>
+              {assessment.relatedTopics.map((topic) => (
+                <View key={topic.topicId} style={styles.topic}>
+                  <Text style={styles.topicTitle}>{topic.title}</Text>
+                  <Text style={styles.topicSummary}>{topic.summary}</Text>
+                  {topic.groups.length > 0 && (
+                    <Text style={styles.topicGroups}>
+                      May be associated with: {topic.groups.join(", ")}
+                    </Text>
+                  )}
+                  <AppButton
+                    label="Read the full topic"
+                    variant="secondary"
+                    onPress={() => {
+                      Linking.openURL(topic.url).catch(() => {});
+                    }}
+                    style={styles.topicLink}
+                  />
+                </View>
+              ))}
+              {assessment.topicsSourceNote && (
+                <Text style={styles.sourceNote}>{assessment.topicsSourceNote}</Text>
+              )}
+            </>
+          ) : (
+            /*
+              An honest empty state rather than a blank space. Saying why
+              there is nothing here is the alternative to filling the gap
+              with app-written content, which this app does not do.
+            */
+            <Text style={styles.sectionBody}>
+              MedHelp couldn't find a health topic matching what you described.
+              It won't write its own — everything you read here comes from
+              MedlinePlus, published by the US National Library of Medicine.
+            </Text>
           )}
-        </View>
+      </View>
       )}
 
       {/* The escalate-back path, shown on every tier. */}
@@ -236,6 +331,7 @@ const styles = StyleSheet.create({
   topic: { gap: spacing.xs, paddingBottom: spacing.sm },
   topicTitle: { ...typography.bodyStrong, color: colors.textPrimary },
   topicSummary: { ...typography.caption, color: colors.textSecondary },
+  topicGroups: { ...typography.caption, color: colors.textSecondary },
   topicLink: { alignSelf: "flex-start", paddingHorizontal: 0 },
   sourceNote: { ...typography.caption, color: colors.textSecondary },
   escalation: {

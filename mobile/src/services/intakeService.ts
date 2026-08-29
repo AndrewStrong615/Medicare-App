@@ -18,7 +18,7 @@ export interface EmergencyGuidance {
   matchedTerms: string[];
 }
 
-export interface SelfCareTopic {
+export interface RelatedTopic {
   topicId: string;
   title: string;
   summary: string;
@@ -27,15 +27,46 @@ export interface SelfCareTopic {
   groups: string[];
 }
 
+export interface FollowUpQuestion {
+  questionId: string;
+  prompt: string;
+  kind: "text" | "choice";
+  choices: string[];
+  helper: string;
+}
+
+/**
+ * Returned instead of an assessment when the description was not understood.
+ *
+ * Carries no tier on purpose. A provisional urgency shown next to "tell me
+ * more" is a number the app has just said it cannot stand behind, and users
+ * would act on it anyway. A red-flag description never comes back this way —
+ * emergencies skip the questions entirely.
+ */
+export interface FollowUpRequest {
+  status: "needs_detail";
+  intro: string;
+  questions: FollowUpQuestion[];
+  disclaimer: string;
+  escalationGuidance: string;
+}
+
 export interface IntakeAssessment {
+  status: "assessed";
   id: string | null;
   tier: Tier;
   reasoning: string;
   redFlagMatch: boolean;
   escalatedBySafetyNet: boolean;
   emergency: EmergencyGuidance | null;
-  selfCareTopics: SelfCareTopic[];
-  selfCareSourceNote: string | null;
+  relatedTopics: RelatedTopic[];
+  topicsSourceNote: string | null;
+  /**
+   * The reading-material feature is switched off entirely, rather than
+   * switched on and having matched nothing. The screen must not say "we
+   * couldn't find anything" when nothing was ever looked up.
+   */
+  topicsDisabled: boolean;
   disclaimer: string;
   escalationGuidance: string;
 }
@@ -84,8 +115,9 @@ function readDetail(body: unknown): string | null {
 
 export async function submitIntake(
   description: string,
-  consentToStore: boolean
-): Promise<IntakeAssessment> {
+  consentToStore: boolean,
+  followUpAnswers?: Record<string, string>
+): Promise<IntakeAssessment | FollowUpRequest> {
   assertSecureBaseUrl();
 
   const token = getToken();
@@ -108,6 +140,7 @@ export async function submitIntake(
       body: JSON.stringify({
         description,
         consent_to_store: consentToStore,
+        ...(followUpAnswers ? { follow_up_answers: followUpAnswers } : {}),
       }),
     });
   } catch {
@@ -135,6 +168,29 @@ export async function submitIntake(
 
   const data = body as Record<string, any>;
 
+  // The server asks for more detail instead of guessing. Handled before the
+  // assessment checks below, because this shape has no tier to validate.
+  if (data?.status === "needs_detail") {
+    if (!data?.disclaimer || !data?.escalation_guidance || !Array.isArray(data?.questions)) {
+      throw new IntakeError(
+        "We couldn't load this safely. Please try again, and seek care directly if you are worried."
+      );
+    }
+    return {
+      status: "needs_detail",
+      intro: data.intro ?? "",
+      questions: data.questions.map((q: any) => ({
+        questionId: q.question_id,
+        prompt: q.prompt,
+        kind: q.kind === "choice" ? "choice" : "text",
+        choices: q.choices ?? [],
+        helper: q.helper ?? "",
+      })),
+      disclaimer: data.disclaimer,
+      escalationGuidance: data.escalation_guidance,
+    };
+  }
+
   // Safety copy is not optional. A result rendered without its disclaimer or
   // escalation path would breach the rules this feature is built around, so
   // an incomplete payload is treated as a failure.
@@ -145,6 +201,7 @@ export async function submitIntake(
   }
 
   return {
+    status: "assessed",
     id: data.id ?? null,
     tier: data.tier as Tier,
     reasoning: data.reasoning ?? "",
@@ -158,7 +215,7 @@ export async function submitIntake(
           matchedTerms: data.emergency.matched_terms ?? [],
         }
       : null,
-    selfCareTopics: (data.self_care_topics ?? []).map((item: any) => ({
+    relatedTopics: (data.related_topics ?? []).map((item: any) => ({
       topicId: item.topic_id,
       title: item.title,
       summary: item.summary,
@@ -166,7 +223,8 @@ export async function submitIntake(
       sourceName: item.source_name,
       groups: item.groups ?? [],
     })),
-    selfCareSourceNote: data.self_care_source_note ?? null,
+    topicsSourceNote: data.topics_source_note ?? null,
+    topicsDisabled: Boolean(data.topics_disabled),
     disclaimer: data.disclaimer,
     escalationGuidance: data.escalation_guidance,
   };

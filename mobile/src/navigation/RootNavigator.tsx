@@ -2,6 +2,7 @@ import { NavigationContainer, type Theme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { HomeScreen } from "@/screens/HomeScreen";
+import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen";
@@ -49,6 +50,11 @@ export function RootNavigator() {
           name="SymptomIntake"
           component={SymptomIntakeScreen}
           options={{ title: "Check my symptoms" }}
+        />
+        <Stack.Screen
+          name="IntakeFollowUp"
+          component={IntakeFollowUpScreen}
+          options={{ title: "A few more details" }}
         />
         <Stack.Screen
           name="IntakeResult"

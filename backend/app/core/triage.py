@@ -51,6 +51,15 @@ logger = logging.getLogger(__name__)
 TRIAGE_MODEL = "claude-opus-5"
 MAX_DESCRIPTION_LENGTH = 2000
 
+# Thinking tokens count against max_tokens, and this call runs adaptive
+# thinking at effort "high". The visible answer is tiny — a tier and two or
+# three sentences — but the reasoning before it is not, so a ceiling sized for
+# the answer alone truncates the response mid-JSON. That parses as garbage,
+# raises TriageUnavailable, and silently drops the whole model layer back to
+# the rule tier. Sized for the thinking, not the answer. Costs nothing extra:
+# only generated tokens are billed, not the ceiling.
+MAX_RESPONSE_TOKENS = 16000
+
 
 class Tier(IntEnum):
     """
@@ -219,7 +228,7 @@ def _classify_with_model(description: str) -> tuple[Tier, str, str]:
     try:
         response = client.messages.create(
             model=TRIAGE_MODEL,
-            max_tokens=2000,
+            max_tokens=MAX_RESPONSE_TOKENS,
             system=SYSTEM_PROMPT,
             thinking={"type": "adaptive"},
             output_config={
@@ -259,6 +268,13 @@ def _classify_with_model(description: str) -> tuple[Tier, str, str]:
 
     if response.stop_reason == "refusal":
         raise TriageUnavailable("The triage service declined to assess this description.")
+
+    if response.stop_reason == "max_tokens":
+        # Distinguished from a malformed reply so this is diagnosable. Left as
+        # its own branch because a truncation looked identical to a bad
+        # response, and both just vanished into the rule-tier fallback.
+        logger.warning("Triage response hit max_tokens; raise MAX_RESPONSE_TOKENS.")
+        raise TriageUnavailable("The triage service response was cut off.")
 
     text = next((b.text for b in response.content if b.type == "text"), None)
     if not text:

@@ -11,14 +11,16 @@ jest.mock("@/services/intakeService", () => {
 const mockedSubmit = submitIntake as jest.MockedFunction<typeof submitIntake>;
 
 const ASSESSMENT = {
+  status: "assessed" as const,
   id: null,
   tier: "SELF_CARE" as const,
   reasoning: "Synthetic reasoning.",
   redFlagMatch: false,
   escalatedBySafetyNet: false,
   emergency: null,
-  selfCareTopics: [],
-  selfCareSourceNote: null,
+  relatedTopics: [],
+  topicsSourceNote: null,
+  topicsDisabled: false,
   disclaimer: "Not a diagnosis.",
   escalationGuidance: "Call 911 if this may be an emergency.",
 };

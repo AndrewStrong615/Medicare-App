@@ -142,6 +142,98 @@ describe("isScanAvailable", () => {
   });
 });
 
+describe("the native modules must be required by literal name", () => {
+  it("contains no dynamic require", () => {
+    // Metro resolves requires statically at bundle time. `require(variable)`
+    // fails to resolve on a device even when the package is installed, the
+    // catch swallows it, and the feature reports itself unavailable forever —
+    // indistinguishable from an unsupported phone.
+    //
+    // jest cannot catch this: Node's require handles dynamic names happily, so
+    // every test in this file passed while the feature was dead on device.
+    // Reading the source is the only check that works here.
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "src", "services", "labelScanner.ts"),
+      "utf8"
+    );
+
+    // Comments in this file discuss `require(variable)` by name, so strip
+    // them before looking — otherwise the prose trips its own guard.
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+
+    const dynamicRequire = /require\(\s*(?!["'])/;
+    expect(dynamicRequire.test(code)).toBe(false);
+  });
+
+  it("requires each native package by its literal name", () => {
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "src", "services", "labelScanner.ts"),
+      "utf8"
+    );
+
+    expect(source).toContain('require("expo-mlkit-ocr")');
+    expect(source).toContain('require("expo-image-picker")');
+  });
+});
+
+describe("a module that resolves but cannot work", () => {
+  it("is unavailable when the OCR package has no recognizeText", () => {
+    // The web build resolves the package to a stub with no native binding.
+    jest.resetModules();
+    jest.doMock("expo-mlkit-ocr", () => ({}), { virtual: true });
+    jest.doMock(
+      "expo-image-picker",
+      () => ({
+        launchCameraAsync: jest.fn(),
+        launchImageLibraryAsync: jest.fn(),
+        requestCameraPermissionsAsync: jest.fn(),
+        requestMediaLibraryPermissionsAsync: jest.fn(),
+      }),
+      { virtual: true }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const scanner = require("@/services/labelScanner");
+    expect(scanner.isScanAvailable()).toBe(false);
+  });
+
+  it("is unavailable when asking isSupported throws", () => {
+    jest.resetModules();
+    jest.doMock(
+      "expo-mlkit-ocr",
+      () => ({
+        recognizeText: jest.fn(),
+        isSupported: () => {
+          throw new Error("Cannot find native module 'ExpoMlkitOcr'");
+        },
+      }),
+      { virtual: true }
+    );
+    jest.doMock(
+      "expo-image-picker",
+      () => ({
+        launchCameraAsync: jest.fn(),
+        launchImageLibraryAsync: jest.fn(),
+        requestCameraPermissionsAsync: jest.fn(),
+        requestMediaLibraryPermissionsAsync: jest.fn(),
+      }),
+      { virtual: true }
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const scanner = require("@/services/labelScanner");
+    // Asking an absent binding whether it is supported can throw rather than
+    // answer. That is an answer.
+    expect(scanner.isScanAvailable()).toBe(false);
+  });
+});
+
 describe("captureLabelImage", () => {
   it("returns the local file URI of the photo", async () => {
     const { scanner } = loadScanner();

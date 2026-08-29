@@ -80,26 +80,39 @@ interface PickerResult {
 }
 
 /**
- * Load a native module without letting a missing one crash the screen.
+ * Load the native modules without letting a missing one crash the screen.
  *
- * Expo Go and the jest environment have neither of these, and that has to be
- * an ordinary "not available here" rather than a red screen.
+ * Expo Go, the web build and the jest environment have none of these, and that
+ * has to be an ordinary "not available here" rather than a red screen.
+ *
+ * THE MODULE NAME MUST BE A LITERAL. Metro resolves requires statically at
+ * bundle time, so `require(someVariable)` is not merely discouraged — it fails
+ * to resolve on a device even when the package is installed correctly. Written
+ * that way, the catch below swallowed the failure and `isScanAvailable()`
+ * returned false permanently, which looks exactly like "this phone doesn't
+ * support it" and would have been very hard to spot in the field. Node's
+ * require handles dynamic names happily, so the tests passed throughout.
  */
-function loadModule<T>(name: string): T | null {
+function ocrModule(): OcrModule | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(name) as T;
+    const loaded = require("expo-mlkit-ocr") as OcrModule;
+    // On web the package may resolve to a stub with no native binding behind
+    // it, so presence of the module is not proof it can do anything.
+    return typeof loaded?.recognizeText === "function" ? loaded : null;
   } catch {
     return null;
   }
 }
 
-function ocrModule(): OcrModule | null {
-  return loadModule<OcrModule>("expo-mlkit-ocr");
-}
-
 function pickerModule(): PickerModule | null {
-  return loadModule<PickerModule>("expo-image-picker");
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const loaded = require("expo-image-picker") as PickerModule;
+    return typeof loaded?.launchCameraAsync === "function" ? loaded : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -113,7 +126,15 @@ export function isScanAvailable(): boolean {
   const ocr = ocrModule();
   const picker = pickerModule();
   if (!ocr || !picker) return false;
-  if (typeof ocr.isSupported === "function" && !ocr.isSupported()) return false;
+
+  try {
+    if (typeof ocr.isSupported === "function" && !ocr.isSupported()) return false;
+  } catch {
+    // Asking an absent native binding whether it is supported can throw
+    // rather than answer. That is an answer.
+    return false;
+  }
+
   return true;
 }
 

@@ -356,6 +356,39 @@ decision before it was an engineering one:
   When the native module is absent the feature reports itself unavailable and
   the user is sent to manual entry.
 
+### Two engines, one parser
+
+Recognition is platform-split; everything above it is shared.
+
+| | Engine | Network |
+|---|---|---|
+| `labelScanner.ts` (iOS/Android) | Apple Vision / ML Kit v2 | **none at all** |
+| `labelScanner.web.ts` (browser) | Tesseract (WebAssembly) | fetches its model |
+
+Metro resolves the `.web.ts` variant automatically. Both expose the same
+functions, throw the same `ScanError`s from `scanErrors.ts`, and return the
+same `ParsedLabel` from the same parser, so a label reads identically wherever
+it is scanned and `MedicationScanScreen` needs no platform knowledge.
+
+The web engine exists because a browser cannot reach Apple Vision or ML Kit —
+they are OS frameworks. It is what makes scanning work on an iPhone through
+Safari with no App Store, no development build and no Apple Developer account.
+
+**State the privacy property precisely, because it differs.** On both paths the
+photograph never leaves the device: it is handed straight to on-device code and
+the recognised text is discarded after parsing. But the native path makes *no
+network call whatsoever*, while Tesseract downloads its WASM core and English
+training data from a CDN on first use. What travels is the model coming down,
+never the image going up — so no PHI is transmitted and no BAA question arises
+— but do not copy "makes no network call" onto the web file. If even the model
+fetch becomes unacceptable, the assets can be self-hosted by pointing
+`workerPath`/`corePath`/`langPath` at our own origin; that is a deployment
+change, not a code change.
+
+Tesseract is meaningfully worse than the native engines on curled, dim or worn
+labels. Since every read is confirmed by the user before saving, a weaker
+engine costs accuracy and patience, not safety.
+
 Rules for anyone extending this:
 
 - **Nothing scanned is ever saved without the user confirming it on screen.**

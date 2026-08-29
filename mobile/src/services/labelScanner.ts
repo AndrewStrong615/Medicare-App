@@ -43,24 +43,13 @@
 
 import { parseLabelText, type ParsedLabel } from "@/services/labelParser";
 
-export type ScanFailure =
-  | "unavailable"
-  | "permission-denied"
-  | "cancelled"
-  | "unreadable"
-  | "failed";
+// Defined in their own module so `labelScanner.web.ts` can throw exactly the
+// same errors and the screen needs no platform knowledge. Re-exported here so
+// existing importers are unaffected.
+import { ScanError, type ImageSource, type ScanFailure } from "@/services/scanErrors";
 
-export class ScanError extends Error {
-  readonly reason: ScanFailure;
-
-  constructor(reason: ScanFailure, message: string) {
-    super(message);
-    this.name = "ScanError";
-    this.reason = reason;
-  }
-}
-
-export type ImageSource = "camera" | "library";
+export { ScanError };
+export type { ImageSource, ScanFailure };
 
 interface OcrModule {
   recognizeText: (uri: string) => Promise<{ text: string }>;

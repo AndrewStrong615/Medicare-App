@@ -38,6 +38,11 @@
           "cameraPermission": "MedHelp uses the camera only to read a prescription label. The photo is read on this device and is never uploaded."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9505fbae-48a3-4d4b-90a4-e26f07effc83"
+      }
+    }
   }
 }

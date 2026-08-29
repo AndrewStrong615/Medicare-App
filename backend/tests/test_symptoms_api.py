@@ -1,5 +1,5 @@
 """
-Tests for GET /symptoms/search.
+Tests for POST /symptoms/search.
 
 The MedlinePlus client is patched in every test — the suite makes no network
 calls, and all topic text below is synthetic.
@@ -38,7 +38,7 @@ def stub_search(monkeypatch):
 def test_search_returns_topics_from_the_source(client, stub_search):
     stub_search(topics=[SYNTHETIC_TOPIC])
 
-    response = client.get("/symptoms/search", params={"q": "test topic"})
+    response = client.post("/symptoms/search", json={"q": "test topic"})
 
     assert response.status_code == 200
     body = response.json()
@@ -50,7 +50,7 @@ def test_search_returns_topics_from_the_source(client, stub_search):
 def test_every_response_carries_a_disclaimer_and_care_guidance(client, stub_search):
     stub_search(topics=[SYNTHETIC_TOPIC])
 
-    body = client.get("/symptoms/search", params={"q": "test topic"}).json()
+    body = client.post("/symptoms/search", json={"q": "test topic"}).json()
 
     # Required on every result screen by CLAUDE.md.
     assert "not medical advice" in body["disclaimer"].lower()
@@ -61,7 +61,7 @@ def test_every_response_carries_a_disclaimer_and_care_guidance(client, stub_sear
 def test_results_credit_the_source(client, stub_search):
     stub_search(topics=[SYNTHETIC_TOPIC])
 
-    body = client.get("/symptoms/search", params={"q": "test topic"}).json()
+    body = client.post("/symptoms/search", json={"q": "test topic"}).json()
 
     assert "National Library of Medicine" in body["results"][0]["source_name"]
     assert body["results"][0]["url"].startswith("https://")
@@ -70,7 +70,7 @@ def test_results_credit_the_source(client, stub_search):
 def test_ordinary_search_has_no_emergency_guidance(client, stub_search):
     stub_search(topics=[SYNTHETIC_TOPIC])
 
-    body = client.get("/symptoms/search", params={"q": "sore throat"}).json()
+    body = client.post("/symptoms/search", json={"q": "sore throat"}).json()
 
     assert body["emergency"] is None
 
@@ -78,7 +78,7 @@ def test_ordinary_search_has_no_emergency_guidance(client, stub_search):
 def test_emergency_query_returns_guidance_alongside_results(client, stub_search):
     stub_search(topics=[SYNTHETIC_TOPIC])
 
-    body = client.get("/symptoms/search", params={"q": "chest pain"}).json()
+    body = client.post("/symptoms/search", json={"q": "chest pain"}).json()
 
     assert body["emergency"] is not None
     assert body["emergency"]["category"] == "cardiac"
@@ -92,7 +92,7 @@ def test_emergency_guidance_is_returned_even_when_the_source_is_down(client, stu
     # call 911.
     stub_search(error=MedlinePlusUnavailable("down"))
 
-    response = client.get("/symptoms/search", params={"q": "chest pain"})
+    response = client.post("/symptoms/search", json={"q": "chest pain"})
 
     assert response.status_code == 200
     body = response.json()
@@ -104,7 +104,7 @@ def test_emergency_guidance_is_returned_even_when_the_source_is_down(client, stu
 def test_source_outage_on_an_ordinary_search_explains_what_to_do(client, stub_search):
     stub_search(error=MedlinePlusUnavailable("down"))
 
-    response = client.get("/symptoms/search", params={"q": "sore throat"})
+    response = client.post("/symptoms/search", json={"q": "sore throat"})
 
     assert response.status_code == 503
     detail = response.json()["detail"]
@@ -114,7 +114,7 @@ def test_source_outage_on_an_ordinary_search_explains_what_to_do(client, stub_se
 def test_no_results_still_returns_disclaimer_and_guidance(client, stub_search):
     stub_search(topics=[])
 
-    body = client.get("/symptoms/search", params={"q": "zzzznotarealterm"}).json()
+    body = client.post("/symptoms/search", json={"q": "zzzznotarealterm"}).json()
 
     assert body["results"] == []
     assert body["disclaimer"]
@@ -125,7 +125,7 @@ def test_no_results_still_returns_disclaimer_and_guidance(client, stub_search):
 def test_blank_queries_are_rejected(client, stub_search, query):
     stub_search(topics=[])
 
-    response = client.get("/symptoms/search", params={"q": query})
+    response = client.post("/symptoms/search", json={"q": query})
 
     assert response.status_code == 422
 
@@ -133,6 +133,39 @@ def test_blank_queries_are_rejected(client, stub_search, query):
 def test_overlong_query_is_rejected(client, stub_search):
     stub_search(topics=[])
 
-    response = client.get("/symptoms/search", params={"q": "a" * 201})
+    response = client.post("/symptoms/search", json={"q": "a" * 201})
 
     assert response.status_code == 422
+
+
+def test_the_search_term_is_not_echoed_back_in_validation_errors(client, stub_search):
+    # The query is the user's own health information. Echoing it into an error
+    # body puts it in client logs and crash reporters.
+    stub_search(topics=[])
+    secret_symptom = "z" * 201
+
+    response = client.post("/symptoms/search", json={"q": secret_symptom})
+
+    assert response.status_code == 422
+    assert secret_symptom not in response.text
+    for error in response.json()["detail"]:
+        assert "input" not in error
+
+
+def test_the_search_term_never_appears_in_the_request_url(client, stub_search):
+    # A GET would put health text in access logs, proxies and CDNs; the search
+    # must stay in the request body.
+    stub_search(topics=[SYNTHETIC_TOPIC])
+
+    response = client.post("/symptoms/search", json={"q": "embarrassing symptom"})
+
+    assert response.status_code == 200
+    assert "embarrassing" not in str(response.request.url)
+
+
+def test_get_is_not_allowed_on_the_search_route(client, stub_search):
+    stub_search(topics=[SYNTHETIC_TOPIC])
+
+    response = client.get("/symptoms/search", params={"q": "sore throat"})
+
+    assert response.status_code == 405

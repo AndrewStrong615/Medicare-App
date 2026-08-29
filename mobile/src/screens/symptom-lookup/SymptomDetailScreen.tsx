@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppButton } from "@/components/AppButton";
 import { CareGuidanceNotice } from "@/components/CareGuidanceNotice";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
+import { EmergencyBanner } from "@/components/EmergencyBanner";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
@@ -18,10 +19,17 @@ type Props = NativeStackScreenProps<RootStackParamList, "SymptomDetail">;
  * turn sourced material into medical content this app wrote.
  */
 export function SymptomDetailScreen({ route }: Props) {
-  const { topic, careGuidance, disclaimer } = route.params;
+  const { topic, careGuidance, disclaimer, emergency } = route.params;
 
   return (
     <Screen>
+      {/*
+        Rendered above everything else, exactly as on the search screen. A user
+        who searched an emergency term and then opened an article must not lose
+        the instruction to call for help.
+      */}
+      {emergency && <EmergencyBanner guidance={emergency} />}
+
       <DisclaimerBanner />
 
       <View style={styles.header}>

@@ -10,7 +10,7 @@ matching emergency red-flag language carries emergency guidance that the
 client renders above the results.
 """
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.emergency import (
     GENERAL_CARE_GUIDANCE,
@@ -19,6 +19,7 @@ from app.core.emergency import (
 )
 from app.schemas.symptom import (
     EmergencyGuidanceOut,
+    SymptomSearchRequest,
     SymptomSearchResponse,
     SymptomTopicOut,
 )
@@ -26,15 +27,13 @@ from app.services.medlineplus import MedlinePlusUnavailable, search_topics
 
 router = APIRouter(prefix="/symptoms", tags=["symptoms"])
 
-MAX_QUERY_LENGTH = 200
 
-
-@router.get("/search", response_model=SymptomSearchResponse)
-async def search_symptoms(
-    q: str = Query(..., min_length=1, max_length=MAX_QUERY_LENGTH),
-    limit: int = Query(10, ge=1, le=25),
-) -> SymptomSearchResponse:
-    query = q.strip()
+# POST rather than GET: the search term is the user's own health information
+# and must stay out of URLs, which are logged by default almost everywhere.
+@router.post("/search", response_model=SymptomSearchResponse)
+async def search_symptoms(payload: SymptomSearchRequest) -> SymptomSearchResponse:
+    query = payload.q.strip()
+    limit = payload.limit
     if not query:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

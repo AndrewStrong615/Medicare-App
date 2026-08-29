@@ -87,6 +87,15 @@ export function SymptomLookupScreen({ navigation }: Props) {
           loading={searching}
           accessibilityHint="Searches the MedlinePlus health library"
         />
+        {/*
+          Tells the user their search leaves the app before they type it.
+          MedlinePlus is a third party receiving health-related input — see
+          the vendor note in CLAUDE.md.
+        */}
+        <Text style={styles.sourceNotice}>
+          Searches are sent to the MedlinePlus health library, published by the
+          US National Library of Medicine.
+        </Text>
       </View>
 
       {error && <ErrorNotice message={error} onRetry={isOffline ? handleSearch : undefined} />}
@@ -124,6 +133,9 @@ export function SymptomLookupScreen({ navigation }: Props) {
                       topic,
                       careGuidance: result.careGuidance,
                       disclaimer: result.disclaimer,
+                      // Carried through so emergency guidance survives
+                      // navigation rather than being left on the search screen.
+                      emergency: result.emergency,
                     })
                   }
                 />
@@ -144,6 +156,10 @@ export function SymptomLookupScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   searchRow: {
     gap: spacing.md,
+  },
+  sourceNotice: {
+    ...typography.caption,
+    color: colors.textSecondary,
   },
   loading: {
     flexDirection: "row",

@@ -10,7 +10,12 @@ import { colors, radius, spacing, typography } from "@/theme";
 export function CareGuidanceNotice({ guidance }: { guidance: string }) {
   return (
     <View style={styles.container} accessible accessibilityRole="summary">
-      <Text style={styles.heading}>When to see a doctor</Text>
+      {/*
+        Not "When to see a doctor": that heading promises condition-specific
+        criteria this block deliberately does not give, which risks reading as
+        "there is nothing more specific to know".
+      */}
+      <Text style={styles.heading}>If you're worried about your symptoms</Text>
       <Text style={styles.body}>{guidance}</Text>
     </View>
   );

@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import auth, medications, symptoms
 
@@ -21,6 +23,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """
+    Return validation errors without echoing what the user submitted.
+
+    Pydantic includes the rejected value under `input`, so by default a
+    too-short password or a symptom-search string comes back in the response
+    body — and from there into client logs, proxies, and crash reporters.
+    The field name and the reason are enough for the user to fix the problem.
+    """
+    safe_errors = [
+        {
+            "type": error.get("type"),
+            "loc": error.get("loc"),
+            "msg": error.get("msg"),
+        }
+        for error in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": safe_errors},
+    )
+
 
 app.include_router(auth.router)
 app.include_router(symptoms.router)

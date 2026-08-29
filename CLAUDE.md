@@ -97,10 +97,66 @@ raise them with the user first:
   no real token refresh flow, no real session invalidation).
 - No encryption-at-rest implementation yet (see Data Rules above).
 - No BAA-covered vendors selected yet.
-- No emergency-detection logic yet — `docs/emergency-guidance.md` is not
-  written.
-- No real symptom/condition/medication content — screens are navigation
-  stubs only.
+- Medication reminders and appointments are not built yet.
+
+## Medical content: where it comes from
+
+The app never authors medical content. All symptom and condition text is
+fetched from **MedlinePlus**, published by the US National Library of Medicine
+(NIH), through its public health-topics API. No API key is required.
+
+Rules for anyone extending this:
+
+- Render source text **verbatim**. Do not summarise, paraphrase, shorten, or
+  split it into your own sections. Rewriting sourced material makes it
+  app-authored medical content.
+- Do not extract "causes" (or any other clinical category) out of a summary.
+  A bulleted list in these topics is sometimes causes, sometimes symptoms,
+  sometimes treatments; relabelling one as another invents a clinical claim.
+  The source's own topic categories are surfaced as "May be associated with".
+- Always carry attribution (`source_name`) and the link back to the topic.
+- If the source is unavailable, show an error. Never fall back to generated
+  content.
+
+### Third-party vendor: NLM / MedlinePlus — BAA status
+
+Every symptom search is transmitted to `wsearch.nlm.nih.gov`, a third party,
+carrying free-text health input written by the user.
+
+- **No BAA is in place, and NLM does not sign one.** If this app ever handles
+  data covered by HIPAA, this call path needs a privacy/legal decision — not
+  an engineering one. Options include proxying with the query stripped of
+  identifiers, licensing a redistributable dataset and serving it locally, or
+  accepting the exposure with user consent.
+- The search screen shows a user-visible notice that searches leave the app.
+- Searches are sent via **POST**, never as a URL query string, so the text
+  stays out of access logs, proxies, and crash reporters.
+- Validation errors are stripped of the submitted value before being
+  returned (`app/main.py`), so a rejected query is not echoed back.
+
+## Emergency routing (implemented)
+
+`backend/app/core/emergency.py` screens every symptom query for red-flag
+language before the content lookup runs: cardiac, breathing, stroke,
+bleeding/trauma, anaphylaxis, loss of consciousness, self-harm, and
+overdose/poisoning.
+
+- Screening is deliberately **over-inclusive**. A false positive costs the
+  user a few seconds; a miss could cost a life.
+- Guidance renders **above all other content** on the screen, and results are
+  shown beneath it rather than suppressed.
+- It routes to 911 (or 988 for self-harm) and never names a condition or a
+  treatment.
+- It is returned **even when MedlinePlus is down**, so a content outage can
+  never swallow the instruction to call for help.
+
+The phrase lists are signposting terms drawn from public emergency
+warning-sign guidance. **They have not been reviewed by a clinician** — that
+review is required before release.
+
+The general "When to see a doctor" copy is intentionally non-specific.
+Condition-specific criteria ("seek care if your fever exceeds X") would be
+clinical content this app is not permitted to author.
 
 ## Open data-handling findings (awaiting a decision)
 

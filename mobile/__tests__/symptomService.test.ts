@@ -50,14 +50,18 @@ describe("searchSymptoms", () => {
     expect(result.emergency).toBeNull();
   });
 
-  it("url-encodes the query", async () => {
+  it("sends the query in a POST body, never in the URL", async () => {
     okResponse(VALID_PAYLOAD);
 
-    await searchSymptoms("sore throat & fever");
+    await searchSymptoms("embarrassing symptom");
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("q=sore%20throat%20%26%20fever")
-    );
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    // The search term is the user's health information: it must not travel in
+    // a URL, which proxies and crash reporters log by default.
+    expect(url).not.toContain("embarrassing");
+    expect(url).toContain("/symptoms/search");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ q: "embarrassing symptom" });
   });
 
   it("carries emergency guidance through when present", async () => {

@@ -40,6 +40,59 @@ def test_emergency_language_is_detected(query, expected_category):
     assert guidance.matched_terms
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "can’t breathe",  # iOS curly apostrophe
+        "bleeding won’t stop",
+        "I can‘t breathe",  # left single quote
+    ],
+)
+def test_smart_apostrophes_still_match(query):
+    # iOS substitutes a curly apostrophe as the user types, so matching the
+    # ASCII form literally would miss these on the primary target platform.
+    assert screen_for_emergency(query) is not None
+
+
+def test_extra_whitespace_does_not_defeat_matching():
+    assert screen_for_emergency("chest    pain") is not None
+
+
+@pytest.mark.parametrize(
+    "query,expected_category",
+    [
+        ("sudden vision loss", "vision_loss"),
+        ("stiff neck and fever", "sepsis_meningitis"),
+        ("baby has a fever", "infant_fever"),
+        ("bleeding while pregnant", "pregnancy"),
+    ],
+)
+def test_additional_red_flag_categories(query, expected_category):
+    guidance = screen_for_emergency(query)
+
+    assert guidance is not None
+    assert guidance.category == expected_category
+
+
+def test_no_guidance_instructs_administering_a_treatment():
+    # An earlier draft told users to use an epinephrine auto-injector. Giving
+    # drug-administration instructions is treatment advice this app must not
+    # provide, whatever the situation.
+    import re
+
+    from app.core.emergency import _EMERGENCY_RULES
+
+    # Whole words only — "dose" must not match inside "overdose", which is a
+    # legitimate word for naming the situation rather than advising a remedy.
+    banned = ("auto-injector", "epinephrine", "swallow", "apply", "dose", "medication")
+    for _category, headline, action, _phrases in _EMERGENCY_RULES:
+        text = f"{headline} {action}".lower()
+        for term in banned:
+            assert not re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text), (
+                f"{term!r} appears in emergency copy: {text}"
+            )
+
+
 def test_detection_is_case_insensitive():
     assert screen_for_emergency("CHEST PAIN") is not None
     assert screen_for_emergency("Chest Pain") is not None

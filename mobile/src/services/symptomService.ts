@@ -43,6 +43,22 @@ export class SymptomLookupError extends Error {
 const OFFLINE_MESSAGE =
   "Can't reach the MedHelp server. Check your internet connection and try again.";
 
+/**
+ * Refuses to send health data over plain HTTP outside development.
+ *
+ * CLAUDE.md requires TLS with no exceptions. `localhost` over HTTP is fine on
+ * a dev machine, but a release build pointed at an http:// host would put
+ * symptom text on the wire in clear text.
+ */
+function assertSecureBaseUrl(): void {
+  const isDev = typeof __DEV__ !== "undefined" && __DEV__;
+  if (!isDev && !API_BASE_URL.startsWith("https://")) {
+    throw new SymptomLookupError(
+      "MedHelp is not configured securely and can't send your search. Please update the app."
+    );
+  }
+}
+
 function readDetail(body: unknown): string | null {
   if (typeof body !== "object" || body === null) return null;
   const detail = (body as { detail?: unknown }).detail;
@@ -57,11 +73,18 @@ function readDetail(body: unknown): string | null {
 }
 
 export async function searchSymptoms(query: string): Promise<SymptomSearchResult> {
-  const url = `${API_BASE_URL}/symptoms/search?q=${encodeURIComponent(query)}`;
+  assertSecureBaseUrl();
 
   let response: Response;
   try {
-    response = await fetch(url);
+    // POST, not GET: the search term is the user's own health information and
+    // must not travel in a URL, which gets logged by proxies and crash
+    // reporters. See CLAUDE.md data rules.
+    response = await fetch(`${API_BASE_URL}/symptoms/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q: query }),
+    });
   } catch {
     throw new SymptomLookupError(OFFLINE_MESSAGE, { isNetworkError: true });
   }

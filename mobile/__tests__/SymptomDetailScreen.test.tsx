@@ -14,7 +14,17 @@ const TOPIC = {
   groups: ["Symptoms", "Ear, Nose and Throat"],
 };
 
-function renderDetail(overrides: Partial<typeof TOPIC> = {}) {
+const EMERGENCY = {
+  category: "cardiac",
+  headline: "If you have chest pain, call 911 now.",
+  action: "Call 911 or your local emergency number right away.",
+  matchedTerms: ["chest pain"],
+};
+
+function renderDetail(
+  overrides: Partial<typeof TOPIC> = {},
+  emergency: typeof EMERGENCY | null = null
+) {
   render(
     <SymptomDetailScreen
       navigation={{} as any}
@@ -24,6 +34,7 @@ function renderDetail(overrides: Partial<typeof TOPIC> = {}) {
             topic: { ...TOPIC, ...overrides },
             careGuidance: CARE_GUIDANCE,
             disclaimer: DISCLAIMER,
+            emergency,
           },
         } as any
       }
@@ -51,11 +62,26 @@ describe("SymptomDetailScreen", () => {
     expect(screen.getByText(DISCLAIMER)).toBeTruthy();
   });
 
-  it("shows the 'when to see a doctor' section", () => {
+  it("shows the care guidance section", () => {
     renderDetail();
 
-    expect(screen.getByText("When to see a doctor")).toBeTruthy();
+    expect(screen.getByText("If you're worried about your symptoms")).toBeTruthy();
     expect(screen.getByText(CARE_GUIDANCE)).toBeTruthy();
+  });
+
+  it("keeps emergency guidance visible after navigating in from a search", () => {
+    // Someone who searched "chest pain" and tapped a topic must not lose the
+    // instruction to call for help.
+    renderDetail({}, EMERGENCY);
+
+    expect(screen.getByText(EMERGENCY.headline)).toBeTruthy();
+    expect(screen.getByText("Call 911")).toBeTruthy();
+  });
+
+  it("shows no emergency banner for an ordinary topic", () => {
+    renderDetail({}, null);
+
+    expect(screen.queryByText(/call 911 now/i)).toBeNull();
   });
 
   it("frames categories as 'may be associated with'", () => {

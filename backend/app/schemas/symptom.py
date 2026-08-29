@@ -1,4 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class SymptomSearchRequest(BaseModel):
+    """
+    Search input travels in a POST body, not a URL query string.
+
+    A symptom search is health information about the person typing it. Request
+    URLs are captured by default in web-server access logs, reverse proxies,
+    CDNs, and mobile crash reporters; request bodies generally are not. See
+    CLAUDE.md, "Do not log request/response bodies that contain user health
+    data".
+    """
+
+    q: str = Field(..., min_length=1, max_length=200)
+    limit: int = Field(10, ge=1, le=25)
 
 
 class EmergencyGuidanceOut(BaseModel):

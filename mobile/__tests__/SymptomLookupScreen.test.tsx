@@ -73,7 +73,7 @@ describe("SymptomLookupScreen", () => {
     await search();
 
     await waitFor(() => expect(screen.getByText("Sore Throat")).toBeTruthy());
-    expect(screen.getByText(/National Library of Medicine/)).toBeTruthy();
+    expect(screen.getByText(/Health information from MedlinePlus/)).toBeTruthy();
   });
 
   it("frames topic categories as 'may be associated with', not as a diagnosis", async () => {
@@ -93,7 +93,7 @@ describe("SymptomLookupScreen", () => {
 
     await search();
 
-    await waitFor(() => expect(screen.getByText("When to see a doctor")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("If you're worried about your symptoms")).toBeTruthy());
     expect(screen.getByText(CARE_GUIDANCE)).toBeTruthy();
   });
 
@@ -144,7 +144,7 @@ describe("SymptomLookupScreen", () => {
 
     await waitFor(() => expect(screen.getByText(/No health topics found/)).toBeTruthy());
     // Still carries safety guidance when there is nothing to show.
-    expect(screen.getByText("When to see a doctor")).toBeTruthy();
+    expect(screen.getByText("If you're worried about your symptoms")).toBeTruthy();
   });
 
   it("offers a retry when the server cannot be reached", async () => {
@@ -184,6 +184,35 @@ describe("SymptomLookupScreen", () => {
       topic: RESULT.results[0],
       careGuidance: CARE_GUIDANCE,
       disclaimer: DISCLAIMER,
+      emergency: null,
     });
+  });
+
+  it("carries emergency guidance through to the detail screen", async () => {
+    // Without this, someone who searched "chest pain" would lose the call-911
+    // instruction the moment they opened an article.
+    const emergency = {
+      category: "cardiac",
+      headline: "If you have chest pain, call 911 now.",
+      action: "Call 911 right away.",
+      matchedTerms: ["chest pain"],
+    };
+    mockedSearch.mockResolvedValueOnce({ ...RESULT, query: "chest pain", emergency });
+    const { navigate } = renderScreen();
+
+    await search("chest pain");
+    await waitFor(() => expect(screen.getByText("Sore Throat")).toBeTruthy());
+    fireEvent.press(screen.getByText("Sore Throat"));
+
+    expect(navigate).toHaveBeenCalledWith(
+      "SymptomDetail",
+      expect.objectContaining({ emergency })
+    );
+  });
+
+  it("tells the user their search is sent to an outside library", () => {
+    renderScreen();
+
+    expect(screen.getByText(/searches are sent to the medlineplus/i)).toBeTruthy();
   });
 });

@@ -65,8 +65,7 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         "cardiac",
         "If you have chest pain, call 911 now.",
         "Chest pain can be a sign of a medical emergency. Call 911 (or your "
-        "local emergency number) right away. Do not drive yourself to the "
-        "hospital.",
+        "local emergency number) right away.",
         (
             "chest pain",
             "chest pressure",
@@ -99,8 +98,7 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         "stroke",
         "If you notice stroke warning signs, call 911 now.",
         "Sudden face drooping, arm weakness, or trouble speaking can be signs "
-        "of a stroke. Call 911 (or your local emergency number) immediately — "
-        "treatment is time-critical.",
+        "of a stroke. Call 911 (or your local emergency number) right away.",
         (
             "stroke",
             "face drooping",
@@ -131,9 +129,12 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
     (
         "anaphylaxis",
         "For a severe allergic reaction, call 911 now.",
+        # Deliberately routing-only. An earlier draft told the user to use an
+        # epinephrine auto-injector; instructing someone to administer a drug
+        # is treatment advice this app is not permitted to give.
         "Swelling of the face, lips, tongue, or throat with trouble breathing "
-        "can be a severe allergic reaction. Use an epinephrine auto-injector "
-        "if you have one and call 911 (or your local emergency number).",
+        "can be a medical emergency. Call 911 (or your local emergency "
+        "number) right away.",
         (
             "anaphylaxis",
             "anaphylactic",
@@ -179,6 +180,68 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         ),
     ),
     (
+        # Added after compliance review flagged these as gaps. Like every
+        # entry here, the copy is pure routing — it names no condition and
+        # gives no treatment. Still pending clinician review (see CLAUDE.md).
+        "vision_loss",
+        "For sudden vision loss, get emergency care now.",
+        "Sudden loss of vision, or sudden double vision, needs urgent "
+        "assessment. Call 911 (or your local emergency number), or go to an "
+        "emergency department.",
+        (
+            "sudden vision loss",
+            "lost my vision",
+            "can't see",
+            "cant see",
+            "sudden blindness",
+            "sudden double vision",
+            "curtain over my eye",
+        ),
+    ),
+    (
+        "sepsis_meningitis",
+        "These symptoms need emergency care now.",
+        "A stiff neck with fever, a rash that does not fade when pressed, or "
+        "confusion with a high fever needs emergency assessment. Call 911 (or "
+        "your local emergency number).",
+        (
+            "stiff neck and fever",
+            "rash that doesn't fade",
+            "rash that does not fade",
+            "non-blanching rash",
+            "meningitis",
+            "sepsis",
+        ),
+    ),
+    (
+        "infant_fever",
+        "For a fever in a baby, get medical help now.",
+        "A fever in a newborn or young infant needs urgent medical "
+        "assessment. Call 911 (or your local emergency number), or contact "
+        "your doctor immediately.",
+        (
+            "newborn fever",
+            "fever in a newborn",
+            "baby has a fever",
+            "infant fever",
+            "fever in an infant",
+        ),
+    ),
+    (
+        "pregnancy",
+        "These pregnancy symptoms need emergency care now.",
+        "Bleeding or severe abdominal pain during pregnancy needs urgent "
+        "assessment. Call 911 (or your local emergency number), or contact "
+        "your maternity unit immediately.",
+        (
+            "bleeding while pregnant",
+            "bleeding during pregnancy",
+            "severe abdominal pain pregnant",
+            "pregnant and bleeding",
+            "pregnant and severe pain",
+        ),
+    ),
+    (
         "overdose_poisoning",
         "For a suspected overdose or poisoning, get emergency help now.",
         "Call 911 (or your local emergency number). In the US you can also "
@@ -193,6 +256,20 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         ),
     ),
 ]
+
+
+def normalize_query(query: str) -> str:
+    """
+    Fold typographic variants so screening is not defeated by a keyboard.
+
+    iOS substitutes a curly apostrophe (U+2019) as you type, so a user who
+    types "can't breathe" actually sends "can’t breathe". Matching the ASCII
+    form literally would miss it — on the app's primary target platform.
+    """
+    folded = query.replace("’", "'").replace("‘", "'")
+    folded = folded.replace("ʼ", "'")
+    # Collapse runs of whitespace so "chest   pain" still matches.
+    return re.sub(r"\s+", " ", folded)
 
 
 def _compile(phrase: str) -> re.Pattern[str]:
@@ -217,9 +294,13 @@ def screen_for_emergency(query: str) -> EmergencyGuidance | None:
     if not query or not query.strip():
         return None
 
+    normalized = normalize_query(query)
+
     for category, headline, action, patterns, phrases in _COMPILED:
         matched = [
-            phrase for pattern, phrase in zip(patterns, phrases) if pattern.search(query)
+            phrase
+            for pattern, phrase in zip(patterns, phrases)
+            if pattern.search(normalized)
         ]
         if matched:
             return EmergencyGuidance(

@@ -44,6 +44,9 @@ class SymptomTopic:
 # The service marks search-term hits with <span class="qtN">…</span>.
 _HIGHLIGHT_RE = re.compile(r"</?span[^>]*>", re.IGNORECASE)
 _BLOCK_BREAK_RE = re.compile(r"</(p|li|ul|ol|div|h\d)>", re.IGNORECASE)
+# <br> is self-closing, so the closing-tag pattern above never sees it; without
+# this, lines the source separated would silently run together.
+_LINE_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _LIST_ITEM_RE = re.compile(r"<li[^>]*>", re.IGNORECASE)
 _TAG_RE = re.compile(r"<[^>]+>")
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
@@ -63,6 +66,7 @@ def strip_markup(raw: str | None) -> str:
 
     text = _HIGHLIGHT_RE.sub("", raw)
     text = _LIST_ITEM_RE.sub("\n• ", text)
+    text = _LINE_BREAK_RE.sub("\n", text)
     text = _BLOCK_BREAK_RE.sub("\n", text)
     text = _TAG_RE.sub("", text)
     # Entities are decoded last so that any &lt;b&gt; in the source text

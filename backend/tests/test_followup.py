@@ -37,6 +37,7 @@ class TestQuestions:
         assert [q.question_id for q in followup.QUESTIONS] == [
             "location",
             "duration",
+            "severity",
             "other",
         ]
 
@@ -102,7 +103,12 @@ class TestMerging:
 
 class TestMissingAnswers:
     def test_reports_every_unanswered_question(self):
-        assert followup.missing_answers({}) == ["location", "duration", "other"]
+        assert followup.missing_answers({}) == [
+            "location",
+            "duration",
+            "severity",
+            "other",
+        ]
 
     def test_whitespace_does_not_count_as_an_answer(self):
         missing = followup.missing_answers({"location": "  ", "duration": "Started today"})

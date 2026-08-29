@@ -56,6 +56,24 @@ class IntakeAssessment(Base):
         Boolean, nullable=False, default=False
     )
 
+    # LOW | MEDIUM | HIGH as reported by the model. Recorded so a reviewer can
+    # ask the obvious question — are the wrong calls the low-confidence ones?
+    # It never influenced the tier.
+    model_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    # The clarifying answers, as a JSON object keyed by question id. The
+    # questions themselves are fixed and readable in `app.core.followup`, so
+    # only the answers are kept. Same PHI warning as `description`: this is the
+    # user's own account of their symptoms and needs the same encryption.
+    followup_answers: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # True when the clarifying questions were asked and the description still
+    # could not be classified, so the safe default was applied. The rows a
+    # reviewer should read first.
+    exhausted_followup: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
     red_flag_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     escalated_by_safety_net: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

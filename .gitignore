@@ -31,6 +31,13 @@ Thumbs.db
 # Claude Code local state
 .claude/scheduled_tasks.lock
 
+# MCP server config. Points at an absolute path to a per-machine virtualenv,
+# so it is local setup rather than something a teammate could use.
+.mcp.json
+
 # Never commit real user/health data
 **/real-data/
 **/*real-patient*
+
+# Local index cache written by the token-savior MCP server.
+.token-savior-cache.json

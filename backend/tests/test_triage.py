@@ -11,7 +11,7 @@ and all descriptions are synthetic.
 
 import pytest
 
-from app.core import triage
+from app.core import followup, triage
 from app.core.triage import Tier, TriageUnavailable, assess
 
 
@@ -24,11 +24,22 @@ def model_says(monkeypatch):
     entirely when nothing is configured, which is the normal state in CI.
     """
 
-    def _set(tier: Tier | None = None, reasoning: str = "Synthetic reasoning.", error=False):
+    def _set(
+        tier: Tier | None = None,
+        reasoning: str = "Synthetic reasoning.",
+        error=False,
+        confidence: str | None = "HIGH",
+    ):
         def _fake(description: str):
             if error:
                 raise TriageUnavailable("model down")
-            return tier, reasoning, "claude-opus-5"
+            # tier=None is the model answering NEEDS_MORE_INFO.
+            return triage.ModelVerdict(
+                tier=tier,
+                reasoning=reasoning,
+                model_id="claude-opus-5",
+                confidence=confidence,
+            )
 
         monkeypatch.setattr(triage, "credentials_available", lambda: True)
         monkeypatch.setattr(triage, "_classify_with_model", _fake)
@@ -205,7 +216,10 @@ class TestModelResponseHandling:
                 self.content = [_Block(text)] if text is not None else []
                 self.model = "claude-opus-5"
 
-        def _set(stop_reason="end_turn", text='{"tier": "URGENT", "reasoning": "Synthetic."}'):
+        def _set(
+            stop_reason="end_turn",
+            text='{"tier": "URGENT", "reasoning": "Synthetic.", "confidence": "HIGH"}',
+        ):
             response = _Response(stop_reason, text)
 
             class _Messages:
@@ -250,11 +264,13 @@ class TestModelResponseHandling:
     def test_a_good_response_is_parsed(self, model_response):
         model_response()
 
-        tier, reasoning, model_id = triage._classify_with_model("synthetic description")
+        verdict = triage._classify_with_model("synthetic description")
 
-        assert tier is Tier.URGENT
-        assert reasoning == "Synthetic."
-        assert model_id == "claude-opus-5"
+        assert verdict.tier is Tier.URGENT
+        assert verdict.reasoning == "Synthetic."
+        assert verdict.model_id == "claude-opus-5"
+        assert verdict.confidence == "HIGH"
+        assert verdict.requested_followup is False
 
 
 class TestReconciliation:
@@ -337,3 +353,160 @@ class TestDescriptionHandling:
         result = assess(f"mild sore throat{padding}")
 
         assert result.tier is Tier.SELF_CARE
+
+
+class TestTheModelMayAskInsteadOfAnswering:
+    """
+    NEEDS_MORE_INFO is the model declining to classify, not a fourth tier.
+
+    The property under test throughout: declining to answer must never soften
+    the result. The rule layer's tier stands underneath the question the whole
+    time, so a user who closes the app rather than answering still got a real
+    answer, and that answer is never SELF_CARE by default.
+    """
+
+    def test_an_unrecognisable_description_asks_rather_than_guesses(self, model_says):
+        # tier=None is the model answering NEEDS_MORE_INFO.
+        model_says(None, confidence="LOW")
+
+        result = assess("I don't feel good")
+
+        assert result.model_requested_followup is True
+        assert result.model_tier is None
+
+    def test_a_description_awaiting_a_question_still_carries_a_safe_tier(
+        self, model_says
+    ):
+        model_says(None, confidence="LOW")
+
+        result = assess("I don't feel good")
+
+        # The single most important assertion in this class. If the user never
+        # answers, this is what they were left holding.
+        assert result.tier is Tier.URGENT
+        assert result.tier is not Tier.SELF_CARE
+
+    def test_nothing_is_asked_when_a_rule_already_recognised_the_complaint(
+        self, model_says
+    ):
+        model_says(None, confidence="LOW")
+
+        result = assess("sore throat and a cough")
+
+        # A rule fired, so something concrete was understood and there is a
+        # real answer to give. Asking here would be a questionnaire for its
+        # own sake.
+        assert result.model_requested_followup is False
+        assert result.tier is Tier.SELF_CARE
+
+    def test_a_red_flag_is_never_held_behind_a_question(self, model_says):
+        model_says(None, confidence="LOW")
+
+        result = assess("crushing chest pain going down my left arm")
+
+        assert result.model_requested_followup is False
+        assert result.tier is Tier.EMERGENT
+        assert result.emergency is not None
+
+    def test_the_models_text_is_not_shown_when_it_declined_to_classify(
+        self, model_says
+    ):
+        model_says(None, reasoning="I could not tell what this is.", confidence="LOW")
+
+        result = assess("I don't feel good")
+
+        # It has no tier to compare against the one being displayed, so its
+        # wording cannot be trusted to argue for the tier shown.
+        assert "could not tell" not in result.reasoning
+
+    def test_declining_to_classify_cannot_crash_the_reconciliation(self, model_says):
+        model_says(None, confidence="LOW")
+
+        # NEEDS_MORE_INFO is deliberately not a member of Tier, so max() in
+        # _reconcile never sees it. A regression that made it orderable would
+        # blow up here rather than silently ranking it against a real tier.
+        result = assess("sore throat and a cough")
+
+        assert isinstance(result.tier, Tier)
+
+
+class TestAskingIsCappedAtOnce:
+    """
+    A second round of questions would trap someone who cannot describe it any
+    better than they already have. The safe default is taken instead, and said
+    out loud rather than presented as a judgement the app made.
+    """
+
+    def test_a_second_unclassifiable_pass_takes_the_safe_default(self, model_says):
+        model_says(None, confidence="LOW")
+
+        result = assess("I still don't feel good", followup_already_asked=True)
+
+        assert result.exhausted_followup is True
+        assert result.tier is Tier.URGENT
+
+    def test_the_safe_default_is_never_self_care(self, model_says):
+        model_says(None, confidence="LOW")
+
+        result = assess("I still don't feel good", followup_already_asked=True)
+
+        assert result.tier is not Tier.SELF_CARE
+
+    def test_the_user_is_told_the_app_could_not_work_it_out(self, model_says):
+        model_says(None, confidence="LOW")
+
+        result = assess("I still don't feel good", followup_already_asked=True)
+
+        # Presenting the fallback as a considered judgement would be a lie
+        # about what happened.
+        assert result.reasoning == triage.UNCLASSIFIABLE_REASONING
+
+    def test_the_caller_does_not_ask_a_second_time(self, model_says):
+        model_says(None, confidence="LOW")
+
+        result = assess("I still don't feel good", followup_already_asked=True)
+
+        # `model_requested_followup` stays True on purpose: it records what
+        # the model actually did, and a reviewer wants to see that it declined
+        # twice. The no-loop guarantee is not that flag — it is the veto in
+        # `is_needed`, which is what the caller actually consults.
+        assert result.model_requested_followup is True
+        assert (
+            followup.is_needed(
+                rules_defaulted=result.rules_defaulted,
+                red_flag_match=result.red_flag_match,
+                model_requested_followup=result.model_requested_followup,
+                already_asked=True,
+            )
+            is False
+        )
+
+    def test_a_second_pass_that_can_be_classified_is_answered_normally(
+        self, model_says
+    ):
+        model_says(Tier.SELF_CARE, reasoning="Synthetic reasoning.")
+
+        result = assess("sore throat and a cough", followup_already_asked=True)
+
+        assert result.exhausted_followup is False
+        assert result.tier is Tier.SELF_CARE
+        assert result.reasoning != triage.UNCLASSIFIABLE_REASONING
+
+
+class TestConfidenceIsRecordedButNeverActedOn:
+    def test_confidence_is_carried_through_for_review(self, model_says):
+        model_says(Tier.URGENT, confidence="LOW")
+
+        assert assess("my head hurts").model_confidence == "LOW"
+
+    def test_low_confidence_does_not_soften_the_tier(self, model_says):
+        model_says(Tier.EMERGENT, confidence="LOW")
+
+        result = assess("sore throat and a cough")
+
+        # Rule 1 governs the tier, not the confidence field. A low-confidence
+        # EMERGENT is still EMERGENT.
+        assert result.tier is Tier.EMERGENT
+
+    def test_no_model_means_no_confidence_rather_than_a_default(self, no_model):
+        assert assess("sore throat and a cough").model_confidence is None

@@ -7,12 +7,13 @@ comes from MedlinePlus. The model never writes the health content the user
 reads — it only estimates urgency and explains that estimate.
 """
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.core import followup
+from app.core import followup, triage_log
 from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.core.triage import Tier, TriageNotConfigured, TriageUnavailable, assess
@@ -119,7 +120,7 @@ async def create_assessment(
     description = followup.merge(payload.description, answers) if answers else payload.description
 
     try:
-        result = assess(description)
+        result = assess(description, followup_already_asked=is_second_submission)
     except TriageUnavailable as exc:
         # Deliberately a failure, not a tier. Telling someone "probably fine"
         # because a service was down is the worst possible outcome here.
@@ -152,9 +153,11 @@ async def create_assessment(
     #
     # Only on the first submission. Once answers come back the user has said
     # what they can, and asking again would trap them in a loop.
-    if not is_second_submission and followup.is_needed(
+    if followup.is_needed(
         rules_defaulted=result.rules_defaulted,
         red_flag_match=result.red_flag_match,
+        model_requested_followup=result.model_requested_followup,
+        already_asked=is_second_submission,
     ):
         response.status_code = status.HTTP_200_OK
         return NeedsDetailResponse(
@@ -163,6 +166,23 @@ async def create_assessment(
             disclaimer=INTAKE_DISCLAIMER,
             escalation_guidance=ESCALATION_GUIDANCE,
         )
+
+    # Dev-only, synthetic-data-only, off by default. See app/core/triage_log.py
+    # for why this cannot be switched on in production.
+    triage_log.record(
+        description=description,
+        followup_answers=answers or None,
+        tier=result.tier.wire_value,
+        rule_tier=result.rule_tier.wire_value if result.rule_tier else None,
+        model_tier=result.model_tier.wire_value if result.model_tier else None,
+        confidence=result.model_confidence,
+        rules_defaulted=result.rules_defaulted,
+        red_flag_match=result.red_flag_match,
+        escalated_by_safety_net=result.escalated_by_safety_net,
+        model_requested_followup=result.model_requested_followup,
+        exhausted_followup=result.exhausted_followup,
+        asked_followup=is_second_submission,
+    )
 
     # Reading material for the tiers the user can act on at their own pace.
     #
@@ -196,6 +216,9 @@ async def create_assessment(
             rules_defaulted=result.rules_defaulted,
             red_flag_match=result.red_flag_match,
             escalated_by_safety_net=result.escalated_by_safety_net,
+            model_confidence=result.model_confidence,
+            followup_answers=json.dumps(answers) if answers else None,
+            exhausted_followup=result.exhausted_followup,
             consented_to_logging=True,
         )
         db.add(record)

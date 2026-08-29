@@ -1,4 +1,8 @@
 fastapi==0.115.0
+# Pinned explicitly, though FastAPI pulls it in: installing an MCP server into
+# the same interpreter dragged starlette to 1.6.0, which FastAPI 0.115 cannot
+# use, and every route stopped importing. Keep agent tooling in its own venv.
+starlette>=0.37.2,<0.39.0
 uvicorn[standard]==0.30.6
 sqlalchemy==2.0.35
 alembic==1.13.2
@@ -12,6 +16,11 @@ bcrypt==4.0.1
 python-multipart==0.0.9
 # Also used at runtime for outbound calls to the MedlinePlus health library.
 httpx==0.27.2
+
+# The optional model layer of symptom triage (app/core/triage.py). The feature
+# runs without credentials — the rule layer is the product — but the import is
+# unconditional, so the package itself is required, not optional.
+anthropic==1.2.0
 
 # dev/test
 pytest==8.3.3

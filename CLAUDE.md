@@ -247,6 +247,23 @@ Additional known limits a reviewer should be told about:
   them; assign that owner.
 - Intake descriptions are the most sensitive free text in the app and are
   **not yet encrypted at rest**.
+- **The clarifying questions are in scope for the clinical review.** The four
+  prompts in `app/core/followup.py` (location, duration, severity 1-10,
+  associated symptoms) are elicitation, not screening — no threshold, no
+  hypothesis test — but which questions get asked shapes what the classifier
+  sees, so a reviewer should read them as part of the instrument rather than
+  as UI copy. The severity scale in particular is a number the app collects
+  and does not act on; a reviewer should say whether that is right.
+- **The model may now decline to classify** (`NEEDS_MORE_INFO`), which is not
+  a fourth tier and cannot be ranked against one. It only adds a question; the
+  rule tier stands underneath it, and asking is capped at one round after
+  which the safe default (URGENT) is applied and stated plainly. A reviewer
+  should confirm that a single round of questions is the right cap.
+- **`model_confidence` is recorded and never acted on.** LOW/MEDIUM/HIGH is
+  stored on `intake_assessments` so a reviewer can ask whether the wrong calls
+  are the low-confidence ones. It must not become an input to the tier without
+  that review — a confidence threshold that softens a tier would invert the
+  one-directional safety property the whole design rests on.
 
 ### How the safety architecture works
 
@@ -339,6 +356,14 @@ app holds real user data:
    as containing real PII or clear it.
 6. **CORS is `allow_origins=["*"]`** so the Expo web preview can call the API.
    Scope it to known origins before any non-local deployment.
+7. **A dev-only classification log exists** (`backend/app/core/triage_log.py`,
+   flag `TRIAGE_LOG_CLASSIFICATIONS`). It writes the description and the
+   follow-up answers to the application log, which CLAUDE.md otherwise
+   forbids. It is off by default and refuses to run when
+   `ENVIRONMENT=production`, regardless of the flag. It exists to tune the
+   classifier against **synthetic input only**. Switching it on anywhere a
+   real user has typed into the app would be a reportable data-handling
+   failure — and the production check guards one environment name, not you.
 
 ## Local Dev
 

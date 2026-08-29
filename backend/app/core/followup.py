@@ -70,6 +70,13 @@ QUESTIONS: tuple[FollowUpQuestion, ...] = (
         ],
     ),
     FollowUpQuestion(
+        question_id="severity",
+        prompt="How bad is it, from 1 to 10?",
+        kind="choice",
+        choices=[str(n) for n in range(1, 11)],
+        helper="1 is barely noticeable, 10 is the worst you can imagine.",
+    ),
+    FollowUpQuestion(
         question_id="other",
         prompt="Is anything else going on alongside it?",
         kind="text",
@@ -84,19 +91,34 @@ INTRO = (
 )
 
 
-def is_needed(*, rules_defaulted: bool, red_flag_match: bool) -> bool:
+def is_needed(
+    *,
+    rules_defaulted: bool,
+    red_flag_match: bool,
+    model_requested_followup: bool = False,
+    already_asked: bool = False,
+) -> bool:
     """
     Whether to ask before giving an answer.
 
-    Only when the rule layer recognised nothing at all — that flag is the
-    app's own statement that it does not understand the description, which is
-    exactly the condition worth asking about. A red-flag match short-circuits
-    to False no matter what else is true: an emergency is never delayed by a
-    questionnaire.
+    Two things can trigger a question, and either is enough:
+
+    * the rule layer recognised nothing at all (`rules_defaulted`) — the app's
+      own statement that it does not understand the description; or
+    * the model answered NEEDS_MORE_INFO rather than picking a tier.
+
+    Two things veto it, and either is enough:
+
+    * a red-flag match. An emergency is never delayed by a questionnaire, no
+      matter how little else was understood. This is the most important line
+      in this module.
+    * having asked already. A second round would trap someone who cannot
+      describe it any better than they already have; the caller takes the safe
+      default instead and says so.
     """
-    if red_flag_match:
+    if red_flag_match or already_asked:
         return False
-    return rules_defaulted
+    return rules_defaulted or model_requested_followup
 
 
 def merge(description: str, answers: dict[str, str]) -> str:

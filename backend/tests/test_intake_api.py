@@ -36,7 +36,7 @@ def _result(
 @pytest.fixture()
 def stub_triage(monkeypatch):
     def _set(result=None, error=False):
-        def _fake(description: str):
+        def _fake(description: str, *, followup_already_asked: bool = False):
             if error:
                 raise TriageUnavailable("unavailable")
             return result or _result()
@@ -293,6 +293,7 @@ class TestFollowUpQuestions:
         assert [q["question_id"] for q in body["questions"]] == [
             "location",
             "duration",
+            "severity",
             "other",
         ]
         # No tier at all — not even a provisional one to act on.
@@ -382,7 +383,7 @@ class TestFollowUpQuestions:
     ):
         seen: list[str] = []
 
-        def _capture(description: str):
+        def _capture(description: str, *, followup_already_asked: bool = False):
             seen.append(description)
             return _result(tier=Tier.URGENT, rules_defaulted=False)
 
@@ -443,7 +444,7 @@ class TestFailureMode:
     ):
         from app.core.triage import TriageNotConfigured
 
-        def _unconfigured(description: str):
+        def _unconfigured(description: str, *, followup_already_asked: bool = False):
             raise TriageNotConfigured("no credentials")
 
         monkeypatch.setattr("app.api.intake.assess", _unconfigured)
@@ -465,7 +466,7 @@ class TestFailureMode:
     ):
         from app.core.triage import TriageNotConfigured
 
-        def _unconfigured(description: str):
+        def _unconfigured(description: str, *, followup_already_asked: bool = False):
             raise TriageNotConfigured("no credentials")
 
         monkeypatch.setattr("app.api.intake.assess", _unconfigured)

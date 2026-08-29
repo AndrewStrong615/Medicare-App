@@ -37,5 +37,15 @@ class Settings(BaseSettings):
     # as this stays off.
     medlineplus_topics_enabled: bool = False
 
+    # Writes each classification — including the description — to the
+    # application log, so classifier quality can be reviewed while tuning.
+    #
+    # ⛔ SYNTHETIC DATA ONLY. Descriptions are health data, and CLAUDE.md
+    # forbids logging them. `app.core.triage_log` refuses to honour this flag
+    # when environment == "production", but that check protects one
+    # deployment name, not you: never switch this on anywhere a real user has
+    # typed into the app.
+    triage_log_classifications: bool = False
+
 
 settings = Settings()

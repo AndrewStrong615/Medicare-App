@@ -28,6 +28,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code local state
+.claude/scheduled_tasks.lock
+
 # Never commit real user/health data
 **/real-data/
 **/*real-patient*

@@ -1,34 +1,68 @@
-import { Button, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
+import { NavCard } from "@/components/NavCard";
+import { Screen } from "@/components/Screen";
+import { colors, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 export function HomeScreen({ navigation }: Props) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>MedHelp</Text>
-      <Text style={styles.subtitle}>
-        General health information and medication reminders.
-      </Text>
-      <View style={styles.actions}>
-        <Button
+    <Screen>
+      <View style={styles.header}>
+        <Text style={styles.title} accessibilityRole="header">
+          MedHelp
+        </Text>
+        <Text style={styles.subtitle}>
+          General health information and medication reminders.
+        </Text>
+      </View>
+
+      <View style={styles.cards}>
+        <NavCard
           title="Symptom Lookup"
+          description="Read general information about common symptoms and conditions."
           onPress={() => navigation.navigate("SymptomLookup")}
         />
-        <Button
+        <NavCard
           title="Medication Reminders"
+          description="Keep track of what to take and when."
           onPress={() => navigation.navigate("MedicationReminders")}
         />
       </View>
-    </View>
+
+      {/*
+        The full DisclaimerBanner belongs on screens that actually show
+        symptom or condition information. This shorter line sets the same
+        expectation on the way in without crowding the screen.
+      */}
+      <Text style={styles.scopeNote}>
+        MedHelp provides general information only. It does not diagnose
+        conditions or recommend treatment.
+      </Text>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
-  title: { fontSize: 28, fontWeight: "700" },
-  subtitle: { fontSize: 14, color: "#555", marginBottom: 24 },
-  actions: { gap: 12 },
+  header: {
+    gap: spacing.xs,
+  },
+  title: {
+    ...typography.display,
+    color: colors.textPrimary,
+  },
+  subtitle: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  cards: {
+    gap: spacing.md,
+  },
+  scopeNote: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
 });

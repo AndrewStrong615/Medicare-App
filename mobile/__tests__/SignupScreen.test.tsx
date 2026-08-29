@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 
 import { SignupScreen } from "@/screens/auth/SignupScreen";
-import { signup } from "@/services/authService";
+import { AuthError, signup } from "@/services/authService";
 
-jest.mock("@/services/authService", () => ({
-  signup: jest.fn(),
-}));
+jest.mock("@/services/authService", () => {
+  const actual = jest.requireActual("@/services/authService");
+  return { ...actual, signup: jest.fn() };
+});
 
 const mockedSignup = signup as jest.MockedFunction<typeof signup>;
 
@@ -17,6 +18,11 @@ function renderSignupScreen() {
   return { navigate, replace };
 }
 
+function fillCredentials(email = "new.synthetic@example.com", password = "fake-password-2") {
+  fireEvent.changeText(screen.getByLabelText("Email"), email);
+  fireEvent.changeText(screen.getByLabelText("Password"), password);
+}
+
 describe("SignupScreen", () => {
   beforeEach(() => {
     mockedSignup.mockReset();
@@ -25,8 +31,8 @@ describe("SignupScreen", () => {
   it("renders email/password inputs and the sign-up button", () => {
     renderSignupScreen();
 
-    expect(screen.getByPlaceholderText("Email")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Password")).toBeTruthy();
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
     expect(screen.getByText("Sign up")).toBeTruthy();
   });
 
@@ -38,31 +44,63 @@ describe("SignupScreen", () => {
     expect(navigate).toHaveBeenCalledWith("Login");
   });
 
-  it("signs up with entered credentials and replaces with Login on success", async () => {
+  it("signs up and hands the sign-in screen a confirmation to show", async () => {
     mockedSignup.mockResolvedValueOnce(undefined);
     const { replace } = renderSignupScreen();
 
-    fireEvent.changeText(screen.getByPlaceholderText("Email"), "new.synthetic@example.com");
-    fireEvent.changeText(screen.getByPlaceholderText("Password"), "fake-password-2");
+    fillCredentials();
     fireEvent.press(screen.getByText("Sign up"));
 
     await waitFor(() => {
       expect(mockedSignup).toHaveBeenCalledWith("new.synthetic@example.com", "fake-password-2");
-      expect(replace).toHaveBeenCalledWith("Login");
+      expect(replace).toHaveBeenCalledWith("Login", { accountCreated: true });
     });
   });
 
-  it("shows an error message and does not navigate when signup fails", async () => {
-    mockedSignup.mockRejectedValueOnce(new Error("Signup failed"));
+  it("shows the server's explanation and does not navigate when signup fails", async () => {
+    mockedSignup.mockRejectedValueOnce(new AuthError("Email already registered"));
     const { replace } = renderSignupScreen();
 
-    fireEvent.changeText(screen.getByPlaceholderText("Email"), "dupe.synthetic@example.com");
-    fireEvent.changeText(screen.getByPlaceholderText("Password"), "fake-password-3");
+    fillCredentials("dupe.synthetic@example.com", "fake-password-3");
     fireEvent.press(screen.getByText("Sign up"));
 
     await waitFor(() => {
-      expect(screen.getByText(/signup failed/i)).toBeTruthy();
+      expect(screen.getByText("Email already registered")).toBeTruthy();
     });
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("rejects a too-short password before sending a request", () => {
+    renderSignupScreen();
+
+    fillCredentials("new.synthetic@example.com", "short");
+    fireEvent.press(screen.getByText("Sign up"));
+
+    expect(screen.getByText(/at least 8 characters/i)).toBeTruthy();
+    expect(mockedSignup).not.toHaveBeenCalled();
+  });
+
+  it("rejects a password longer than bcrypt can hash", () => {
+    renderSignupScreen();
+
+    fillCredentials("new.synthetic@example.com", "a".repeat(73));
+    fireEvent.press(screen.getByText("Sign up"));
+
+    expect(screen.getByText(/too long/i)).toBeTruthy();
+    expect(mockedSignup).not.toHaveBeenCalled();
+  });
+
+  it("does not send a second request when the button is pressed twice", () => {
+    // Stays pending for the whole test so the button is observed mid-request.
+    mockedSignup.mockReturnValueOnce(new Promise<void>(() => {}));
+    renderSignupScreen();
+
+    fillCredentials();
+    const button = screen.getByText("Sign up");
+    fireEvent.press(button);
+    fireEvent.press(button);
+
+    expect(mockedSignup).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Creating account…")).toBeTruthy();
   });
 });

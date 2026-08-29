@@ -102,6 +102,34 @@ raise them with the user first:
 - No real symptom/condition/medication content — screens are navigation
   stubs only.
 
+## Open data-handling findings (awaiting a decision)
+
+Found during review, deliberately not changed. Each needs a call before the
+app holds real user data:
+
+1. **Passwords are echoed in 422 responses.** Pydantic includes the rejected
+   value in validation errors, so a too-short/too-long password comes back in
+   the response body (`detail[].input`) and can reach client logs, proxies,
+   and crash reporters. Fix by stripping `input` from validation error
+   responses (custom `RequestValidationError` handler) or marking the field
+   so it is not echoed.
+2. **`GET /medications/reminders` is unscoped.** It returns every row for
+   every user. Inert today (no auth on the route, no real data), but it is
+   the exact shape of a PHI leak and must be filtered by the authenticated
+   user in the same change that wires auth into protected routes — with a
+   test asserting cross-user access is denied.
+3. **The app connects to Postgres as the `postgres` superuser**, using a
+   password stored in `backend/.env` (gitignored, but plain text on disk).
+   Create a least-privilege role owning only the app's tables before this
+   runs anywhere but a dev machine.
+4. **`decode_access_token` is never called.** No route is actually protected,
+   so login currently grants a token that nothing checks.
+5. **The dev database holds a real email address** entered through the sign-up
+   UI. CLAUDE.md requires synthetic-only dev data; either treat this database
+   as containing real PII or clear it.
+6. **CORS is `allow_origins=["*"]`** so the Expo web preview can call the API.
+   Scope it to known origins before any non-local deployment.
+
 ## Local Dev
 
 See [README.md](README.md) for how to run the mobile app and backend locally.

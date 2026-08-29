@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { EmptyState } from "@/components/EmptyState";
+import { Screen } from "@/components/Screen";
 
 /**
  * Navigation stub only. This screen manages the user's own reminder data
@@ -8,13 +9,11 @@ import { StyleSheet, Text, View } from "react-native";
  */
 export function MedicationRemindersScreen() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.placeholder}>Medication reminders coming soon.</Text>
-    </View>
+    <Screen>
+      <EmptyState
+        title="No reminders yet"
+        description="This is where your medication reminders will live once you can add them. The feature is still being built — nothing you enter would be saved yet."
+      />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center" },
-  placeholder: { fontSize: 16, color: "#555" },
-});

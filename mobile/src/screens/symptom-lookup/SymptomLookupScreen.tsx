@@ -1,6 +1,6 @@
-import { StyleSheet, Text, View } from "react-native";
-
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
+import { EmptyState } from "@/components/EmptyState";
+import { Screen } from "@/components/Screen";
 
 /**
  * Navigation stub only — no symptom/condition content yet. When this is
@@ -9,17 +9,16 @@ import { DisclaimerBanner } from "@/components/DisclaimerBanner";
  */
 export function SymptomLookupScreen() {
   return (
-    <View style={styles.container}>
+    <Screen>
+      {/*
+        Kept above the content so it is read before any symptom information,
+        rather than being scrolled past. Required by CLAUDE.md — do not remove.
+      */}
       <DisclaimerBanner />
-      <View style={styles.body}>
-        <Text style={styles.placeholder}>Symptom lookup coming soon.</Text>
-      </View>
-    </View>
+      <EmptyState
+        title="Symptom lookup isn't ready yet"
+        description="This is where you'll be able to search general information about common symptoms. It's still being built, so there's nothing to search yet. In the meantime, medication reminders are on the home screen."
+      />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  body: { flex: 1, alignItems: "center", justifyContent: "center" },
-  placeholder: { fontSize: 16, color: "#555" },
-});

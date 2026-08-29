@@ -46,6 +46,16 @@ class IntakeAssessment(Base):
     # often the deterministic net had to override it.
     model_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
     model_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # What the rule layer alone decided, and which named rules fired. This is
+    # the column a reviewing clinician works from: the rules are readable, so
+    # disagreements can be traced to a specific line rather than to a model's
+    # judgement.
+    rule_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    rule_ids: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    rules_defaulted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+
     red_flag_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     escalated_by_safety_net: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

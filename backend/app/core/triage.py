@@ -34,14 +34,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
 
 import anthropic
 
+from app.core import rules_triage
 from app.core.config import settings
-from app.core.emergency import EmergencyGuidance, screen_for_emergency
+from app.core.emergency import EmergencyGuidance
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,13 @@ class TriageResult:
     model_tier: Tier | None
     model_id: str | None
     escalated_by_safety_net: bool
+    # What the rule layer alone decided, and which rules fired. Recorded so a
+    # reviewer can audit the rules independently of the model.
+    rule_tier: Tier | None = None
+    rule_ids: list[str] = field(default_factory=list)
+    # True when no rule recognised the description and the safe default
+    # (URGENT) was applied.
+    rules_defaulted: bool = False
 
 
 SYSTEM_PROMPT = """\
@@ -301,8 +309,11 @@ def assess(description: str) -> TriageResult:
     """
     Estimate urgency for a free-text description.
 
-    Raises TriageUnavailable if no tier could be established — callers must
-    surface that as "we could not assess this", never as reassurance.
+    The rule layer always runs and always produces a tier, so this works with
+    no credentials, no network, and no cost. The model is an optional second
+    opinion that can only raise the tier.
+
+    Raises TriageUnavailable only when there is genuinely nothing to assess.
     """
     cleaned = description.strip()
     if not cleaned:
@@ -310,33 +321,41 @@ def assess(description: str) -> TriageResult:
     if len(cleaned) > MAX_DESCRIPTION_LENGTH:
         cleaned = cleaned[:MAX_DESCRIPTION_LENGTH]
 
-    # Step 1: deterministic screening. Runs first, always, and cannot be
-    # overridden downward by anything the model says.
-    emergency = screen_for_emergency(cleaned)
-    deterministic_floor = Tier.EMERGENT if emergency else None
+    # Step 1: rules. Free, offline, reviewable, and never optional. This layer
+    # alone is sufficient to run the feature.
+    rules = rules_triage.classify(cleaned)
+    rule_tier = Tier[rules.tier_name]
+    emergency = rules.emergency
 
-    # Step 2: the model. If deterministic screening already found a red flag
-    # we still ask, so the audit log records what the model would have said —
-    # but its answer cannot lower the tier.
+    # Step 2: the model, if one is configured. Skipped silently otherwise —
+    # a missing key degrades quality, it does not break the feature. Even on a
+    # red-flag match we still ask when available, so the audit trail records
+    # what the model would have said.
     model_tier: Tier | None = None
     model_reasoning: str | None = None
     model_id: str | None = None
-    try:
-        model_tier, model_reasoning, model_id = _classify_with_model(cleaned)
-    except TriageUnavailable:
-        if deterministic_floor is None:
-            # Nothing established a tier: fail loudly rather than reassure.
-            raise
-        logger.warning("Triage model unavailable; using deterministic red-flag result.")
 
-    final_tier = _reconcile(deterministic_floor, model_tier)
+    if credentials_available():
+        try:
+            model_tier, model_reasoning, model_id = _classify_with_model(cleaned)
+        except TriageUnavailable:
+            # The rule tier still stands; a model outage is not an outage of
+            # the feature.
+            logger.warning("Triage model unavailable; using rule-based result.")
 
-    if emergency and (model_tier is None or model_tier < Tier.EMERGENT):
-        reasoning = RED_FLAG_REASONING
+    final_tier = _reconcile(rule_tier, model_tier)
+
+    # Reasoning: prefer the model's plain-language explanation when it agrees
+    # with or set the final tier, since it is written to the description. Fall
+    # back to the rule explanation otherwise — never show reasoning that
+    # argues for a lower tier than the one being displayed.
+    if model_tier is not None and model_tier >= rule_tier and model_reasoning:
+        reasoning = model_reasoning
     else:
-        reasoning = model_reasoning or RED_FLAG_REASONING
-        if model_tier is not None and final_tier > model_tier:
-            reasoning += ESCALATION_NOTE
+        reasoning = rules.reasoning
+
+    if model_tier is not None and final_tier > model_tier:
+        reasoning += ESCALATION_NOTE
 
     return TriageResult(
         tier=final_tier,
@@ -348,4 +367,7 @@ def assess(description: str) -> TriageResult:
         escalated_by_safety_net=(
             model_tier is not None and final_tier > model_tier
         ),
+        rule_tier=rule_tier,
+        rule_ids=[match.rule_id for match in rules.matches],
+        rules_defaulted=rules.defaulted,
     )

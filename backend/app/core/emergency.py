@@ -101,10 +101,26 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         "of a stroke. Call 911 (or your local emergency number) right away.",
         (
             "stroke",
+            # Both word orders. People write "my face is drooping", not the
+            # clinical "face drooping" — matching only the latter missed a
+            # textbook stroke description written in natural language.
             "face drooping",
+            "face is drooping",
+            "face started drooping",
+            "one side of my face",
             "slurred speech",
+            "speech is slurred",
+            "slurring my words",
+            "slurring my speech",
+            "can't get my words out",
+            "cant get my words out",
+            "arm is weak",
+            "arm feels weak",
+            "arm went weak",
             "sudden numbness",
             "one side of my body",
+            "one side is weak",
+            "weak on one side",
             "sudden confusion",
             "sudden severe headache",
             "worst headache of my life",

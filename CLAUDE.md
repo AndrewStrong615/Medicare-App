@@ -167,19 +167,43 @@ Additional known limits a reviewer should be told about:
 
 ### How the safety architecture works
 
-Read `backend/app/core/triage.py` before changing any of it. Four properties
-hold, each asserted by tests in `backend/tests/test_triage.py`:
+Two layers. **The rule layer is the product; the model is an optional
+upgrade.** Read `backend/app/core/rules_triage.py` and
+`backend/app/core/triage.py` before changing any of it.
 
-1. Deterministic red-flag screening runs **first**, on every request. A match
-   sets a floor of EMERGENT before the model is consulted.
-2. The model can only **escalate**. Tiers are reconciled with `max()`, so a
-   model answer of SELF_CARE cannot lower a red-flag EMERGENT.
-3. Failure is **never** SELF_CARE. If the model errors, times out, refuses, or
-   returns something unparseable, the request fails with a 503 that points the
-   user at real care. It never falls back to reassurance.
-4. The prompt forbids diagnostic language ("you have X") and treatment advice,
-   and instructs escalation whenever uncertain — including when the
-   description is vague or too short to judge.
+**Layer 1 — rules (`rules_triage.py`). Always runs. No key, no network, no
+cost.** Explicit phrase lists a clinician can read line by line, evaluated in
+order: emergency red flags → urgent indicators → recognised self-limiting
+complaint → default. Deterministic, so the same input always gives the same
+tier — which is what a clinical review needs.
+
+**Layer 2 — the model (`triage.py`). Optional.** Consulted only when
+credentials exist; skipped silently otherwise. A missing key degrades quality,
+it does not break the feature.
+
+Five properties hold, each asserted by tests:
+
+1. **SELF_CARE must be positively earned.** It requires a match against a
+   recognised self-limiting complaint *and* no escalating modifier. Anything
+   unrecognised resolves to URGENT. Not understanding a description is not the
+   same as it being harmless — this is the single most important rule here.
+2. Emergency red-flag screening runs **first** and sets a floor of EMERGENT.
+3. Neither layer can **lower** the other's tier. They reconcile with `max()`,
+   so either can escalate and neither can de-escalate.
+4. The displayed reasoning never argues for a lower tier than the one shown.
+   A model answer of SELF_CARE that lost to an URGENT rule does not get to
+   supply the explanation.
+5. Failure is **never** SELF_CARE. A model outage falls back to the rule tier;
+   there is no path where an error produces reassurance.
+
+**Adding or changing a rule:** add the phrase to the right list in
+`rules_triage.py`, add a test, and remember that the lists are lay language —
+people write "my face is drooping", not "face drooping". A stroke description
+in natural word order was missed for exactly that reason; match both orders.
+
+**Audit trail.** `intake_assessments` records the final tier, the rule tier,
+which named rules fired, whether the rules defaulted, and what the model said
+separately — so a reviewer can measure the rules and the model independently.
 
 ## Emergency routing (implemented)
 

@@ -17,7 +17,12 @@ from app.core.triage import Tier, TriageUnavailable, assess
 
 @pytest.fixture()
 def model_says(monkeypatch):
-    """Patch the model call to return a chosen tier, or to fail."""
+    """
+    Patch the model call to return a chosen tier, or to fail.
+
+    Also forces `credentials_available` on: the model layer is skipped
+    entirely when nothing is configured, which is the normal state in CI.
+    """
 
     def _set(tier: Tier | None = None, reasoning: str = "Synthetic reasoning.", error=False):
         def _fake(description: str):
@@ -25,9 +30,16 @@ def model_says(monkeypatch):
                 raise TriageUnavailable("model down")
             return tier, reasoning, "claude-opus-5"
 
+        monkeypatch.setattr(triage, "credentials_available", lambda: True)
         monkeypatch.setattr(triage, "_classify_with_model", _fake)
 
     return _set
+
+
+@pytest.fixture()
+def no_model(monkeypatch):
+    """Simulate a deployment with no credentials at all."""
+    monkeypatch.setattr(triage, "credentials_available", lambda: False)
 
 
 class TestSafetyNetCannotBeOverridden:
@@ -79,24 +91,89 @@ class TestModelCanEscalate:
     def test_ordinary_description_can_be_self_care(self, model_says):
         model_says(Tier.SELF_CARE)
 
-        result = assess("mild sore throat for one day")
+        result = assess("mild sore throat")
 
         assert result.tier is Tier.SELF_CARE
         assert result.escalated_by_safety_net is False
 
-    def test_urgent_is_passed_through(self, model_says):
+    def test_model_can_escalate_above_the_rule_tier(self, model_says):
+        # Rules alone would call this SELF_CARE; the model raises it.
         model_says(Tier.URGENT)
 
-        assert assess("ankle swollen since yesterday").tier is Tier.URGENT
+        result = assess("mild sore throat")
+
+        assert result.tier is Tier.URGENT
+        assert result.rule_tier is Tier.SELF_CARE
+
+    def test_a_model_downgrade_cannot_lower_the_rule_tier(self, model_says):
+        # Rules say URGENT (unrecognised); the model says SELF_CARE.
+        model_says(Tier.SELF_CARE)
+
+        result = assess("my knee feels strange lately")
+
+        assert result.tier is Tier.URGENT
+        assert result.escalated_by_safety_net is True
+
+    def test_reasoning_never_argues_for_a_lower_tier_than_is_shown(self, model_says):
+        model_says(Tier.SELF_CARE, reasoning="This is nothing to worry about.")
+
+        result = assess("my knee feels strange lately")
+
+        # Shown as URGENT, so the model's reassuring text must not be the
+        # explanation the user reads.
+        assert result.tier is Tier.URGENT
+        assert "nothing to worry about" not in result.reasoning
+
+
+class TestWorksWithNoModelAtAll:
+    """The rule layer alone must be able to run the whole feature."""
+
+    def test_red_flag_classifies_with_no_credentials(self, no_model):
+        result = assess("I have crushing chest pain")
+
+        assert result.tier is Tier.EMERGENT
+        assert result.model_tier is None
+
+    def test_urgent_classifies_with_no_credentials(self, no_model):
+        result = assess("I think I broke my wrist")
+
+        assert result.tier is Tier.URGENT
+        assert "possible_fracture" in result.rule_ids
+
+    def test_self_care_classifies_with_no_credentials(self, no_model):
+        result = assess("mild sore throat")
+
+        assert result.tier is Tier.SELF_CARE
+
+    def test_the_model_is_not_called_when_unconfigured(self, monkeypatch, no_model):
+        called = False
+
+        def _should_not_run(description: str):
+            nonlocal called
+            called = True
+            raise AssertionError("model must not be consulted without credentials")
+
+        monkeypatch.setattr(triage, "_classify_with_model", _should_not_run)
+
+        assess("mild sore throat")
+
+        assert called is False
 
 
 class TestFailureIsNeverReassurance:
-    def test_model_failure_without_a_red_flag_raises(self, model_says):
+    def test_model_failure_falls_back_to_rules_not_to_self_care(self, model_says):
         model_says(error=True)
 
-        # Must NOT silently return SELF_CARE.
-        with pytest.raises(TriageUnavailable):
-            assess("mild sore throat")
+        # An unrecognised description must land on URGENT, never SELF_CARE.
+        result = assess("my knee feels strange lately")
+
+        assert result.tier is Tier.URGENT
+        assert result.rules_defaulted is True
+
+    def test_model_failure_keeps_a_recognised_urgent_tier(self, model_says):
+        model_says(error=True)
+
+        assert assess("I think I broke my wrist").tier is Tier.URGENT
 
     def test_blank_description_raises(self, model_says):
         model_says(Tier.SELF_CARE)
@@ -176,7 +253,16 @@ class TestDescriptionHandling:
         model_says(Tier.SELF_CARE)
 
         # Someone writing at length about their symptoms should still get an
-        # assessment rather than an error.
+        # assessment rather than an error. Unrecognised filler text correctly
+        # lands on URGENT rather than SELF_CARE.
         result = assess("a" * (triage.MAX_DESCRIPTION_LENGTH + 500))
+
+        assert result.tier is Tier.URGENT
+
+    def test_a_long_but_recognisable_description_still_classifies(self, model_says):
+        model_says(Tier.SELF_CARE)
+        padding = " and I have been resting" * 60
+
+        result = assess(f"mild sore throat{padding}")
 
         assert result.tier is Tier.SELF_CARE

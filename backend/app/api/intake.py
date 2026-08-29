@@ -12,9 +12,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user
-from app.core.emergency import RESULT_DISCLAIMER
-from app.core.triage import Tier, TriageUnavailable, assess
+from app.core.triage import Tier, TriageNotConfigured, TriageUnavailable, assess
 from app.db.session import get_db
 from app.models.intake import IntakeAssessment
 from app.models.user import User
@@ -48,6 +48,19 @@ SELF_CARE_SOURCE_NOTE = (
     "Library of Medicine. It is not tailored to you."
 )
 
+USER_FACING_UNAVAILABLE = (
+    "We couldn't assess this right now. Please don't wait on the app: if you "
+    "feel unwell, contact a healthcare professional, and call 911 or your "
+    "local emergency number if this may be an emergency."
+)
+
+# Appended only outside production, so a developer can tell a missing key from
+# a real outage.
+DEV_CONFIG_HINT = (
+    "(Developer note: symptom intake has no Anthropic credentials. Set "
+    "ANTHROPIC_API_KEY in backend/.env and restart the server.)"
+)
+
 
 async def _self_care_topics(description: str) -> list[SymptomTopicOut]:
     """
@@ -76,15 +89,25 @@ async def create_assessment(
     except TriageUnavailable as exc:
         # Deliberately a failure, not a tier. Telling someone "probably fine"
         # because a service was down is the worst possible outcome here.
-        logger.warning("Triage unavailable: %s", exc)
+        detail = USER_FACING_UNAVAILABLE
+
+        if isinstance(exc, TriageNotConfigured):
+            logger.error(
+                "Symptom intake is unreachable: no Anthropic credentials are "
+                "configured. Set ANTHROPIC_API_KEY in backend/.env (or export "
+                "it) and restart the server."
+            )
+            # Outside production, say why. A developer seeing only "couldn't
+            # assess" cannot tell a misconfiguration from an outage; an end
+            # user must never see configuration details.
+            if settings.environment != "production":
+                detail = f"{USER_FACING_UNAVAILABLE} {DEV_CONFIG_HINT}"
+        else:
+            logger.warning("Triage unavailable: %s", exc)
+
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "We couldn't assess this right now. Please don't wait on the "
-                "app: if you feel unwell, contact a healthcare professional, "
-                "and call 911 or your local emergency number if this may be "
-                "an emergency."
-            ),
+            detail=detail,
         ) from exc
 
     self_care_topics: list[SymptomTopicOut] = []

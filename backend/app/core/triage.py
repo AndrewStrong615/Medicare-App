@@ -33,8 +33,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from enum import IntEnum
+from pathlib import Path
 
 import anthropic
 
@@ -70,6 +72,17 @@ class TriageUnavailable(Exception):
 
     Callers must NOT interpret this as "probably fine". It means the user
     should be pointed at real care, not reassured.
+    """
+
+
+class TriageNotConfigured(TriageUnavailable):
+    """
+    No credentials are available, so the classifier was never reachable.
+
+    Separate from a runtime failure so that a misconfigured deployment is
+    diagnosable instead of looking identical to an outage. It is still a
+    subclass of TriageUnavailable: callers must treat it as "no tier", never
+    as reassurance.
     """
 
 
@@ -153,10 +166,42 @@ _RESPONSE_SCHEMA = {
 }
 
 
+def credentials_available() -> bool:
+    """
+    Whether the SDK has any credential source to work with.
+
+    An unset ANTHROPIC_API_KEY does not mean there are no credentials — the
+    SDK also resolves ANTHROPIC_AUTH_TOKEN and a stored CLI login profile.
+    Constructing the client is what actually resolves them, so this only
+    reports the cases we can cheaply rule in.
+    """
+    return bool(
+        settings.anthropic_api_key
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        or (Path.home() / ".config" / "anthropic").exists()
+    )
+
+
 def _build_client() -> anthropic.Anthropic:
-    if not settings.anthropic_api_key:
-        raise TriageUnavailable("No API key is configured for the triage service.")
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    """
+    Build the API client, letting the SDK resolve credentials when we have no
+    explicit key.
+
+    Passing api_key="" would short-circuit the SDK's own resolution chain
+    (env var, then auth token, then a stored login profile), so an operator
+    who exported ANTHROPIC_API_KEY without also putting it in .env would still
+    have seen "couldn't assess". Only pass a key when we actually have one.
+    """
+    try:
+        if settings.anthropic_api_key:
+            return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        return anthropic.Anthropic()
+    except Exception as exc:
+        # The SDK raises when it can find no credentials anywhere.
+        raise TriageNotConfigured(
+            "No Anthropic credentials are configured for the triage service."
+        ) from exc
 
 
 def _classify_with_model(description: str) -> tuple[Tier, str, str]:
@@ -188,6 +233,20 @@ def _classify_with_model(description: str) -> tuple[Tier, str, str]:
         )
     except anthropic.APIError as exc:
         logger.warning("Triage model call failed: %s", type(exc).__name__)
+        raise TriageUnavailable("The triage service is unavailable.") from exc
+    except TypeError as exc:
+        # The SDK resolves credentials lazily, at request time rather than at
+        # construction, and raises TypeError when it finds none. Left uncaught
+        # this became a 500 — and worse, it broke the red-flag path, which is
+        # supposed to work with no classifier at all.
+        raise TriageNotConfigured(
+            "No Anthropic credentials are configured for the triage service."
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - see comment
+        # Anything else from the client is still "no tier". Letting an
+        # unexpected exception escape would turn a safe 503 into a 500, and on
+        # the red-flag path would suppress an EMERGENT result entirely.
+        logger.warning("Unexpected triage failure: %s", type(exc).__name__)
         raise TriageUnavailable("The triage service is unavailable.") from exc
 
     if response.stop_reason == "refusal":

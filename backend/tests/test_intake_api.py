@@ -197,6 +197,63 @@ class TestFailureMode:
         assert "911" in detail
         assert "couldn't assess" in detail
 
+    def test_missing_credentials_are_diagnosable_outside_production(
+        self, client, auth_headers, stub_self_care, monkeypatch
+    ):
+        from app.core.triage import TriageNotConfigured
+
+        def _unconfigured(description: str):
+            raise TriageNotConfigured("no credentials")
+
+        monkeypatch.setattr("app.api.intake.assess", _unconfigured)
+        monkeypatch.setattr("app.api.intake.settings.environment", "local")
+
+        response = client.post(
+            "/intake/assess", json={"description": "sore throat"}, headers=auth_headers
+        )
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        # A developer must be able to tell misconfiguration from an outage.
+        assert "ANTHROPIC_API_KEY" in detail
+        # And the user-facing safety guidance is still there.
+        assert "911" in detail
+
+    def test_production_never_leaks_configuration_details(
+        self, client, auth_headers, stub_self_care, monkeypatch
+    ):
+        from app.core.triage import TriageNotConfigured
+
+        def _unconfigured(description: str):
+            raise TriageNotConfigured("no credentials")
+
+        monkeypatch.setattr("app.api.intake.assess", _unconfigured)
+        monkeypatch.setattr("app.api.intake.settings.environment", "production")
+
+        response = client.post(
+            "/intake/assess", json={"description": "sore throat"}, headers=auth_headers
+        )
+
+        detail = response.json()["detail"]
+        assert "ANTHROPIC_API_KEY" not in detail
+        assert "911" in detail
+
+    def test_a_red_flag_still_works_with_no_credentials(
+        self, client, auth_headers, stub_self_care
+    ):
+        # The whole point of the deterministic layer: emergency screening must
+        # not depend on the classifier being configured at all.
+        response = client.post(
+            "/intake/assess",
+            json={"description": "I have crushing chest pain"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["tier"] == "EMERGENT"
+        assert body["red_flag_match"] is True
+
 
 class TestAuditTrail:
     def test_nothing_is_stored_without_consent(

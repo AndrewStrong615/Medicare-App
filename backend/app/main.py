@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import auth, intake, medications
+from app.core.triage import credentials_available
 
 app = FastAPI(
     title="MedHelp API",
@@ -55,6 +58,29 @@ app.include_router(intake.router)
 app.include_router(medications.router)
 
 
+@app.on_event("startup")
+def warn_if_triage_unconfigured() -> None:
+    """
+    Say so at boot, not on the user's first attempt.
+
+    Without credentials the intake endpoint correctly refuses to guess a tier,
+    but the failure is silent until someone tries it — which is exactly how a
+    misconfigured deployment goes unnoticed.
+    """
+    if not credentials_available():
+        logging.getLogger(__name__).warning(
+            "Symptom intake is DISABLED: no Anthropic credentials found. "
+            "Emergency red-flag screening still works, but any other "
+            "description will return 503. Set ANTHROPIC_API_KEY in "
+            "backend/.env and restart."
+        )
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        # Lets you check configuration without submitting a symptom
+        # description. Reports only whether a credential source exists.
+        "symptom_intake_configured": credentials_available(),
+    }

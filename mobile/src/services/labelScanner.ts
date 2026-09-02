@@ -41,7 +41,7 @@
  * rather than hitting a crash.
  */
 
-import { parseLabelText, type ParsedLabel } from "@/services/labelParser";
+import { hasAnyField, parseLabelText, type ParsedLabel } from "@/services/labelParser";
 
 // Defined in their own module so `labelScanner.web.ts` can throw exactly the
 // same errors and the screen needs no platform knowledge. Re-exported here so
@@ -207,10 +207,15 @@ export async function readLabel(uri: string): Promise<ParsedLabel> {
   // next line.
   const parsed = parseLabelText(recognised?.text ?? "");
 
-  if (parsed.confidence === "none") {
+  // Refused only when the photo yielded nothing at all. A read that missed
+  // the drug name but got the directions is still a head start, and it is
+  // handed over with the missing fields named in `warnings` — see
+  // `hasAnyField`. Throwing on a missing name discarded the rest of a good
+  // read and left the user with an empty form.
+  if (!hasAnyField(parsed)) {
     throw new ScanError(
       "unreadable",
-      "No medication name could be read from that photo. Try again with the label flat and well lit, or type the details in yourself."
+      "Nothing could be read from that photo. Try again with the label flat and well lit, or type the details in yourself."
     );
   }
 

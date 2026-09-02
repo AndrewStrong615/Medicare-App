@@ -25,6 +25,7 @@ function assessment(overrides: Partial<IntakeAssessment> = {}): IntakeAssessment
     relatedTopics: [],
     topicsSourceNote: null,
     topicsDisabled: false,
+    summary: null,
     disclaimer: DISCLAIMER,
     escalationGuidance: ESCALATION,
     ...overrides,
@@ -135,8 +136,47 @@ describe("IntakeResultScreen", () => {
     it("points toward booking care but is honest that it does not contact anyone", () => {
       renderResult({ tier: "URGENT" });
 
-      expect(screen.getByText(/does not contact a provider for you/i)).toBeTruthy();
-      expect(screen.getByText("Find urgent care nearby")).toBeTruthy();
+      expect(screen.getByText(/cannot make the appointment for you/i)).toBeTruthy();
+      expect(screen.getByText(/does not send anything to a clinic/i)).toBeTruthy();
+      expect(screen.getByText("Find a provider")).toBeTruthy();
+    });
+
+    it("keeps the provider search inside the app", () => {
+      // The old behaviour handed the user to their maps app. Leaving MedHelp
+      // at the point someone has been told to be seen soon drops them into a
+      // search page of ads and unrelated listings.
+      const { navigate } = renderResult({ tier: "URGENT" });
+
+      fireEvent.press(screen.getByText("Find a provider"));
+
+      expect(navigate).toHaveBeenCalledWith("ProviderSearch", expect.anything());
+    });
+
+    it("carries the description forward so it is not typed twice", () => {
+      const navigate = jest.fn();
+      render(
+        <IntakeResultScreen
+          navigation={{ navigate } as any}
+          route={
+            {
+              params: {
+                assessment: assessment({ tier: "URGENT" }),
+                description: "Sore throat and a fever since Tuesday.",
+              },
+            } as any
+          }
+        />
+      );
+
+      fireEvent.press(screen.getByText("Find a provider"));
+
+      expect(navigate).toHaveBeenCalledWith("ProviderSearch", {
+        intake: {
+          reasonForVisit: "Sore throat and a fever since Tuesday.",
+          tier: "URGENT",
+          assessmentId: "assessment-1",
+        },
+      });
     });
 
     it("also gives the user something to read, not just an instruction to go", () => {
@@ -223,5 +263,43 @@ describe("IntakeResultScreen", () => {
     renderResult();
 
     expect(screen.getByText("This doesn't seem right")).toBeTruthy();
+  });
+
+  describe("the recap of what the answers said", () => {
+    const SUMMARY = {
+      understood: [
+        { label: "Where", value: "my lower back" },
+        { label: "How long", value: "A few days" },
+      ],
+      unclear: ["How bad, out of 10"],
+    };
+
+    it("repeats the user's own words back, verbatim", () => {
+      renderResult({ tier: "URGENT", summary: SUMMARY });
+
+      expect(screen.getByText("What you told us")).toBeTruthy();
+      expect(screen.getByText("my lower back")).toBeTruthy();
+      expect(screen.getByText("A few days")).toBeTruthy();
+    });
+
+    it("says what it still does not know, which is why the estimate is cautious", () => {
+      renderResult({ tier: "URGENT", summary: SUMMARY });
+
+      expect(screen.getByText(/still unknown: how bad, out of 10/i)).toBeTruthy();
+    });
+
+    it("shows nothing when no questions were answered", () => {
+      renderResult({ tier: "URGENT", summary: null });
+
+      expect(screen.queryByText("What you told us")).toBeNull();
+    });
+
+    it("stays off the emergency screen", () => {
+      // That tier has one job. Every extra block is another thing between the
+      // reader and the dial button.
+      renderResult({ tier: "EMERGENT", summary: SUMMARY });
+
+      expect(screen.queryByText("What you told us")).toBeNull();
+    });
   });
 });

@@ -374,4 +374,26 @@ describe("readLabel", () => {
     expect(parsed.name).toBe("Ibuprofen");
     expect(parsed.confidence).toBe("partial");
   });
+
+  it("hands over a read that missed the name but got the directions", async () => {
+    // The dead end this feature is not allowed to have. A read with no drug
+    // name has confidence "none", but the directions and prescriber on it are
+    // still worth carrying into the form — discarding them sent the user back
+    // to an empty form with nothing to show for the photo they took.
+    const { scanner } = loadScanner({
+      recognised: [
+        "RIVERBEND SYNTHETIC PHARMACY",
+        "TAKE 1 TABLET BY MOUTH ONCE DAILY",
+        "PRESCRIBER: DR. ALEX MORGAN",
+      ].join("\n"),
+    });
+
+    const parsed = await scanner.readLabel("file:///x.jpg");
+
+    expect(parsed.name).toBeNull();
+    expect(parsed.confidence).toBe("none");
+    expect(parsed.frequency).toBe("TAKE 1 TABLET BY MOUTH ONCE DAILY");
+    expect(parsed.prescribingDoctor).toBe("DR. ALEX MORGAN");
+    expect(parsed.warnings.join(" ")).toMatch(/medication name could not be read/i);
+  });
 });

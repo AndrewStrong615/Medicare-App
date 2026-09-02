@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { Glyph, GlyphTile } from "@/components/Glyph";
+import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 import type { Medication } from "@/services/medicationService";
 
 /**
@@ -9,7 +10,8 @@ import type { Medication } from "@/services/medicationService";
  *
  * Refill status is shown as a labelled badge rather than colour alone, so it
  * still reads for someone who cannot distinguish the colours or is using a
- * screen reader.
+ * screen reader. The badge keeps its own border as well as its fill, so it is
+ * still a distinct object in a high-contrast or greyscale rendering.
  */
 interface MedicationCardProps {
   medication: Medication;
@@ -47,6 +49,8 @@ export function MedicationCard({ medication, onPress }: MedicationCardProps) {
     onHoverOut: () => setHovered(false),
   };
 
+  const attention = medication.refillOverdue || medication.refillDueSoon;
+
   return (
     <Pressable
       {...hoverProps}
@@ -62,18 +66,34 @@ export function MedicationCard({ medication, onPress }: MedicationCardProps) {
         pressed && styles.cardPressed,
       ]}
     >
-      <Text style={styles.name}>{medication.name}</Text>
-      {details.length > 0 && <Text style={styles.details}>{details}</Text>}
-      {medication.prescribingDoctor && (
-        <Text style={styles.details}>Prescribed by {medication.prescribingDoctor}</Text>
-      )}
+      <View style={styles.row}>
+        <GlyphTile
+          name="pill"
+          size={40}
+          tint={medication.refillOverdue ? colors.errorSurface : colors.accentSurface}
+          color={medication.refillOverdue ? colors.errorText : colors.accent}
+        />
+        <View style={styles.body}>
+          <Text style={styles.name}>{medication.name}</Text>
+          {details.length > 0 && <Text style={styles.details}>{details}</Text>}
+          {medication.prescribingDoctor && (
+            <Text style={styles.details}>Prescribed by {medication.prescribingDoctor}</Text>
+          )}
+        </View>
+        <Glyph name="chevron" size={16} color={colors.borderStrong} />
+      </View>
       {badge && (
-        <View style={[styles.badge, medication.refillOverdue && styles.badgeOverdue]}>
+        <View
+          style={[
+            styles.badge,
+            medication.refillOverdue && styles.badgeOverdue,
+            // Indented to the text column so the badge reads as part of this
+            // medication rather than as a row of its own.
+            attention && styles.badgeInset,
+          ]}
+        >
           <Text
-            style={[
-              styles.badgeText,
-              medication.refillOverdue && styles.badgeTextOverdue,
-            ]}
+            style={[styles.badgeText, medication.refillOverdue && styles.badgeTextOverdue]}
           >
             {badge}
           </Text>
@@ -89,17 +109,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.lg,
-    gap: spacing.xs,
+    gap: spacing.sm,
+    ...elevation.sm,
   },
   cardHovered: {
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.accentBorder,
+    ...elevation.md,
   },
   cardPressed: {
     borderColor: colors.accent,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.accentSurface,
+    ...elevation.sm,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  body: {
+    flex: 1,
+    gap: 2,
   },
   name: {
     ...typography.title,
@@ -111,21 +142,22 @@ const styles = StyleSheet.create({
   },
   badge: {
     alignSelf: "flex-start",
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     borderWidth: 1,
     backgroundColor: colors.noticeSurface,
     borderColor: colors.noticeBorder,
+  },
+  badgeInset: {
+    marginLeft: 40 + spacing.md,
   },
   badgeOverdue: {
     backgroundColor: colors.errorSurface,
     borderColor: colors.errorBorder,
   },
   badgeText: {
-    ...typography.caption,
-    fontWeight: "600",
+    ...typography.captionStrong,
     color: colors.noticeText,
   },
   badgeTextOverdue: {

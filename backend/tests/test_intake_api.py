@@ -343,10 +343,12 @@ class TestFollowUpQuestions:
         assert response.status_code == 201
         assert response.json()["status"] == "assessed"
 
-    def test_answers_produce_an_assessment_rather_than_more_questions(
+    def test_round_one_answers_earn_a_second_and_different_set(
         self, client, auth_headers, stub_triage, stub_topics
     ):
-        # Asking twice would trap the user in a loop.
+        # The old behaviour answered here with the boilerplate default. If the
+        # rules still recognise nothing, a second round is worth more to the
+        # user than repeating "we could not tell what you are describing".
         stub_triage(_result(tier=Tier.URGENT, rules_defaulted=True))
 
         response = client.post(
@@ -357,9 +359,102 @@ class TestFollowUpQuestions:
             },
             headers=auth_headers,
         )
+        body = response.json()
+
+        assert response.status_code == 200
+        assert body["status"] == "needs_detail"
+        assert body["round"] == 2
+
+        asked = {q["question_id"] for q in body["questions"]}
+        # Nothing from round one is asked twice.
+        assert asked.isdisjoint({"location", "duration", "severity", "other"})
+
+    def test_a_second_round_of_answers_is_never_followed_by_a_third(
+        self, client, auth_headers, stub_triage, stub_topics
+    ):
+        # The cap. Whatever the rules make of it, the user has now answered
+        # twice and gets the safe default rather than another questionnaire.
+        stub_triage(_result(tier=Tier.URGENT, rules_defaulted=True))
+
+        response = client.post(
+            "/intake/assess",
+            json={
+                "description": "I have been feeling off",
+                "follow_up_answers": {
+                    "location": "my lower back",
+                    "duration": "A few days",
+                    "onset": "Gradually",
+                    "course": "About the same",
+                },
+            },
+            headers=auth_headers,
+        )
 
         assert response.status_code == 201
         assert response.json()["status"] == "assessed"
+
+    def test_answers_that_say_nothing_are_not_asked_again(
+        self, client, auth_headers, stub_triage, stub_topics
+    ):
+        # Someone who could not answer the first set will not do better with a
+        # second one. Asking again would trap them.
+        stub_triage(_result(tier=Tier.URGENT, rules_defaulted=True))
+
+        response = client.post(
+            "/intake/assess",
+            json={
+                "description": "I have been feeling off",
+                "follow_up_answers": {
+                    "location": "  ",
+                    "duration": "I'm not sure",
+                    "severity": "",
+                    "other": "not sure",
+                },
+            },
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        assert response.json()["status"] == "assessed"
+
+    def test_the_assessment_recaps_what_the_answers_said(
+        self, client, auth_headers, stub_triage, stub_topics
+    ):
+        stub_triage(_result(tier=Tier.URGENT, rules_defaulted=True))
+
+        response = client.post(
+            "/intake/assess",
+            json={
+                "description": "I have been feeling off",
+                "follow_up_answers": {
+                    "location": "my lower back",
+                    "duration": "A few days",
+                    "severity": "6",
+                    "other": "I'm not sure",
+                    "onset": "Gradually",
+                    "course": "About the same",
+                },
+            },
+            headers=auth_headers,
+        )
+        summary = response.json()["summary"]
+
+        assert response.status_code == 201
+        # The user's own words, verbatim, beside a plain field label.
+        assert {"label": "Where", "value": "my lower back"} in summary["understood"]
+        # A shrug is reported as still unknown, never as a fact.
+        assert "Alongside it" in summary["unclear"]
+
+    def test_no_recap_when_no_questions_were_answered(
+        self, client, auth_headers, stub_triage, stub_topics
+    ):
+        stub_triage(_result(tier=Tier.URGENT, rules_defaulted=False))
+
+        response = client.post(
+            "/intake/assess", json={"description": "I think I broke my wrist"}, headers=auth_headers
+        )
+
+        assert response.json()["summary"] is None
 
     def test_an_empty_answers_object_still_counts_as_having_been_asked(
         self, client, auth_headers, stub_triage, stub_topics

@@ -281,9 +281,31 @@ def normalize_query(query: str) -> str:
     iOS substitutes a curly apostrophe (U+2019) as you type, so a user who
     types "can't breathe" actually sends "can’t breathe". Matching the ASCII
     form literally would miss it — on the app's primary target platform.
+
+    It also separates run-together list items. People paste symptom lists, and
+    the separators do not always survive the clipboard: "Chest pain" followed
+    by "Shortness of breath" arrives as "Chest painShortness of breath". Every
+    phrase here is compiled with word boundaries, so that glued form matched
+    NOTHING — not the cardiac terms, not the breathing terms — and a
+    description that should have returned "call 911" was instead unrecognised
+    and fell to the URGENT default. Found from a real submission, where a
+    pasted list of cold symptoms arrived as "Runny or stuffy noseScratchy or
+    sore throatMild cough" and matched none of the three self-care phrases it
+    plainly contained.
+
+    The split is safe in one direction on purpose: it only ever inserts a
+    space, so it can make screening more sensitive and can never make it less.
+    Ordinary prose has no lowercase-to-uppercase boundary inside a word, so
+    nothing a person types normally is affected.
+
+    KNOWN LIMIT: this catches the sentence-case lists that people actually
+    paste. A list glued together in all capitals ("CHEST PAINSHORTNESS") has
+    no case boundary to split on and is still missed.
     """
     folded = query.replace("’", "'").replace("‘", "'")
     folded = folded.replace("ʼ", "'")
+    # "painShortness" -> "pain Shortness", before any matching happens.
+    folded = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", folded)
     # Collapse runs of whitespace so "chest   pain" still matches.
     return re.sub(r"\s+", " ", folded)
 

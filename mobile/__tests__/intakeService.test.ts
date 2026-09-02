@@ -1,7 +1,10 @@
-import { getToken } from "@/services/authService";
+import { getToken, logout } from "@/services/authService";
 import { IntakeError, submitIntake } from "@/services/intakeService";
 
-jest.mock("@/services/authService", () => ({ getToken: jest.fn() }));
+jest.mock("@/services/authService", () => ({
+  getToken: jest.fn(),
+  logout: jest.fn(async () => undefined),
+}));
 
 const mockedGetToken = getToken as jest.MockedFunction<typeof getToken>;
 
@@ -117,6 +120,8 @@ describe("intakeService", () => {
 
       expect(result).toEqual({
         status: "needs_detail",
+        // Defaults to the first round when the server does not say.
+        round: 1,
         intro: "Placeholder intro text.",
         questions: [
           {
@@ -169,6 +174,7 @@ describe("intakeService", () => {
         ],
         topicsSourceNote: "Placeholder source note.",
         topicsDisabled: false,
+        summary: null,
         disclaimer: "Placeholder disclaimer text.",
         escalationGuidance: "Placeholder escalation guidance text.",
       });
@@ -210,6 +216,9 @@ describe("intakeService", () => {
       expect(error).toBeInstanceOf(IntakeError);
       expect(error.isAuthError).toBe(true);
       expect(error.message).toMatch(/session has expired/i);
+      // The refused token is dropped, so a reload does not restore a dead
+      // session and land the user back on a screen that cannot load.
+      expect(logout).toHaveBeenCalled();
     });
 
     it("reports an unreachable server as a network error with the offline message", async () => {

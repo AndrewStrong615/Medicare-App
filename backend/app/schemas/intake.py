@@ -15,9 +15,13 @@ class IntakeRequest(BaseModel):
     # Explicit, per-submission consent. Defaults to False so a client that
     # forgets the field stores nothing.
     consent_to_store: bool = False
-    # Answers to the follow-up prompts, keyed by question id. Present on the
-    # second submission only. Merged into the description server-side so the
-    # combined text is re-screened from the top — see app/core/followup.py.
+    # Answers to the follow-up prompts, keyed by question id. Present on any
+    # submission after the first. Merged into the description server-side so
+    # the combined text is re-screened from the top — see app/core/followup.py.
+    #
+    # A later round carries the earlier rounds' answers too: the server reads
+    # which round this is from the ids present, so the cap on asking cannot be
+    # talked past by a client that reports its own round number.
     follow_up_answers: dict[str, str] | None = None
 
 
@@ -41,12 +45,35 @@ class NeedsDetailResponse(BaseModel):
     """
 
     status: Literal["needs_detail"] = "needs_detail"
+    # Which round of questions this is, 1-based. The client shows it so a
+    # second set does not look like the first set repeating, and echoes the
+    # earlier answers back so the server can merge the whole picture.
+    round: int = 1
     intro: str
     questions: list[FollowUpQuestionOut]
     # Repeated here because the client renders this screen without an
     # assessment to read them from.
     disclaimer: str
     escalation_guidance: str
+
+
+class IntakeRecapEntryOut(BaseModel):
+    label: str
+    value: str
+
+
+class IntakeRecapOut(BaseModel):
+    """
+    What the app heard back from the follow-up questions, and what it still
+    does not know.
+
+    Strictly a receipt: `value` is the user's own text, and `label` is a fixed
+    field heading. Nothing here is inferred, and no condition is ever named —
+    see `summarise` in app/core/followup.py.
+    """
+
+    understood: list[IntakeRecapEntryOut]
+    unclear: list[str]
 
 
 class IntakeResponse(BaseModel):
@@ -73,6 +100,11 @@ class IntakeResponse(BaseModel):
     # difference: "we found nothing for you" is the wrong thing to say when
     # nothing was ever looked up.
     topics_disabled: bool = False
+
+    # Present only when follow-up questions were answered. Lets the result
+    # screen say what it took from the answers and what is still blank, which
+    # is the honest explanation for a default tier.
+    summary: IntakeRecapOut | None = None
 
     # Safety copy the client must render. Sent from the server so there is one
     # reviewable source of truth rather than per-screen restatements.

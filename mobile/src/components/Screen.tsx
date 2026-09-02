@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { colors, spacing } from "@/theme";
+import { CONTENT_WIDTH, colors, spacing } from "@/theme";
 
 /**
  * Shared page frame: consistent background and padding, keeps content clear of
@@ -24,10 +24,24 @@ interface ScreenProps {
   children: ReactNode;
   /** Vertically centres content — for short screens like sign-in. */
   centerContent?: boolean;
+  /**
+   * Widens the content column from form width to list width. Forms stay
+   * narrow because a long input line is hard to scan; lists and result
+   * screens carry cards that look starved in a 480pt column on a tablet.
+   */
+  wide?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** Overrides the spacing rhythm of the content column itself. */
+  innerStyle?: StyleProp<ViewStyle>;
 }
 
-export function Screen({ children, centerContent = false, contentStyle }: ScreenProps) {
+export function Screen({
+  children,
+  centerContent = false,
+  wide = false,
+  contentStyle,
+  innerStyle,
+}: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -50,7 +64,7 @@ export function Screen({ children, centerContent = false, contentStyle }: Screen
         keyboardShouldPersistTaps="handled"
         alwaysBounceVertical={false}
       >
-        <View style={styles.inner}>{children}</View>
+        <View style={[styles.inner, wide && styles.innerWide, innerStyle]}>{children}</View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -72,8 +86,11 @@ const styles = StyleSheet.create({
     // Keeps line lengths readable on tablets and in the browser preview
     // instead of stretching a form across the full width.
     width: "100%",
-    maxWidth: 480,
+    maxWidth: CONTENT_WIDTH.form,
     alignSelf: "center",
     gap: spacing.lg,
+  },
+  innerWide: {
+    maxWidth: CONTENT_WIDTH.wide,
   },
 });

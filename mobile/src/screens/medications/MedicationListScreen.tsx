@@ -6,14 +6,16 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppButton } from "@/components/AppButton";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { Glyph } from "@/components/Glyph";
 import { MedicationCard } from "@/components/MedicationCard";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import {
   MedicationError,
   listMedications,
   type Medication,
 } from "@/services/medicationService";
-import { colors, spacing, typography } from "@/theme";
+import { colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationList">;
@@ -55,16 +57,12 @@ export function MedicationListScreen({ navigation }: Props) {
   );
 
   return (
-    <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          My medications
-        </Text>
-        <Text style={styles.subtitle}>
-          A list you keep yourself. MedHelp does not prescribe or change
-          anything here.
-        </Text>
-      </View>
+    <Screen wide>
+      <PageHeader
+        icon="pill"
+        title="My medications"
+        subtitle="A list you keep yourself. MedHelp does not prescribe or change anything here."
+      />
 
       {/*
         Two ways in, and typing it in stays the primary one. Scanning is a
@@ -96,6 +94,7 @@ export function MedicationListScreen({ navigation }: Props) {
 
       {needingRefill.length > 0 && (
         <View style={styles.refillSummary} accessibilityRole="summary">
+          <Glyph name="alert" size={18} color={colors.noticeText} />
           <Text style={styles.refillSummaryText}>
             {needingRefill.length === 1
               ? "1 medication needs a refill soon."
@@ -108,6 +107,7 @@ export function MedicationListScreen({ navigation }: Props) {
         <View style={styles.list}>
           {medications.length === 0 ? (
             <EmptyState
+              icon="pill"
               title="No medications yet"
               description="Add the medications you take so you can keep track of dosages, prescribing doctors, and when each one needs refilling."
             />
@@ -129,40 +129,37 @@ export function MedicationListScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.xs,
-  },
   addActions: {
     gap: spacing.sm,
-  },
-  title: {
-    ...typography.display,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
   },
   loading: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.lg,
   },
   loadingText: {
     ...typography.body,
     color: colors.textSecondary,
   },
   refillSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
     backgroundColor: colors.noticeSurface,
     borderColor: colors.noticeBorder,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: spacing.md,
+    borderRadius: radius.md,
+    padding: spacing.lg,
   },
   refillSummaryText: {
     ...typography.bodyStrong,
     color: colors.noticeText,
+    flex: 1,
   },
   list: {
     gap: spacing.md,

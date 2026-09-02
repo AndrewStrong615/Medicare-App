@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import {
@@ -120,15 +121,11 @@ export function MedicationEditScreen({ navigation, route }: Props) {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          {isEditing ? "Edit medication" : "Add a medication"}
-        </Text>
-        <Text style={styles.subtitle}>
-          Enter this exactly as it appears on your prescription or packaging.
-          MedHelp does not check or suggest medications or dosages.
-        </Text>
-      </View>
+      <PageHeader
+        icon="pill"
+        title={isEditing ? "Edit medication" : "Add a medication"}
+        subtitle="Enter this exactly as it appears on your prescription or packaging. MedHelp does not check or suggest medications or dosages."
+      />
 
       {/*
         The confirmation step for a scanned label, and the reason scanning is
@@ -235,22 +232,11 @@ export function MedicationEditScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.xs,
-  },
-  title: {
-    ...typography.display,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
   scanNotice: {
     backgroundColor: colors.noticeSurface,
     borderColor: colors.noticeBorder,
     borderWidth: 1,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.xs,
   },

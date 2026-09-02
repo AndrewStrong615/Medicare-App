@@ -23,13 +23,15 @@ from app.models.user import User
 from app.schemas.intake import (
     FollowUpQuestionOut,
     IntakeFeedbackRequest,
+    IntakeRecapEntryOut,
+    IntakeRecapOut,
     IntakeRequest,
     IntakeResponse,
     NeedsDetailResponse,
 )
 from app.schemas.symptom import EmergencyGuidanceOut, SymptomTopicOut
 from app.services.medlineplus import MedlinePlusUnavailable, search_topics
-from app.services.search_terms import candidate_queries, content_words, title_matches
+from app.services.search_terms import candidate_queries, content_words, names_match
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +79,17 @@ async def _related_topics(description: str) -> list[SymptomTopicOut]:
     empty result is why a tier used to arrive with nothing attached to it.
     `candidate_queries` strips the filler and then broadens a word at a time.
 
-    Results are kept only if the topic title contains a word the user actually
-    wrote. The upstream ranking is loose enough to answer "swollen ankle" with
-    "Diabetic Heart Disease", and showing that beside someone's description
-    would imply a diagnosis. A query whose results all fail that check is
-    treated as a miss and the search broadens instead.
+    Results are kept only if one of the names the SOURCE gives the topic — its
+    title or one of its own published alternate titles — contains a word the
+    user actually wrote. The upstream ranking is loose enough to answer
+    "swollen ankle" with "Diabetic Heart Disease", and showing that beside
+    someone's description would imply a diagnosis. A query whose results all
+    fail that check is treated as a miss and the search broadens instead.
+
+    Matching the alternate titles as well as the title is what stops the check
+    rejecting the source's own vocabulary: NLM files bunions under "Toe
+    Injuries and Disorders" and sunburn under "Sun Exposure", so a title-only
+    test told those users nothing matched.
 
     A failure here is not fatal: the tier and the escalation path matter far
     more than the article, so an outage returns an empty list rather than
@@ -97,9 +105,21 @@ async def _related_topics(description: str) -> list[SymptomTopicOut]:
             logger.warning("MedlinePlus unavailable for related reading.")
             return []
 
-        relevant = [t for t in topics if title_matches(t.title, words)]
+        relevant = [t for t in topics if names_match(t.title, t.alt_titles, words)]
         if relevant:
-            return [SymptomTopicOut(**topic.__dict__) for topic in relevant[:3]]
+            # alt_titles are match input only and are deliberately not
+            # carried onto the wire — the topic is shown under its own name.
+            return [
+                SymptomTopicOut(
+                    topic_id=topic.topic_id,
+                    title=topic.title,
+                    summary=topic.summary,
+                    url=topic.url,
+                    source_name=topic.source_name,
+                    groups=topic.groups,
+                )
+                for topic in relevant[:3]
+            ]
 
     return []
 
@@ -111,16 +131,23 @@ async def create_assessment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> IntakeResponse | NeedsDetailResponse:
-    # Presence of the field, not its truthiness, is what marks a second
-    # submission. An empty dict is still an answer to "have you been asked
-    # already?", and reading it as falsy let a client that posted `{}` be sent
-    # round the question loop again.
-    is_second_submission = payload.follow_up_answers is not None
+    # How many rounds of questions have already been shown. Derived from the
+    # answer keys server-side rather than taken from the client: the cap on
+    # asking is a safety property, and presence of the field alone is still
+    # what marks a submission as having been asked at least once, so a client
+    # that posts `{}` is not sent round the same questions again.
+    rounds_asked = followup.rounds_completed(payload.follow_up_answers)
     answers = payload.follow_up_answers or {}
     description = followup.merge(payload.description, answers) if answers else payload.description
 
     try:
-        result = assess(description, followup_already_asked=is_second_submission)
+        # "Already asked" means "and will not be asked again" — which is only
+        # true once every round is spent. Before that, a model asking for more
+        # detail should get it rather than falling to the safe default.
+        result = assess(
+            description,
+            followup_already_asked=rounds_asked >= followup.MAX_ROUNDS,
+        )
     except TriageUnavailable as exc:
         # Deliberately a failure, not a tier. Telling someone "probably fine"
         # because a service was down is the worst possible outcome here.
@@ -151,18 +178,30 @@ async def create_assessment(
     # description has its guidance in hand before this branch is reached and
     # simply falls past it.
     #
-    # Only on the first submission. Once answers come back the user has said
-    # what they can, and asking again would trap them in a loop.
+    # Up to `MAX_ROUNDS` times, and only while the previous round came back
+    # with something usable. Someone who answered "not sure" to everything has
+    # told us they cannot say more, and is given the safe default instead of
+    # another questionnaire.
     if followup.is_needed(
         rules_defaulted=result.rules_defaulted,
         red_flag_match=result.red_flag_match,
         model_requested_followup=result.model_requested_followup,
-        already_asked=is_second_submission,
+        rounds_asked=rounds_asked,
+        answers=answers,
     ):
+        next_round = rounds_asked + 1
         response.status_code = status.HTTP_200_OK
         return NeedsDetailResponse(
-            intro=followup.INTRO,
-            questions=[FollowUpQuestionOut(**q.__dict__) for q in followup.QUESTIONS],
+            round=next_round,
+            intro=followup.INTRO if next_round == 1 else followup.INTRO_SECOND_ROUND,
+            questions=[
+                FollowUpQuestionOut(**q.__dict__)
+                # The description is passed so round one can skip what the
+                # user has already told us. See `questions_for_round`.
+                for q in followup.questions_for_round(
+                    next_round, answers, description=description
+                )
+            ],
             disclaimer=INTAKE_DISCLAIMER,
             escalation_guidance=ESCALATION_GUIDANCE,
         )
@@ -181,7 +220,7 @@ async def create_assessment(
         escalated_by_safety_net=result.escalated_by_safety_net,
         model_requested_followup=result.model_requested_followup,
         exhausted_followup=result.exhausted_followup,
-        asked_followup=is_second_submission,
+        asked_followup=rounds_asked > 0,
     )
 
     # Reading material for the tiers the user can act on at their own pace.
@@ -226,6 +265,21 @@ async def create_assessment(
         db.refresh(record)
         record_id = record.id
 
+    # What the answers told us, and what they did not. Only meaningful when
+    # questions were actually asked, so it is omitted entirely otherwise.
+    recap = followup.summarise(answers)
+    summary = (
+        IntakeRecapOut(
+            understood=[
+                IntakeRecapEntryOut(label=entry.label, value=entry.value)
+                for entry in recap.understood
+            ],
+            unclear=recap.unclear,
+        )
+        if not recap.is_empty()
+        else None
+    )
+
     return IntakeResponse(
         id=record_id,
         tier=result.tier.wire_value,
@@ -238,6 +292,7 @@ async def create_assessment(
         related_topics=related_topics,
         topics_source_note=TOPICS_SOURCE_NOTE if related_topics else None,
         topics_disabled=topics_disabled,
+        summary=summary,
         disclaimer=INTAKE_DISCLAIMER,
         escalation_guidance=ESCALATION_GUIDANCE,
     )

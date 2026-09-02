@@ -1,4 +1,45 @@
-import { AuthError, getToken, login, logout, signup } from "@/services/authService";
+import {
+  AuthError,
+  getToken,
+  login,
+  logout,
+  restoreSession,
+  signup,
+} from "@/services/authService";
+
+/**
+ * The real store is platform-split (keystore / sessionStorage). What matters
+ * to this module is only that a token written on one run is readable on the
+ * next, so the store is faked and the platform behaviour is tested where it
+ * lives — see `tokenStorageWeb.test.ts`.
+ */
+let mockStoredToken: string | null = null;
+
+jest.mock("@/services/tokenStorage", () => ({
+  saveToken: jest.fn(async (token: string) => {
+    mockStoredToken = token;
+  }),
+  loadToken: jest.fn(async () => mockStoredToken),
+  clearToken: jest.fn(async () => {
+    mockStoredToken = null;
+  }),
+}));
+
+/**
+ * A token shaped like the backend's: three dot-separated parts, with a real
+ * base64url payload carrying `exp` in seconds. The signature is never checked
+ * here — the client cannot verify one, and does not try.
+ */
+function fakeToken(expiresInSeconds: number): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: "00000000-0000-0000-0000-00000000fake",
+      exp: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    })
+  ).toString("base64url");
+
+  return `fake-header.${payload}.fake-signature`;
+}
 
 function mockFetchOnce(ok: boolean, body: unknown) {
   (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -14,9 +55,9 @@ function mockFetchNetworkFailure() {
 }
 
 describe("authService", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     global.fetch = jest.fn();
-    logout(); // reset in-memory token between tests
+    await logout(); // reset the in-memory token and the store between tests
   });
 
   describe("login", () => {
@@ -115,4 +156,62 @@ describe("authService", () => {
       );
     });
   });
+
+  describe("session persistence", () => {
+    it("keeps the token where a later launch can find it", async () => {
+      mockFetchOnce(true, { access_token: fakeToken(3600), token_type: "bearer" });
+      const { accessToken } = await login("synthetic.user@example.com", "fake-password-1");
+
+      // Simulate the page being reloaded: the module's memory is gone, and
+      // only what was written to storage is left.
+      await logoutInMemoryOnly(accessToken);
+
+      await expect(restoreSession()).resolves.toBe(true);
+      expect(getToken()).toBe(accessToken);
+    });
+
+    it("reports no session when nothing was ever stored", async () => {
+      await expect(restoreSession()).resolves.toBe(false);
+      expect(getToken()).toBeNull();
+    });
+
+    it("throws away a token that has already expired rather than restoring it", async () => {
+      // Restoring this would put someone on a signed-in screen and then tell
+      // them their session had expired the moment they touched anything.
+      mockStoredToken = fakeToken(-60);
+
+      await expect(restoreSession()).resolves.toBe(false);
+      expect(getToken()).toBeNull();
+      expect(mockStoredToken).toBeNull();
+    });
+
+    it("restores a token it cannot read, and lets the server be the judge", async () => {
+      // Only the server verifies a token. Being unable to parse one is not
+      // evidence that it is bad, so it is sent and allowed to fail as a 401.
+      mockStoredToken = "not-a-jwt";
+
+      await expect(restoreSession()).resolves.toBe(true);
+      expect(getToken()).toBe("not-a-jwt");
+    });
+
+    it("empties the store on sign out, so a reload does not bring it back", async () => {
+      mockFetchOnce(true, { access_token: fakeToken(3600), token_type: "bearer" });
+      await login("synthetic.user@example.com", "fake-password-1");
+
+      await logout();
+
+      expect(getToken()).toBeNull();
+      expect(mockStoredToken).toBeNull();
+      await expect(restoreSession()).resolves.toBe(false);
+    });
+  });
 });
+
+/**
+ * Drops the in-memory token while leaving the store alone, which is what a
+ * page reload does. `logout()` cannot be used for this: it clears both.
+ */
+async function logoutInMemoryOnly(token: string): Promise<void> {
+  await logout();
+  mockStoredToken = token;
+}

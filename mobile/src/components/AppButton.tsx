@@ -9,7 +9,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 
 /**
  * React Native's built-in `Button` renders as borderless blue text on iOS and
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
   },
   content: {
@@ -119,6 +119,7 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: colors.accent,
     borderColor: colors.accent,
+    ...elevation.md,
   },
   primaryHover: {
     backgroundColor: colors.accentPressed,
@@ -127,10 +128,13 @@ const styles = StyleSheet.create({
   primaryPressed: {
     backgroundColor: colors.accentPressed,
     borderColor: colors.accentPressed,
+    ...elevation.sm,
   },
   primaryInactive: {
     backgroundColor: colors.accentDisabled,
     borderColor: colors.accentDisabled,
+    // A disabled control should not look like it is floating above the page.
+    ...elevation.none,
   },
   secondary: {
     backgroundColor: "transparent",

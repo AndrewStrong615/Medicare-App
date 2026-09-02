@@ -73,13 +73,22 @@ const UNIT = "mcg|mg|g|ml|units?|iu|%";
  *   "10mg"            single strength
  *   "20-25 mg"        combination product — both numbers are the dose
  *   "250 MG/5 ML"     a concentration, not a plain strength
+ *   "100 UNITS/ML"    a concentration whose denominator has no number
  *
  * Splitting any of these apart would misstate the dose, so the whole
  * expression is matched and kept together.
+ *
+ * The denominator's number is optional because plenty of concentrations are
+ * printed without one — "100 units/mL" and "5 mg/mL" are per *one* millilitre
+ * and simply do not write the 1. Requiring it stopped the match at "100
+ * units", which is not the same quantity: it turns a concentration into a
+ * plain strength, exactly the restatement this module is not allowed to make.
+ * It also left the orphaned "/ML" behind on the line for `extractName` to
+ * read as part of the drug's name.
  */
 const STRENGTH = new RegExp(
   `\\d+(?:\\.\\d+)?(?:\\s*-\\s*\\d+(?:\\.\\d+)?)*\\s*(?:${UNIT})` +
-    `(?:\\s*/\\s*\\d+(?:\\.\\d+)?\\s*(?:${UNIT}))?` +
+    `(?:\\s*/\\s*(?:\\d+(?:\\.\\d+)?\\s*)?(?:${UNIT}))?` +
     `(?![a-z])`,
   "i"
 );
@@ -193,6 +202,16 @@ function normaliseDosage(matched: string): string {
     }
   );
 
+  // A unit straight after the slash has no number in front of it to key off
+  // ("100 UNITS/ML"), so it needs its own pass or it stays shouted.
+  text = text.replace(
+    new RegExp(`(/)\\s*(${UNIT})`, "gi"),
+    (_full, slash: string, unit: string) => {
+      if (unit === "%") return `${slash}%`;
+      return `${slash}${UNIT_CASE[unit.toLowerCase()] ?? unit.toLowerCase()}`;
+    }
+  );
+
   // "20 - 25 mg" -> "20-25 mg", "250 mg / 5 mL" -> "250 mg/5 mL".
   text = text.replace(/\s*([-/])\s*/g, "$1");
 
@@ -209,16 +228,24 @@ function containsFormWord(line: string): boolean {
 /**
  * Labels are usually printed in block capitals. Shouting the name back at the
  * user is a readability problem, not a data problem, so the case is tidied —
- * but a short all-caps token like "HCL" or "XR" is left alone, because those
- * are how the product is actually written.
+ * but an all-caps abbreviation like "HCL", "XR" or "HCTZ" is left alone,
+ * because that is how the product is actually written.
+ *
+ * An abbreviation is recognised as one of two orthographic shapes: very short
+ * ("XR", "ER", "HFA"), or containing no vowel at all ("HCL", "HCTZ", "SMZ").
+ * Length alone was not enough — "LISINOPRIL-HCTZ" came back as
+ * "Lisinopril-Hctz", which is not the name of the product. Neither test reads
+ * a dictionary or asks what the letters stand for.
  */
+const VOWELS = /[aeiouy]/i;
+
 function toDisplayCase(word: string): string {
   return word
     .split("-")
     .map((part) => {
       if (!part) return part;
-      if (part.length <= 3 && part === part.toUpperCase()) return part;
       if (part !== part.toUpperCase()) return part;
+      if (part.length <= 3 || !VOWELS.test(part)) return part;
       return part.charAt(0) + part.slice(1).toLowerCase();
     })
     .join("-");
@@ -349,4 +376,23 @@ export function parseLabelText(raw: string): ParsedLabel {
   }
 
   return { name, dosage, frequency, prescribingDoctor, confidence, warnings };
+}
+
+/**
+ * Whether a parse produced anything worth carrying into the form.
+ *
+ * This is deliberately not `confidence !== "none"`. `confidence` answers a
+ * different question: it is "none" whenever the drug *name* is missing, even
+ * when the directions and the prescriber came through perfectly. Treating
+ * that as a failed read discarded fields that had been read correctly and
+ * returned the user to an empty form with nothing to show for the photo —
+ * the dead end this feature is not allowed to have.
+ *
+ * A read is useful if any single field survived. Only a photo that yielded
+ * nothing at all is worth refusing.
+ */
+export function hasAnyField(parsed: ParsedLabel): boolean {
+  return Boolean(
+    parsed.name || parsed.dosage || parsed.frequency || parsed.prescribingDoctor
+  );
 }

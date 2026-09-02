@@ -17,13 +17,59 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
+from app.api.auth import login_limiter, signup_limiter
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 
 # Import models so their tables are registered on Base.metadata before
 # create_all runs.
-from app.models import intake, medication, user  # noqa: F401
+from app.models import (  # noqa: F401
+    appointment,
+    intake,
+    medication,
+    provider_location,
+    reminder,
+    user,
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_geocoding(monkeypatch):
+    """
+    No test may reach the Census geocoder over the network.
+
+    Provider distances are geocoded from real street addresses
+    (`app/services/provider_geo.py`), so without this fixture any test that
+    calls /providers/search would make a live third-party request - slow,
+    flaky, and dependent on someone else's uptime.
+
+    The default answer is an empty dict, which means "the service answered for
+    nothing". That exercises the fallback path: distances drop back to the
+    ZIP-centroid estimate and nothing is written to the cache. Tests that want
+    real coordinates patch `geocode_addresses` themselves.
+    """
+    import app.services.provider_geo as provider_geo
+
+    monkeypatch.setattr(provider_geo, "geocode_addresses", lambda entries: {})
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """
+    Give every test a fresh sign-in budget.
+
+    The auth rate limiter keys on the client address, and every test in the
+    suite shares one — `TestClient` always reports the same host. Without this
+    the limiter would count the whole suite as a single attacker and tests
+    would start failing at whichever one happened to run eleventh. Tests that
+    are *about* the limiter drive it deliberately; see test_rate_limit.py.
+    """
+    login_limiter.clear()
+    signup_limiter.clear()
+    yield
+    login_limiter.clear()
+    signup_limiter.clear()
 
 
 @pytest.fixture()

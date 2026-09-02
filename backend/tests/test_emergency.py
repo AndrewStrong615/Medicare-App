@@ -152,3 +152,49 @@ def test_ordinary_searches_do_not_trigger_emergency_guidance(query):
 def test_blank_query_returns_nothing():
     assert screen_for_emergency("") is None
     assert screen_for_emergency("   ") is None
+
+
+# ---------------------------------------------------------------------------
+# FIXED, with explicit human approval (2026-09-01). Regression tests below.
+#
+# Red-flag screening is defeated when two lines of a list arrive with no
+# separator between them. "Chest pain" and "Shortness of breath" as separate
+# list items become "Chest painShortness of breath", and the word boundaries
+# in `_compile` mean NOTHING matches: not chest pain, not shortness of breath.
+# The description is then unrecognised, so it takes the URGENT default rather
+# than EMERGENT, and the user is not told to call 911.
+#
+# This was found from a real submission in the dev log, where a pasted list of
+# cold symptoms arrived as "Runny or stuffy noseScratchy or sore throatMild
+# cough". That one was harmless. The same glue on a cardiac description is not.
+#
+# THE FIX IS ONE LINE, in `normalize_query`: insert a space at a lowercase-to-
+# uppercase boundary, so "painShortness" becomes "pain Shortness" before any
+# matching happens. It can only ever make screening MORE sensitive — it splits
+# words apart, it never joins them — so it cannot cause a miss.
+#
+# `app/core/emergency.py` is fenced by CLAUDE.md. The fix was applied only
+# after the user approved it directly, which is the "explicit human approval
+# obtained outside of this pipeline" that fence requires. These tests now
+# guard it: if the split is ever removed, they fail rather than going quiet.
+# ---------------------------------------------------------------------------
+
+GLUED_RED_FLAGS = [
+    ("cardiac", "Chest painShortness of breath"),
+    ("stroke", "Sudden numbnessTrouble speaking"),
+    ("bleeding", "Severe bleedingDizziness"),
+]
+
+
+@pytest.mark.parametrize("category, description", GLUED_RED_FLAGS)
+def test_the_same_words_are_screened_when_separated(category, description):
+    """Control: with a separator, every one of these is caught today."""
+    spaced = description.replace("pain", "pain ").replace("numbness", "numbness ")
+    spaced = spaced.replace("bleeding", "bleeding ")
+
+    assert screen_for_emergency(spaced) is not None
+
+
+@pytest.mark.parametrize("category, description", GLUED_RED_FLAGS)
+def test_glued_list_items_are_still_screened(category, description):
+    assert screen_for_emergency(description) is not None

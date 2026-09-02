@@ -21,6 +21,7 @@ const ASSESSMENT = {
   relatedTopics: [],
   topicsSourceNote: null,
   topicsDisabled: false,
+  summary: null,
   disclaimer: "Not a diagnosis.",
   escalationGuidance: "Call 911 if this may be an emergency.",
 };
@@ -73,7 +74,12 @@ describe("SymptomIntakeScreen", () => {
     await describeSymptoms();
 
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("IntakeResult", { assessment: ASSESSMENT })
+      expect(navigate).toHaveBeenCalledWith("IntakeResult", {
+        assessment: ASSESSMENT,
+        // Carried so the appointment flow can prefill the reason for visit
+        // without the user describing their symptoms a second time.
+        description: "sore throat for two days",
+      })
     );
   });
 
@@ -131,5 +137,81 @@ describe("SymptomIntakeScreen", () => {
     // jsdom has no SpeechRecognition, so this exercises the unsupported path.
     expect(screen.getByText(/dictation isn't available/i)).toBeTruthy();
     expect(screen.getByLabelText("Describe your symptoms")).toBeTruthy();
+  });
+});
+
+
+describe("starting a new description", () => {
+  /*
+    The bug this guards: "Describe something else" navigates BACK to this
+    screen, which is already mounted underneath the result. There is no fresh
+    mount to clear the form, so the previous description was still sitting in
+    the box. These tests drive the same shape — one mounted component, params
+    changing underneath it — rather than re-rendering from scratch, because a
+    fresh mount would pass even with the fix removed.
+  */
+  const FIELD = "Describe your symptoms";
+  const CONSENT = "Save this description so it can be reviewed for accuracy";
+
+  function renderWithParams(params: object | undefined) {
+    const navigation = { navigate: jest.fn(), setParams: jest.fn() };
+    const view = render(
+      <SymptomIntakeScreen navigation={navigation as any} route={{ params } as any} />
+    );
+    return { navigation, view };
+  }
+
+  it("clears the previous description when asked to reset", () => {
+    const { navigation, view } = renderWithParams(undefined);
+
+    fireEvent.changeText(screen.getByLabelText(FIELD), "a sore throat");
+    expect(screen.getByLabelText(FIELD).props.value).toBe("a sore throat");
+
+    // The same mounted screen, now navigated back to with { reset: true }.
+    view.rerender(
+      <SymptomIntakeScreen
+        navigation={navigation as any}
+        route={{ params: { reset: true } } as any}
+      />
+    );
+
+    expect(screen.getByLabelText(FIELD).props.value).toBe("");
+  });
+
+  it("also clears consent, which was given for the previous description", () => {
+    // Carrying a tick forward would store a second piece of health data under
+    // permission granted for something else.
+    const { navigation, view } = renderWithParams(undefined);
+
+    fireEvent.press(screen.getByLabelText(CONSENT));
+    expect(screen.getByLabelText(CONSENT).props.accessibilityState.checked).toBe(true);
+
+    view.rerender(
+      <SymptomIntakeScreen
+        navigation={navigation as any}
+        route={{ params: { reset: true } } as any}
+      />
+    );
+
+    expect(screen.getByLabelText(CONSENT).props.accessibilityState.checked).toBe(false);
+  });
+
+  it("consumes the reset flag so a later return does not wipe new text", () => {
+    const { navigation } = renderWithParams({ reset: true });
+
+    expect(navigation.setParams).toHaveBeenCalledWith({ reset: undefined });
+  });
+
+  it("leaves the description alone when no reset was asked for", () => {
+    // Coming back from the follow-up questions must not destroy what the user
+    // is still editing.
+    const { navigation, view } = renderWithParams(undefined);
+
+    fireEvent.changeText(screen.getByLabelText(FIELD), "my knee hurts");
+    view.rerender(
+      <SymptomIntakeScreen navigation={navigation as any} route={{ params: {} } as any} />
+    );
+
+    expect(screen.getByLabelText(FIELD).props.value).toBe("my knee hurts");
   });
 });

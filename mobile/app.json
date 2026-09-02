@@ -10,11 +10,15 @@
       "bundleIdentifier": "com.medhelp.app",
       "infoPlist": {
         "NSCameraUsageDescription": "MedHelp uses the camera only to read a prescription label. The photo is read on this device and is never uploaded.",
-        "NSPhotoLibraryUsageDescription": "MedHelp uses your photos only to read a prescription label you choose. The photo is read on this device and is never uploaded."
+        "NSPhotoLibraryUsageDescription": "MedHelp uses your photos only to read a prescription label you choose. The photo is read on this device and is never uploaded.",
+        "NSLocationWhenInUseUsageDescription": "MedHelp uses your location only to fill in your ZIP code and estimate how far away a provider is. Only the ZIP code is sent when searching the provider directory - your exact location never leaves this device."
       }
     },
     "android": {
-      "package": "com.medhelp.app"
+      "package": "com.medhelp.app",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
     "plugins": [
       [
@@ -36,6 +40,14 @@
         {
           "photosPermission": "MedHelp uses your photos only to read a prescription label you choose. The photo is read on this device and is never uploaded.",
           "cameraPermission": "MedHelp uses the camera only to read a prescription label. The photo is read on this device and is never uploaded."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MedHelp uses your location only to fill in your ZIP code and estimate how far away a provider is. Only the ZIP code is sent when searching the provider directory - your exact location never leaves this device.",
+          "locationWhenInUsePermission": "MedHelp uses your location only to fill in your ZIP code and estimate how far away a provider is. Only the ZIP code is sent when searching the provider directory - your exact location never leaves this device.",
+          "isAndroidBackgroundLocationEnabled": false
         }
       ]
     ],

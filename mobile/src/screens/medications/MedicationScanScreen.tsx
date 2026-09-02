@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import {
   ScanError,
@@ -13,7 +14,7 @@ import {
   type ImageSource,
 } from "@/services/labelScanner";
 import type { ParsedLabel } from "@/services/labelParser";
-import { colors, radius, spacing, typography } from "@/theme";
+import { colors, elevation, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationScan">;
@@ -72,16 +73,11 @@ export function MedicationScanScreen({ navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          Scan a label
-        </Text>
-        <Text style={styles.subtitle}>
-          Take a photo of your prescription label and MedHelp will fill in what
-          it can read. You'll get a chance to check and correct every field
-          before anything is saved.
-        </Text>
-      </View>
+      <PageHeader
+        icon="search"
+        title="Scan a label"
+        subtitle="Take a photo of your prescription label and MedHelp will fill in what it can read. You'll get a chance to check and correct every field before anything is saved."
+      />
 
       {/*
         Stated plainly and up front, because "take a photo of your
@@ -149,20 +145,9 @@ export function MedicationScanScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.xs,
-  },
-  title: {
-    ...typography.display,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
   privacy: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.xs,
   },
@@ -179,8 +164,9 @@ const styles = StyleSheet.create({
   },
   unavailable: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.sm,
+    borderRadius: radius.lg,
     padding: spacing.md,
+    ...elevation.sm,
   },
   unavailableText: {
     ...typography.body,

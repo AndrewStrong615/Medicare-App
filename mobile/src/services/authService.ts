@@ -1,11 +1,28 @@
 /**
- * Placeholder auth service. Talks to the FastAPI /auth endpoints and holds
- * the token in memory only — no persisted/secure storage yet. Before this
- * ships, swap the in-memory token for expo-secure-store (or equivalent) and
- * add token refresh handling.
+ * Auth service. Talks to the FastAPI /auth endpoints and owns the session
+ * token for the whole app.
+ *
+ * ## The token outlives the page, and only just
+ *
+ * It used to live in a module variable and nowhere else, so a browser refresh
+ * — or anything else that restarted the JS bundle — threw the session away
+ * and dropped the user back on the sign-in screen mid-task. It is now also
+ * handed to `tokenStorage`, which is platform-split: the OS keystore on iOS
+ * and Android, `sessionStorage` in a browser. Read that module for what each
+ * one does and does not survive.
+ *
+ * The in-memory copy is still the one every request reads, so `getToken()`
+ * stays synchronous for its callers. Storage is consulted once, by
+ * `restoreSession()` at startup.
+ *
+ * Still missing, and still a Known Gap in CLAUDE.md: there is no refresh flow
+ * and no revocation. A restored token is valid until it expires and cannot be
+ * recalled before then.
  */
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE_URL, baseUrlIsTransportSafe } from "@/services/baseUrl";
+import { clearToken, loadToken, saveToken } from "@/services/tokenStorage";
+import { accessTokenIsExpired } from "@/utils/jwt";
 
 let inMemoryToken: string | null = null;
 
@@ -61,11 +78,25 @@ function readErrorDetail(body: unknown): string | null {
   return null;
 }
 
+/**
+ * The one call carrying a password was the one call with no transport check at
+ * all — every other service had one and this did not. See `baseUrl.ts`.
+ */
+function assertSecureBaseUrl(): void {
+  if (!baseUrlIsTransportSafe()) {
+    throw new AuthError(
+      "MedHelp is not configured securely and can't sign you in. Please update the app."
+    );
+  }
+}
+
 async function postJson(
   path: string,
   payload: Record<string, unknown>,
   fallbackMessage: string
 ): Promise<unknown> {
+  assertSecureBaseUrl();
+
   let response: Response;
 
   try {
@@ -110,6 +141,10 @@ export async function login(email: string, password: string): Promise<AuthResult
   }
 
   inMemoryToken = accessToken;
+  // Awaited so a caller navigating onward can rely on the session having been
+  // written. A storage failure is swallowed inside `saveToken` rather than
+  // thrown here: being unable to persist a session is not a failed sign-in.
+  await saveToken(accessToken);
   return { accessToken };
 }
 
@@ -125,6 +160,44 @@ export function getToken(): string | null {
   return inMemoryToken;
 }
 
-export function logout(): void {
+/**
+ * Brings back a session written by an earlier run of the app, if there is one
+ * and it is still usable. Called once, at startup, before the navigator
+ * decides which screen to open on.
+ *
+ * Returns whether the app now holds a token — not whether the server will
+ * accept it. Only the server can say that, so a token this app cannot read is
+ * restored and allowed to fail as a 401 rather than being second-guessed
+ * here. A token that readably expired is dropped instead, because sending it
+ * can only produce "your session has expired" after the user has already been
+ * shown a signed-in screen.
+ */
+export async function restoreSession(): Promise<boolean> {
+  const stored = await loadToken();
+
+  if (!stored) {
+    inMemoryToken = null;
+    return false;
+  }
+
+  if (accessTokenIsExpired(stored)) {
+    inMemoryToken = null;
+    await clearToken();
+    return false;
+  }
+
+  inMemoryToken = stored;
+  return true;
+}
+
+/**
+ * Forgets the session everywhere. Memory is cleared synchronously, so nothing
+ * can read a stale token while the storage write is still in flight; the
+ * returned promise is for callers that want to wait for the store to empty.
+ *
+ * This does not invalidate the token server-side — there is no revocation.
+ */
+export function logout(): Promise<void> {
   inMemoryToken = null;
+  return clearToken();
 }

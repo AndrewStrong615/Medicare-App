@@ -5,10 +5,11 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppButton } from "@/components/AppButton";
 import { EmergencyCallBar } from "@/components/EmergencyCallBar";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { IntakeError, submitIntake } from "@/services/intakeService";
-import { colors, radius, spacing, typography } from "@/theme";
+import { colors, elevation, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "IntakeFollowUp">;
@@ -34,7 +35,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "IntakeFollowUp">;
  *    its emergency guidance immediately instead of asking anything.
  */
 export function IntakeFollowUpScreen({ navigation, route }: Props) {
-  const { followUp, description, consent } = route.params;
+  const { followUp, description, consent, priorAnswers } = route.params;
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [showMissing, setShowMissing] = useState(false);
@@ -57,17 +58,36 @@ export function IntakeFollowUpScreen({ navigation, route }: Props) {
 
     setError(null);
     setSubmitting(true);
+    // Every round's answers go up together: the server merges them all into
+    // the text it re-screens, and reads which round this is from the ids.
+    const allAnswers = { ...(priorAnswers ?? {}), ...answers };
     try {
-      const result = await submitIntake(description, consent, answers);
+      const result = await submitIntake(description, consent, allAnswers);
       if (result.status === "needs_detail") {
-        // The server does not ask twice; treated as a failure rather than
-        // looping the user through the same screen again.
+        // The server decides how many rounds there are and when to stop. The
+        // client only refuses to go backwards — a round number that did not
+        // advance would mean the same questions again, which is the loop this
+        // screen must never put someone in.
+        if (result.round > followUp.round) {
+          navigation.replace("IntakeFollowUp", {
+            followUp: result,
+            description,
+            consent,
+            priorAnswers: allAnswers,
+          });
+          return;
+        }
         setError(
           "We still couldn't make sense of this. Please contact a healthcare professional, and call 911 if this may be an emergency."
         );
         return;
       }
-      navigation.replace("IntakeResult", { assessment: result });
+      navigation.replace("IntakeResult", {
+        assessment: result,
+        // The original description; the server merges the follow-up answers
+        // into what it assesses, and this is what the user actually wrote.
+        description,
+      });
     } catch (caught) {
       setError(
         caught instanceof IntakeError
@@ -84,12 +104,15 @@ export function IntakeFollowUpScreen({ navigation, route }: Props) {
       {/* Unconditional: answering is required for a tier, never for help. */}
       <EmergencyCallBar />
 
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          A few more details
-        </Text>
-        <Text style={styles.intro}>{followUp.intro}</Text>
-      </View>
+      <PageHeader
+        icon="symptom"
+        // Named by round so a second set does not read as the first set
+        // repeating — the complaint that prompted this was that the app kept
+        // asking the same four things.
+        eyebrow={followUp.round > 1 ? `STEP ${followUp.round} OF 2` : undefined}
+        title={followUp.round > 1 ? "Just a couple more" : "A few more details"}
+        subtitle={followUp.intro}
+      />
 
       {followUp.questions.map((question) => {
         const value = answerFor(question.questionId);
@@ -162,16 +185,14 @@ export function IntakeFollowUpScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: { gap: spacing.xs },
-  title: { ...typography.display, color: colors.textPrimary },
-  intro: { ...typography.body, color: colors.textSecondary },
   question: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.sm,
+    ...elevation.sm,
   },
   prompt: { ...typography.bodyStrong, color: colors.textPrimary },
   helper: { ...typography.caption, color: colors.textSecondary },

@@ -430,11 +430,13 @@ class TestTheModelMayAskInsteadOfAnswering:
         assert isinstance(result.tier, Tier)
 
 
-class TestAskingIsCappedAtOnce:
+class TestAskingIsCapped:
     """
-    A second round of questions would trap someone who cannot describe it any
-    better than they already have. The safe default is taken instead, and said
-    out loud rather than presented as a judgement the app made.
+    Asking forever would trap someone who cannot describe it any better than
+    they already have. Once every round is spent the safe default is taken
+    instead, and said out loud rather than presented as a judgement the app
+    made. `followup_already_asked=True` is the caller saying "and there will
+    be no further round", which is now true after `followup.MAX_ROUNDS`.
     """
 
     def test_a_second_unclassifiable_pass_takes_the_safe_default(self, model_says):
@@ -468,7 +470,7 @@ class TestAskingIsCappedAtOnce:
 
         # `model_requested_followup` stays True on purpose: it records what
         # the model actually did, and a reviewer wants to see that it declined
-        # twice. The no-loop guarantee is not that flag — it is the veto in
+        # again. The no-loop guarantee is not that flag — it is the veto in
         # `is_needed`, which is what the caller actually consults.
         assert result.model_requested_followup is True
         assert (
@@ -476,7 +478,8 @@ class TestAskingIsCappedAtOnce:
                 rules_defaulted=result.rules_defaulted,
                 red_flag_match=result.red_flag_match,
                 model_requested_followup=result.model_requested_followup,
-                already_asked=True,
+                rounds_asked=followup.MAX_ROUNDS,
+                answers={"location": "my lower back", "onset": "Gradually"},
             )
             is False
         )

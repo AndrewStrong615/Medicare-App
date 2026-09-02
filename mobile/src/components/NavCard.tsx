@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { Glyph, GlyphTile, type GlyphName } from "@/components/Glyph";
+import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 
 /**
  * A large destination tile for the home screen.
@@ -9,16 +10,21 @@ import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
  * The generous hit area is deliberate: this app is used one-handed, sometimes
  * by people who are unwell, and a card is far easier to hit accurately than a
  * row of small text links.
+ *
+ * The glyph and the chevron are decoration and affordance respectively —
+ * neither carries information the title and description do not already state,
+ * so the card reads the same to a screen reader as it does on screen.
  */
 interface NavCardProps {
   title: string;
   description: string;
   onPress: () => void;
+  icon?: GlyphName;
 }
 
 type HoverProps = { onHoverIn?: () => void; onHoverOut?: () => void };
 
-export function NavCard({ title, description, onPress }: NavCardProps) {
+export function NavCard({ title, description, onPress, icon }: NavCardProps) {
   const [hovered, setHovered] = useState(false);
 
   const hoverProps: HoverProps = {
@@ -41,9 +47,19 @@ export function NavCard({ title, description, onPress }: NavCardProps) {
         pressed && styles.cardPressed,
       ]}
     >
+      {icon && (
+        <GlyphTile
+          name={icon}
+          tint={hovered ? colors.accent : colors.accentSurface}
+          color={hovered ? colors.textOnAccent : colors.accent}
+        />
+      )}
       <View style={styles.body}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
+      </View>
+      <View style={styles.chevron}>
+        <Glyph name="chevron" size={16} color={colors.borderStrong} />
       </View>
     </Pressable>
   );
@@ -52,21 +68,27 @@ export function NavCard({ title, description, onPress }: NavCardProps) {
 const styles = StyleSheet.create({
   card: {
     minHeight: MIN_TAP_TARGET,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.lg,
+    ...elevation.sm,
   },
   cardHovered: {
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.accentBorder,
+    ...elevation.md,
   },
   cardPressed: {
     borderColor: colors.accent,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.accentSurface,
+    ...elevation.sm,
   },
   body: {
+    flex: 1,
     gap: spacing.xs,
   },
   title: {
@@ -76,5 +98,10 @@ const styles = StyleSheet.create({
   description: {
     ...typography.caption,
     color: colors.textSecondary,
+  },
+  chevron: {
+    // Nudged in so the arrow sits on the card's optical edge, not its
+    // mathematical one.
+    marginRight: -spacing.xs,
   },
 });

@@ -147,17 +147,33 @@ treats `100.64.0.0/10` as safe for plain http, on the same grounds as
 loopback — WireGuard has already encrypted the traffic, and the address is not
 publicly routable.
 
-⛔ **Do not expose this backend to the open internet** — no tunnel, no port
-forward. The specific holes this warning used to name are closed: every route
-now requires a bearer token and filters on the caller, CORS is an explicit
-allowlist, sign-in is rate limited, and the signing key can no longer be the
-published placeholder. What is still missing is the rest of a production
-posture — no encryption at rest, no BAA with any vendor, no reviewed clinical
-content, a self-signed certificate at best, and a database reached as the
-`postgres` superuser. See "Open data-handling findings" in CLAUDE.md.
+A mesh is still the right answer for using the app *yourself* from another
+network: it needs no public exposure at all, and nobody who is not on the mesh
+can reach it.
 
-A mesh gives you access from anywhere without any of that becoming a public
-problem.
+⛔ **Do not expose this backend to the open internet by tunnel or port
+forward.** A tunnel from a development machine puts a server configured for a
+private LAN — `ENVIRONMENT=local`, a self-signed certificate, a database
+reached as the `postgres` superuser — on a public address, which is a different
+and worse thing than the deployment below. If you want a public link, use the
+one that is configured for it.
+
+### A public link, on any device, on any network
+
+There is a Render blueprint at [`render.yaml`](render.yaml): a static site for
+the app, the API, and a Postgres database, deployed from GitHub with no CLI to
+install and no credit card. Full procedure, including what publishing does and
+does not change about the app's safety posture, is in
+[docs/deployment.md](docs/deployment.md).
+
+⛔ **What that deployment is, and is not.** It is a public demonstration of the
+software. It is not a service for real patients, and putting one in front of
+real patients is still blocked on everything CLAUDE.md says it is blocked on —
+clinical sign-off on the triage instrument, legal sign-off on medical-device
+status, a BAA with every vendor, and encryption at rest. Publishing closes
+exactly one of the open findings (traffic is now encrypted *and* authenticated
+in transit, by a CA-issued certificate rather than a self-signed one) and
+closes none of the others. **Synthetic data only, there as everywhere else.**
 
 Run mobile tests:
 

@@ -1,0 +1,175 @@
+# Render blueprint — stands the whole app up on the public internet.
+#
+# WHAT THIS CREATES
+#
+#   medhelp-web-as615   the app itself, a static site (the link you share)
+#   medhelp-api-as615   the FastAPI backend
+#   medhelp-db          Postgres
+#
+# HOW TO USE IT: see docs/deployment.md. Short version — push this file to
+# GitHub, then on Render: New > Blueprint > pick this repository > Apply.
+#
+# ⛔ READ THIS BEFORE DEPLOYING. CLAUDE.md and README used to say, in bold,
+# not to expose this backend to the open internet, and the release blockers
+# that warning rests on are all still open: no clinician has reviewed the
+# triage instrument, no lawyer has ruled on medical-device status, nothing is
+# encrypted at rest, and there is no BAA with any vendor. Publishing this was
+# an explicit decision by the repository owner on 2026-09-02, recorded in
+# CLAUDE.md under "Public deployment". It is a demo of software, not a service
+# for real patients, and the app says so on every screen.
+#
+# WHAT PUBLISHING CHANGES, AND WHAT IT DOES NOT
+#
+#   * TLS is real here, not the self-signed certificate the LAN setup uses.
+#     Render terminates a CA-issued certificate, so traffic is both encrypted
+#     and authenticated — which also makes the browser's geolocation API work
+#     for the first time.
+#   * Every route still requires a bearer token and filters on the caller,
+#     sign-in is still rate limited, and CORS is an explicit allowlist.
+#   * Still missing: encryption at rest, token revocation, an audit log of
+#     reads, and a least-privilege database role. Those are unchanged by
+#     deploying — see "Open data-handling findings" in CLAUDE.md.
+
+databases:
+  - name: medhelp-db
+    databaseName: medhelp
+    user: medhelp
+    plan: free
+    # Same region as the API, explicitly. The API reaches the database over
+    # Render's internal network, which only exists within one region.
+    region: oregon
+
+services:
+  # ---------------------------------------------------------------- backend
+  - type: web
+    name: medhelp-api-as615
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Alembic is still not wired up (CLAUDE.md, "Known Gaps"), so nothing
+    # creates a table for a new model. `create_missing_tables.py` calls
+    # `create_all`, which creates what is missing and never alters what
+    # exists, so it is safe to run on every boot. Replace this with a real
+    # migration step before anything but a demo runs here.
+    startCommand: >-
+      python scripts/create_missing_tables.py &&
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # 3.13 has no wheel for some of the pinned versions here; 3.11 is what
+      # CLAUDE.md names and what the lockfile was resolved against.
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # Not one of local/dev/development/test/testing, so `app/core/config.py`
+      # applies its production rules: a weak signing key is a refusal to boot,
+      # a "*" CORS origin is refused, /docs is not served, and
+      # `app/db/session.py` appends sslmode=require to the database URL.
+      - key: ENVIRONMENT
+        value: production
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: medhelp-db
+          property: connectionString
+
+      # ⛔ The whole of authentication. Render generates a random value and
+      # never shows it in the blueprint, which is the only way this stays out
+      # of source control. If the API fails to boot complaining the key is too
+      # short, set one by hand in the dashboard:
+      #     python -c "import secrets; print(secrets.token_hex(32))"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+      # The exact origin the app is served from. This is a literal rather than
+      # a `fromService` reference to the static site, because the site already
+      # references this service and Render will not resolve a cycle.
+      #
+      # ⛔ If Render gave the static site a different URL — it appends a suffix
+      # when a name is already taken globally — change this to match, or every
+      # request from the browser fails CORS with no useful error on screen.
+      - key: CORS_ALLOW_ORIGINS
+        value: https://medhelp-web-as615.onrender.com
+
+      # Loopback/LAN origins are a development convenience and are ignored
+      # outside a development ENVIRONMENT anyway. Off explicitly, so nothing
+      # depends on that.
+      - key: CORS_ALLOW_PRIVATE_ORIGINS
+        value: "false"
+
+      - key: ENABLE_API_DOCS
+        value: "false"
+
+      # Optional, and it changes what the symptom check can do rather than
+      # whether it works: the deterministic rule layer always runs and needs no
+      # key, but without one the explanation is a fixed sentence rather than
+      # one written to what the user typed, and the classifier can never ask a
+      # clarifying question. Left unset here — Render prompts for it — because
+      # a key in a blueprint is a key in source control.
+      #
+      # ⛔ Setting it makes Anthropic a processor of symptom descriptions, and
+      # this project has a BAA with nobody. See CLAUDE.md.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # ⛔ Both off, and neither should be switched on here. The first attaches
+      # MedlinePlus reading material that a compliance review rejected; the
+      # second writes symptom descriptions to the application log.
+      - key: MEDLINEPLUS_TOPICS_ENABLED
+        value: "false"
+      - key: TRIAGE_LOG_CLASSIFICATIONS
+        value: "false"
+
+      # The in-memory limiter is per process (CLAUDE.md, open finding 6). One
+      # free instance means one process, so these are the real numbers.
+      - key: AUTH_RATE_LIMIT_ATTEMPTS
+        value: "10"
+      - key: AUTH_RATE_LIMIT_WINDOW_SECONDS
+        value: "300"
+
+  # --------------------------------------------------------------- the app
+  - type: web
+    name: medhelp-web-as615
+    runtime: static
+    rootDir: mobile
+    # `expo export` writes the web build to mobile/dist, which is gitignored —
+    # it is built here on every deploy rather than committed.
+    #
+    # EXPO_PUBLIC_* is inlined into the bundle by babel at build time, so the
+    # API address is baked in here and cannot be changed without rebuilding.
+    # That is why it is composed from the API service's real hostname rather
+    # than guessed: `baseUrl.ts` otherwise looks for the API on port 8000 of
+    # whatever host served the page, which is right on a LAN and wrong here.
+    buildCommand: >-
+      npm ci &&
+      EXPO_PUBLIC_API_BASE_URL="https://$MEDHELP_API_HOST"
+      npx expo export --platform web
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: MEDHELP_API_HOST
+        fromService:
+          type: web
+          name: medhelp-api-as615
+          property: host
+    routes:
+      # Single-page app: a deep link or a refresh on any path has to be served
+      # index.html rather than a 404, or the router never gets to run.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # The API sets its own, stricter set in `app/main.py`. These cover the
+      # HTML and the bundle, which that middleware never sees.
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

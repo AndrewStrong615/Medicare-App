@@ -17,6 +17,7 @@ import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen
 import { MedicationListScreen } from "@/screens/medications/MedicationListScreen";
 import { MedicationRemindersScreen } from "@/screens/medication-reminders/MedicationRemindersScreen";
 import { MedicationScanScreen } from "@/screens/medications/MedicationScanScreen";
+import { MoreScreen } from "@/screens/MoreScreen";
 import { ReminderEditScreen } from "@/screens/medication-reminders/ReminderEditScreen";
 import { ProviderDetailScreen } from "@/screens/appointments/ProviderDetailScreen";
 import { ProviderSearchScreen } from "@/screens/appointments/ProviderSearchScreen";
@@ -110,6 +111,7 @@ export function RootNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Signup" component={SignupScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="More" component={MoreScreen} options={{ title: "More" }} />
         <Stack.Screen
           name="SymptomIntake"
           component={SymptomIntakeScreen}

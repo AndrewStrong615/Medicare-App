@@ -83,9 +83,14 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
       // Both kinds of notification come from one place, because arming either
       // one cancels everything already scheduled — see `ScheduleOptions`. The
       // medication list is fetched here purely for the refill estimates.
+      //
+      // Its failure is swallowed rather than shared. This screen's job is the
+      // reminder times; refill alerts are the extra on top, and a medication
+      // request that fails must not turn a working reminders screen into an
+      // error page.
       const [loaded, medications] = await Promise.all([
         listSchedules(),
-        listMedications(days),
+        listMedications(days).catch(() => []),
       ]);
       setSchedules(loaded);
 

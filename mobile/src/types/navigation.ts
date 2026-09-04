@@ -24,6 +24,15 @@ export type RootStackParamList = {
   Login: { accountCreated?: boolean } | undefined;
   Signup: undefined;
   Home: undefined;
+  /**
+   * Everything the home screen no longer shows at once.
+   *
+   * ⛔ A move, not a removal. Every destination that came off the home screen
+   * is reachable from here in one tap, and every route below still exists —
+   * nothing that worked before the consolidation was renamed or dropped, so
+   * no existing navigation or deep link broke.
+   */
+  More: undefined;
 
   // Symptom intake and its urgency estimate.
   // `reset` clears the form. "Describe something else" on the result screen

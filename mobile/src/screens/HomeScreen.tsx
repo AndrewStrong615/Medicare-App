@@ -1,4 +1,6 @@
+import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
@@ -9,43 +11,25 @@ import { InfoPanel } from "@/components/InfoPanel";
 import { NavCard } from "@/components/NavCard";
 import { Screen } from "@/components/Screen";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { logout } from "@/services/authService";
+import { listAppointments, type Appointment } from "@/services/appointmentService";
 import { colors, elevation, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 /**
- * Short factual statements about the software, shown beside the entry points.
+ * Statements about the software, kept on the home screen.
  *
- * ⛔ These are deliberately about the *app*, not about health. Everything here
- * is checkable against the code, and none of it is a clinical claim, a symptom
+ * ⛔ Deliberately about the *app*, not about health. Everything here is
+ * checkable against the code, and none of it is a clinical claim, a symptom
  * description, or a number about the user — see the note at the top of
  * `InfoPanel` for why a health app's empty space is the wrong place to be
  * inventive.
  *
- * The wording restates statements the repository already makes rather than
- * adding new ones: the "will not do" list is CLAUDE.md's App Scope, and the
- * data lines are the on-device-scanning and provider-search rules.
+ * This is the one panel that stayed when the home screen was consolidated,
+ * because it restates CLAUDE.md's App Scope and that is the thing worth
+ * saying on the way in. The other two moved to `MoreScreen`.
  */
-const HOW_IT_WORKS = [
-  {
-    step: "1",
-    title: "Describe it in your own words",
-    text: "Type or dictate what is going on. Plain language is what the app expects.",
-  },
-  {
-    step: "2",
-    title: "Get an estimate of timing",
-    text: "MedHelp estimates how soon you may need care, and shows you what you told it.",
-  },
-  {
-    step: "3",
-    title: "Keep the rest in one place",
-    text: "Your medications, the times you take them, and a record of your appointments.",
-  },
-];
-
 const WHAT_IT_WILL_NOT_DO = [
   { text: "It does not diagnose, and never names a condition you might have." },
   { text: "It does not recommend a treatment or tell you what to take." },
@@ -53,116 +37,133 @@ const WHAT_IT_WILL_NOT_DO = [
   { text: "It is not a substitute for advice from a healthcare professional." },
 ];
 
-const WHERE_INFORMATION_GOES = [
-  {
-    icon: "pill" as const,
-    title: "A prescription label is read on your device",
-    text: "The photograph is never uploaded, and only the fields you confirm are saved.",
-  },
-  {
-    icon: "search" as const,
-    title: "A provider search carries a ZIP code and a care setting",
-    text: "Never what you wrote about your symptoms, and never your exact location.",
-  },
-  {
-    icon: "clock" as const,
-    title: "Reminder times are set by you",
-    text: "MedHelp proposes times from the printed directions; nothing is scheduled until you save it.",
-  },
-];
+/**
+ * Appointments the user has not finished with.
+ *
+ * ⛔ **Not "the next one", because MedHelp cannot know which that is.**
+ * `preferred_time` is free text by design ("Thursday morning", "as soon as
+ * possible") and there is no scheduled datetime on the record — CLAUDE.md
+ * fences adding one until a real scheduling integration exists behind it, on
+ * the grounds that a time this app invents is a time someone turns up for.
+ *
+ * So the list is ordered as the API orders it, newest recorded first, and the
+ * screen says "most recently recorded" rather than claiming a chronology it
+ * does not have.
+ */
+function openAppointments(appointments: Appointment[]): Appointment[] {
+  return appointments.filter(
+    (appointment) =>
+      appointment.status === "REQUESTED" || appointment.status === "SCHEDULED"
+  );
+}
 
 export function HomeScreen({ navigation }: Props) {
-  // Two columns of sections beside each other only once there is genuinely
-  // room for both. Below that this is the same stacked screen it has always
-  // been on a phone.
   const { isMedium, isExpanded } = useBreakpoint();
+  const [appointments, setAppointments] = useState<Appointment[] | null>(null);
 
   /**
-   * The session now survives a reload, so there has to be a way to end one.
-   * Without this, someone signed in on a shared or borrowed browser could not
-   * get out of the app short of clearing site data.
+   * The inline appointment line, and the only request this screen makes.
    *
-   * `reset` rather than `navigate`: leaving the signed-in screens in the
-   * stack would let the back gesture walk straight back into them, and they
-   * would then fail one request at a time instead of saying what happened.
-   *
-   * This ends the session on this device only. There is no revocation, so the
-   * token stays valid at the server until it expires — see `authService`.
+   * Failure is silent on purpose. The home screen's job is to be four things
+   * you can press; an error notice here would put a red box on the first
+   * screen of the app over a line of supporting detail, and the appointment
+   * list itself reports its own failures properly when opened.
    */
-  const handleSignOut = () => {
-    void logout();
-    navigation.reset({ index: 0, routes: [{ name: "Login" }] });
-  };
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void listAppointments()
+        .then((loaded) => {
+          if (active) setAppointments(loaded);
+        })
+        .catch(() => {
+          if (active) setAppointments(null);
+        });
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  const open = openAppointments(appointments ?? []);
+  const latest = open[0] ?? null;
 
   const destinations = (
     <View style={styles.section}>
       {/*
         Above the destination cards, not among them. The emergency card is
         found under stress by someone who is not reading, so it gets its own
-        place at the top of the list rather than a fifth tile to scan past.
+        place at the top rather than a fifth tile to scan past.
       */}
       <EmergencyCardLink onPress={() => navigation.navigate("EmergencyCard")} />
 
       <Text style={styles.sectionLabel} accessibilityRole="header">
         WHAT WOULD YOU LIKE TO DO?
       </Text>
+
       <CardGrid columns={isMedium ? 2 : 1}>
         <NavCard
           icon="symptom"
-          title="Check my symptoms"
+          title="Not feeling well?"
           description="Describe what's wrong and get an estimate of how soon you may need care."
           onPress={() => navigation.navigate("SymptomIntake")}
         />
+        {/*
+          Straight to the form, not to the list. "Add medication" that opened
+          a list you then had to press "Add" on would be two taps for the
+          thing the card names. The list is one tap away under More.
+        */}
+        <NavCard
+          icon="pill"
+          title="Add medication"
+          description="Add something you take, by typing it in or scanning the label."
+          onPress={() => navigation.navigate("MedicationEdit", {})}
+        />
         <NavCard
           icon="calendar"
-          title="My Appointments"
+          title="Upcoming appointments"
           description="Find a provider nearby and keep your visits in one place."
           onPress={() => navigation.navigate("AppointmentList")}
         />
         <NavCard
-          icon="pill"
-          title="My Medications"
-          description="Keep a list of what you take, dosages, and refill dates."
-          onPress={() => navigation.navigate("MedicationList")}
-        />
-        <NavCard
-          icon="clock"
-          title="Medication Reminders"
-          description="Keep track of what to take and when."
-          onPress={() => navigation.navigate("MedicationReminders")}
+          icon="search"
+          title="More"
+          description="Your medications, reminders, past appointments and settings."
+          onPress={() => navigation.navigate("More")}
         />
       </CardGrid>
-    </View>
-  );
 
-  const dataPanel = (
-    <InfoPanel
-      title="WHERE YOUR INFORMATION GOES"
-      items={WHERE_INFORMATION_GOES}
-      footnote="MedHelp has not been reviewed by a clinician. It is a demonstration of the software rather than a medical service, and nothing in it should be relied on to decide whether you need care."
-    />
+      {latest && (
+        <View style={styles.appointment} accessibilityRole="summary">
+          <Glyph name="calendar" size={18} color={colors.accent} />
+          <View style={styles.appointmentBody}>
+            <Text style={styles.appointmentLabel}>MOST RECENTLY RECORDED</Text>
+            <Text style={styles.appointmentName}>
+              {latest.providerName}
+              {/* Verbatim. MedHelp neither parses nor reformats this. */}
+              {latest.preferredTime ? ` — ${latest.preferredTime}` : ""}
+            </Text>
+            <Text style={styles.appointmentNote}>
+              {latest.status === "REQUESTED"
+                ? "Not arranged yet — MedHelp has not contacted anyone."
+                : "You marked this as scheduled."}
+              {open.length > 1
+                ? ` ${open.length - 1} other${open.length === 2 ? "" : "s"} in your list.`
+                : ""}
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
   );
 
   const aside = (
-    <View style={styles.aside}>
-      <InfoPanel title="HOW MEDHELP WORKS" items={HOW_IT_WORKS} />
-      <InfoPanel
-        title="WHAT MEDHELP WILL NOT DO"
-        items={WHAT_IT_WILL_NOT_DO}
-        bullet="none"
-        tone="muted"
-      />
-      <AppButton
-        label="Sign out"
-        variant="secondary"
-        onPress={handleSignOut}
-        accessibilityHint="Ends your session on this device"
-        // The secondary button is borderless by design, which reads as a
-        // stray link when it ends a column of bordered cards rather than
-        // sitting under a form. Given an outline here, and only here.
-        style={styles.signOut}
-      />
-    </View>
+    <InfoPanel
+      title="WHAT MEDHELP WILL NOT DO"
+      items={WHAT_IT_WILL_NOT_DO}
+      bullet="none"
+      tone="muted"
+    />
   );
 
   return (
@@ -172,11 +173,6 @@ export function HomeScreen({ navigation }: Props) {
         A dashboard tile here would have to say something about the user's
         health — doses taken, symptoms logged, a score — and MedHelp knows
         none of that. Inventing one would be a clinical claim.
-
-        The chips under the subtitle compress the same three statements the
-        scope note at the foot of the screen makes. They repeat rather than
-        add, on purpose: what this app is not is the one thing worth saying
-        twice on the way in.
       */}
       <View style={[styles.hero, isExpanded && styles.heroExpanded]}>
         <View style={styles.heroText}>
@@ -210,10 +206,8 @@ export function HomeScreen({ navigation }: Props) {
               soon you may need care — it never names a condition.
             </Text>
             <AppButton
-              label="Check my symptoms"
+              label="Not feeling well?"
               onPress={() => navigation.navigate("SymptomIntake")}
-              // The accent fill sits close to the hero's ground, so the
-              // outline is what gives the control an edge to aim at.
               style={styles.heroActionButton}
             />
           </View>
@@ -221,25 +215,25 @@ export function HomeScreen({ navigation }: Props) {
       </View>
 
       {/*
-        Above `BREAKPOINT.expanded` the entry points and the explanatory panels
-        sit side by side; below it they stack. The DOM order is the same
-        either way, so a screen reader and the keyboard tab order read the
+        Above `BREAKPOINT.expanded` the entry points and the scope panel sit
+        side by side; below it they stack. The DOM order is the same either
+        way, so a screen reader and the keyboard tab order read the
         destinations first in both layouts.
+
+        ⛔ The panel is kept at **every** width, not dropped on a phone. Two of
+        the three panels moved to More when this screen was consolidated, and
+        this one did not: a narrower screen is not a reason to stop saying what
+        the app will not do, and the wide layout rearranges these statements
+        rather than adding them.
       */}
       <View style={[styles.body, isExpanded && styles.bodyExpanded]}>
         <View style={[styles.bodyMain, isExpanded && styles.bodyMainExpanded]}>
           {destinations}
-          {/*
-            Under the cards on a wide window, where it balances the two panels
-            beside it; full width below one, where a third column of anything
-            would only make the page longer.
-          */}
-          {isExpanded ? dataPanel : null}
         </View>
-        <View style={[styles.bodyAside, isExpanded && styles.bodyAsideExpanded]}>{aside}</View>
+        <View style={[styles.bodyAside, isExpanded && styles.bodyAsideExpanded]}>
+          {aside}
+        </View>
       </View>
-
-      {isExpanded ? null : dataPanel}
 
       {/*
         The full DisclaimerBanner belongs on screens that actually show
@@ -353,24 +347,43 @@ const styles = StyleSheet.create({
   bodyMainExpanded: {
     gap: spacing.md,
   },
-  signOut: {
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
   bodyAside: {
     minWidth: 0,
   },
   bodyAsideExpanded: {
     flex: 2,
   },
-  aside: {
-    gap: spacing.md,
-  },
   section: {
     gap: spacing.md,
   },
   sectionLabel: {
     ...typography.overline,
+    color: colors.textSecondary,
+  },
+  appointment: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.accentSurface,
+    borderColor: colors.accentBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+  },
+  appointmentBody: {
+    flex: 1,
+    gap: 2,
+  },
+  appointmentLabel: {
+    ...typography.overline,
+    color: colors.textSecondary,
+  },
+  appointmentName: {
+    ...typography.bodyStrong,
+    color: colors.textPrimary,
+  },
+  appointmentNote: {
+    ...typography.caption,
     color: colors.textSecondary,
   },
   scopeNote: {

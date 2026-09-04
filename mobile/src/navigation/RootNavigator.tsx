@@ -7,6 +7,8 @@ import { AppointmentConfirmationScreen } from "@/screens/appointments/Appointmen
 import { AppointmentListScreen } from "@/screens/appointments/AppointmentListScreen";
 import { AppointmentRequestScreen } from "@/screens/appointments/AppointmentRequestScreen";
 import { BookingIdentityScreen } from "@/screens/appointments/BookingIdentityScreen";
+import { EmergencyCardEditScreen } from "@/screens/emergency/EmergencyCardEditScreen";
+import { EmergencyCardScreen } from "@/screens/emergency/EmergencyCardScreen";
 import { HomeScreen } from "@/screens/HomeScreen";
 import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
@@ -183,6 +185,21 @@ export function RootNavigator() {
           name="ReminderEdit"
           component={ReminderEditScreen}
           options={{ title: "Reminder times" }}
+        />
+        {/*
+          The emergency card draws its own red header, which is the whole
+          point of it — a navigation header above that would put a second,
+          calmer title on the loudest screen in the app and blunt it.
+        */}
+        <Stack.Screen
+          name="EmergencyCard"
+          component={EmergencyCardScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="EmergencyCardEdit"
+          component={EmergencyCardEditScreen}
+          options={{ title: "Emergency card" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

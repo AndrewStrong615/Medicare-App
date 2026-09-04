@@ -3,6 +3,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { CardGrid } from "@/components/CardGrid";
+import { EmergencyCardLink } from "@/components/EmergencyCardLink";
 import { Glyph } from "@/components/Glyph";
 import { InfoPanel } from "@/components/InfoPanel";
 import { NavCard } from "@/components/NavCard";
@@ -95,6 +96,13 @@ export function HomeScreen({ navigation }: Props) {
 
   const destinations = (
     <View style={styles.section}>
+      {/*
+        Above the destination cards, not among them. The emergency card is
+        found under stress by someone who is not reading, so it gets its own
+        place at the top of the list rather than a fifth tile to scan past.
+      */}
+      <EmergencyCardLink onPress={() => navigation.navigate("EmergencyCard")} />
+
       <Text style={styles.sectionLabel} accessibilityRole="header">
         WHAT WOULD YOU LIKE TO DO?
       </Text>

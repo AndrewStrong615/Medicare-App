@@ -49,6 +49,16 @@ describe("HomeScreen", () => {
     expect(navigate).toHaveBeenCalledWith("MedicationReminders");
   });
 
+  it("reaches the emergency card in one tap", () => {
+    // It is found under stress, so it must never be more than one press from
+    // the first screen the app opens on.
+    const { navigate } = renderHomeScreen();
+
+    fireEvent.press(screen.getByText("Emergency card"));
+
+    expect(navigate).toHaveBeenCalledWith("EmergencyCard");
+  });
+
   it("still states the app's scope on the way in", () => {
     renderHomeScreen();
 

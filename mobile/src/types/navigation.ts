@@ -84,4 +84,17 @@ export type RootStackParamList = {
 
   /** Choosing the reminder times for one medication. */
   ReminderEdit: { medicationId: string; medicationName: string };
+
+  /**
+   * The emergency card, and the form that writes it.
+   *
+   * Neither takes a parameter, and neither may be given one. The card holds
+   * allergies, conditions and a blood type; navigation state is serialisable
+   * and dev tooling persists it, so passing any of that through a route param
+   * would write health data to disk in a second place. Both screens read the
+   * card from storage themselves — same rule, and same reason, as
+   * `BookingIdentity` taking an id rather than an identity.
+   */
+  EmergencyCard: undefined;
+  EmergencyCardEdit: undefined;
 };

@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { mirrorMedications } from "@/services/emergencyCard";
 import {
   MedicationError,
   listMedications,
@@ -37,7 +38,13 @@ export function MedicationListScreen({ navigation }: Props) {
     setError(null);
     setIsOffline(false);
     try {
-      setMedications(await listMedications());
+      const loaded = await listMedications();
+      setMedications(loaded);
+      // Keep the emergency card's offline copy in step with what was just
+      // fetched. The card cannot make this call itself — it has to work with
+      // no signal — so this screen is where the copy gets refreshed. It never
+      // throws, so a storage failure cannot cost the user their list.
+      void mirrorMedications(loaded);
     } catch (caught) {
       if (caught instanceof MedicationError) {
         setError(caught.message);

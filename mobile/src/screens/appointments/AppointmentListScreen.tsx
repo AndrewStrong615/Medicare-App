@@ -4,9 +4,12 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { CardGrid } from "@/components/CardGrid";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Screen } from "@/components/Screen";
+import { TextColumn } from "@/components/TextColumn";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   ApiError,
   deleteAppointment,
@@ -105,6 +108,7 @@ export function AppointmentListScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { isExpanded } = useBreakpoint();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,41 +175,51 @@ export function AppointmentListScreen({ navigation }: Props) {
   };
 
   return (
-    <Screen wide>
-      <AppButton
-        label="Find a provider"
-        onPress={() => navigation.navigate("ProviderSearch")}
-      />
-
-      {error && <ErrorNotice message={error} onRetry={() => void load()} />}
-
-      {loading && appointments === null && (
-        <View style={styles.loading} accessibilityLiveRegion="polite">
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.loadingText}>Loading your appointments…</Text>
-        </View>
-      )}
-
-      {!loading && appointments !== null && appointments.length === 0 && (
-        <EmptyState
-          icon="calendar"
-          title="No appointments yet"
-          description={
-            "Appointments you record appear here, with the reason for the " +
-            "visit and the provider's number, so everything is in one place."
-          }
+    <Screen wide page={isExpanded}>
+      {/*
+        The button and the notices stay in a readable column; only the cards
+        use the whole window, and only where there is one to use.
+      */}
+      <TextColumn>
+        <AppButton
+          label="Find a provider"
+          onPress={() => navigation.navigate("ProviderSearch")}
         />
-      )}
 
-      {appointments?.map((appointment) => (
-        <AppointmentCard
-          key={appointment.id}
-          appointment={appointment}
-          busy={busyId === appointment.id}
-          onMarkScheduled={() => void markScheduled(appointment)}
-          onDelete={() => void remove(appointment)}
-        />
-      ))}
+        {error && <ErrorNotice message={error} onRetry={() => void load()} />}
+
+        {loading && appointments === null && (
+          <View style={styles.loading} accessibilityLiveRegion="polite">
+            <ActivityIndicator color={colors.accent} />
+            <Text style={styles.loadingText}>Loading your appointments…</Text>
+          </View>
+        )}
+
+        {!loading && appointments !== null && appointments.length === 0 && (
+          <EmptyState
+            icon="calendar"
+            title="No appointments yet"
+            description={
+              "Appointments you record appear here, with the reason for the " +
+              "visit and the provider's number, so everything is in one place."
+            }
+          />
+        )}
+      </TextColumn>
+
+      {appointments && appointments.length > 0 && (
+        <CardGrid columns={isExpanded ? 2 : 1}>
+          {appointments.map((appointment) => (
+            <AppointmentCard
+              key={appointment.id}
+              appointment={appointment}
+              busy={busyId === appointment.id}
+              onMarkScheduled={() => void markScheduled(appointment)}
+              onDelete={() => void remove(appointment)}
+            />
+          ))}
+        </CardGrid>
+      )}
     </Screen>
   );
 }

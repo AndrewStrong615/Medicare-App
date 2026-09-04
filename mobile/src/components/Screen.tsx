@@ -30,6 +30,17 @@ interface ScreenProps {
    * screens carry cards that look starved in a 480pt column on a tablet.
    */
   wide?: boolean;
+  /**
+   * Full page width, for a screen that lays *columns* out beside each other
+   * rather than stretching one column.
+   *
+   * ⛔ Do not reach for this to make a list or a form look less lonely on a
+   * desktop. A 1140pt line of body text is harder to read than a 660pt one,
+   * and this app is read by people who are unwell. Only pass it when the
+   * children actually split into columns below that width — the home screen
+   * does, above `BREAKPOINT.expanded`.
+   */
+  page?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   /** Overrides the spacing rhythm of the content column itself. */
   innerStyle?: StyleProp<ViewStyle>;
@@ -39,6 +50,7 @@ export function Screen({
   children,
   centerContent = false,
   wide = false,
+  page = false,
   contentStyle,
   innerStyle,
 }: ScreenProps) {
@@ -64,7 +76,16 @@ export function Screen({
         keyboardShouldPersistTaps="handled"
         alwaysBounceVertical={false}
       >
-        <View style={[styles.inner, wide && styles.innerWide, innerStyle]}>{children}</View>
+        <View
+          style={[
+            styles.inner,
+            wide && styles.innerWide,
+            page && styles.innerPage,
+            innerStyle,
+          ]}
+        >
+          {children}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -92,5 +113,9 @@ const styles = StyleSheet.create({
   },
   innerWide: {
     maxWidth: CONTENT_WIDTH.wide,
+  },
+  // Listed after innerWide so it wins when a screen passes both.
+  innerPage: {
+    maxWidth: CONTENT_WIDTH.page,
   },
 });

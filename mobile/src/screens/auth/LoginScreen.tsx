@@ -3,9 +3,8 @@ import type { TextInput } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { AuthShell } from "@/components/AuthShell";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { PageHeader } from "@/components/PageHeader";
-import { Screen } from "@/components/Screen";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import { TextField } from "@/components/TextField";
 import { AuthError, login } from "@/services/authService";
@@ -56,12 +55,10 @@ export function LoginScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen centerContent>
-      <PageHeader
-        eyebrow="MEDHELP"
-        title="Welcome back"
-        subtitle="Sign in to see your medication reminders."
-      />
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to see your medication reminders."
+    >
 
       {accountCreated && !formError && (
         <SuccessNotice message="Your account is ready. Sign in to get started." />
@@ -119,7 +116,7 @@ export function LoginScreen({ navigation, route }: Props) {
         onPress={() => navigation.navigate("Signup")}
         disabled={submitting}
       />
-    </Screen>
+    </AuthShell>
   );
 }
 

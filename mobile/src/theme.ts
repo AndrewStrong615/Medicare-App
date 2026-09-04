@@ -162,5 +162,31 @@ export const elevation = {
  */
 export const MIN_TAP_TARGET = 48;
 
-/** Content column. Keeps line length readable on tablets and in the browser. */
-export const CONTENT_WIDTH = { form: 480, wide: 620 } as const;
+/**
+ * Content column widths.
+ *
+ * `form` and `wide` are line-length limits: a text input or a paragraph that
+ * runs the full width of a desktop browser is genuinely harder to read, so
+ * those two stay narrow however big the window is.
+ *
+ * `page` is different in kind. It is for a screen that lays *columns* out
+ * beside each other rather than stretching one column — the home screen does
+ * this above `BREAKPOINT.expanded`. Nothing inside it exceeds the line-length
+ * limits above; there are simply two or three of them side by side.
+ */
+export const CONTENT_WIDTH = { form: 480, wide: 660, page: 1140 } as const;
+
+/**
+ * Viewport widths where the layout changes shape.
+ *
+ * These are window widths, not device classes: the same browser window
+ * crossing 900px gets the two-column home screen whether it is a tablet or a
+ * desktop, and a phone never does. Screens read them through
+ * `useBreakpoint()`.
+ *
+ * `medium` is deliberately above the widest common phone in landscape (a
+ * 430pt phone is 932 long-edge, but the app is portrait-locked on native, so
+ * this only ever fires in a browser or on a tablet). Below it, every screen
+ * keeps the single stacked column it has always had.
+ */
+export const BREAKPOINT = { medium: 760, expanded: 1040 } as const;

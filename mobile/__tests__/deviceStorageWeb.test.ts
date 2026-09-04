@@ -1,6 +1,6 @@
 /**
  * Tests for where a browser keeps the emergency card
- * (`emergencyCardStorage.web.ts`). Metro resolves this file only for web
+ * (`deviceStorage.web.ts`). Metro resolves this file only for web
  * builds, so it is required explicitly.
  *
  * The property worth protecting is the one that looks like a mistake next to
@@ -16,7 +16,7 @@
 const browserGlobals = global as unknown as Record<string, unknown>;
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const storage = require("@/services/emergencyCardStorage.web");
+const storage = require("@/services/deviceStorage.web");
 
 const KEY = "medhelp_emergency_card";
 
@@ -38,7 +38,7 @@ function stubWindow(localStorage: unknown, sessionStorage: unknown) {
   browserGlobals.window = { localStorage, sessionStorage };
 }
 
-describe("emergencyCardStorage.web", () => {
+describe("deviceStorage.web", () => {
   const originalWindow = browserGlobals.window;
 
   afterEach(() => {

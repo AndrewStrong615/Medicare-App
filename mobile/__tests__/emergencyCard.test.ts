@@ -20,7 +20,7 @@
 const mockStore = new Map<string, string>();
 let mockWriteShouldFail = false;
 
-jest.mock("@/services/emergencyCardStorage", () => ({
+jest.mock("@/services/deviceStorage", () => ({
   readRaw: jest.fn(async (key: string) => mockStore.get(key) ?? null),
   writeRaw: jest.fn(async (key: string, value: string) => {
     if (mockWriteShouldFail) throw new Error("storage-unavailable");

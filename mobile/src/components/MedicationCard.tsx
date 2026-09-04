@@ -34,11 +34,43 @@ function refillLabel(medication: Medication): string | null {
   return null;
 }
 
+/**
+ * The supply-estimate badge, shown only when the estimate is inside the
+ * user's lead time.
+ *
+ * ⛔ Every wording here contains the word "estimate", and none of them says a
+ * dose was missed or that MedHelp knows how much is left. It knows what the
+ * user last counted and how often they said they take it; the projection
+ * assumes each dose is taken exactly on schedule, which is routinely wrong in
+ * both directions.
+ *
+ * This is a *separate* badge from `refillLabel` above on purpose. That one
+ * reports a date the user wrote down; this one reports arithmetic. Merging
+ * them would let a guess inherit the authority of a record.
+ */
+function supplyLabel(medication: Medication): string | null {
+  const { alert, daysRemaining, runOutOn } = medication.refillEstimate;
+  if (!alert || runOutOn === null || daysRemaining === null) return null;
+
+  if (daysRemaining < 0) {
+    return "Estimated to have run out";
+  }
+  if (daysRemaining === 0) {
+    return "Estimated to run out today";
+  }
+  return `About ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} left (estimate)`;
+}
+
 type HoverProps = { onHoverIn?: () => void; onHoverOut?: () => void };
 
 export function MedicationCard({ medication, onPress }: MedicationCardProps) {
   const [hovered, setHovered] = useState(false);
   const badge = refillLabel(medication);
+  const supply = supplyLabel(medication);
+  // "Run out" is a stronger statement than "due soon", so it takes the
+  // stronger palette. Both are still labelled in words — colour never carries
+  // this on its own.
+  const supplyIsUrgent = (medication.refillEstimate.daysRemaining ?? 1) <= 0;
 
   const details = [medication.dosage, medication.frequency]
     .filter((part): part is string => Boolean(part))
@@ -49,7 +81,8 @@ export function MedicationCard({ medication, onPress }: MedicationCardProps) {
     onHoverOut: () => setHovered(false),
   };
 
-  const attention = medication.refillOverdue || medication.refillDueSoon;
+  const attention =
+    medication.refillOverdue || medication.refillDueSoon || Boolean(supply);
 
   return (
     <Pressable
@@ -57,9 +90,11 @@ export function MedicationCard({ medication, onPress }: MedicationCardProps) {
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={medication.name}
-      // Everything visible on the card is read out, including refill status,
-      // so it is not lost to someone navigating by screen reader.
-      accessibilityHint={[details, badge].filter(Boolean).join(". ") || "View details"}
+      // Everything visible on the card is read out, including both refill
+      // badges, so nothing is lost to someone navigating by screen reader.
+      accessibilityHint={
+        [details, badge, supply].filter(Boolean).join(". ") || "View details"
+      }
       style={({ pressed }) => [
         styles.card,
         hovered && styles.cardHovered,
@@ -96,6 +131,19 @@ export function MedicationCard({ medication, onPress }: MedicationCardProps) {
             style={[styles.badgeText, medication.refillOverdue && styles.badgeTextOverdue]}
           >
             {badge}
+          </Text>
+        </View>
+      )}
+      {supply && (
+        <View
+          style={[
+            styles.badge,
+            supplyIsUrgent && styles.badgeOverdue,
+            attention && styles.badgeInset,
+          ]}
+        >
+          <Text style={[styles.badgeText, supplyIsUrgent && styles.badgeTextOverdue]}>
+            {supply}
           </Text>
         </View>
       )}

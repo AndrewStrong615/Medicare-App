@@ -70,6 +70,35 @@ export function validateIsoDate(value: string): string | null {
   return null;
 }
 
+/**
+ * Validates an optional whole number, mirroring the bounds in
+ * `backend/app/schemas/medication.py`.
+ *
+ * Rejects rather than reinterprets. "30ish", "2.5" and "1e3" are refused with
+ * a message instead of being coerced — these feed a run-out estimate, and a
+ * silently-rounded input would produce a confident date built on a number
+ * nobody typed. Same rule as the reminder times, which refuse "8am" rather
+ * than guessing which end of the day it means.
+ */
+export function validateWholeNumber(
+  value: string,
+  { min, max, label }: { min: number; max: number; label: string }
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null; // optional
+
+  if (!/^\d+$/.test(trimmed)) {
+    return `Enter ${label} as a whole number, for example ${min || 1}.`;
+  }
+
+  const parsed = Number(trimmed);
+  if (parsed < min || parsed > max) {
+    return `Enter ${label} as a number between ${min} and ${max}.`;
+  }
+
+  return null;
+}
+
 /** Login accepts any non-empty password so existing accounts stay reachable. */
 export function validateLoginPassword(password: string): string | null {
   if (!password) return "Enter your password.";

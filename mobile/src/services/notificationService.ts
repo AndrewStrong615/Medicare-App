@@ -34,10 +34,27 @@
  * real notification. The web path has been checked end to end.
  */
 
+import type { RefillAlert } from "@/services/refillAlerts";
 import type { DueReminder } from "@/services/reminderTiming";
 import { parseTimeOfDay } from "@/services/reminderTiming";
 
 export type ReminderPermission = "granted" | "denied" | "prompt" | "unsupported";
+
+/**
+ * Everything armed in one call.
+ *
+ * ⛔ Dose reminders and refill alerts have to be scheduled together, because
+ * `cancelAll` below calls `cancelAllScheduledNotificationsAsync`, which does
+ * not distinguish between them. Two separate arming functions would take
+ * turns cancelling each other's work, and the symptom would be a notification
+ * type that silently stopped firing depending on which screen was opened last.
+ */
+export interface ScheduleOptions {
+  refillAlerts?: RefillAlert[];
+  /** Accepted for parity with the web build, which needs a clock. Unused
+   * here: the OS holds the schedule and does its own timekeeping. */
+  now?: Date;
+}
 
 interface NotificationsModule {
   getPermissionsAsync: () => Promise<{ status: string; canAskAgain?: boolean }>;
@@ -46,7 +63,7 @@ interface NotificationsModule {
   cancelAllScheduledNotificationsAsync: () => Promise<void>;
   setNotificationHandler: (handler: object) => void;
   AndroidNotificationPriority?: Record<string, unknown>;
-  SchedulableTriggerInputTypes?: { DAILY: string };
+  SchedulableTriggerInputTypes?: { DAILY: string; DATE: string };
 }
 
 /**
@@ -134,13 +151,33 @@ export async function requestPermission(): Promise<ReminderPermission> {
  * whole schedule at once, so what it passes here is the whole schedule, and
  * merging would leave alarms behind for times the user has deleted.
  */
-export async function scheduleAll(reminders: DueReminder[]): Promise<void> {
+export async function scheduleAll(
+  reminders: DueReminder[],
+  options: ScheduleOptions = {}
+): Promise<void> {
   const notifications = notificationsModule();
   if (!notifications) return;
   ensureHandler(notifications);
 
   await cancelAll();
   if (cachedPermission !== "granted") return;
+
+  for (const alert of options.refillAlerts ?? []) {
+    try {
+      await notifications.scheduleNotificationAsync({
+        content: { title: alert.title, body: alert.body },
+        // A one-off on a calendar date, not a daily repeat. The estimate is
+        // about a single day, and repeating it would nag about a supply the
+        // user may already have replaced.
+        trigger: {
+          type: notifications.SchedulableTriggerInputTypes?.DATE ?? "date",
+          date: alert.fireAt,
+        },
+      });
+    } catch {
+      // One failed alert must not take the dose reminders with it.
+    }
+  }
 
   for (const reminder of reminders) {
     const parsed = parseTimeOfDay(reminder.timeOfDay);

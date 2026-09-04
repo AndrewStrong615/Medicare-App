@@ -2,7 +2,7 @@
  * The emergency card: what it holds, and how it is read and written.
  *
  * Shared by both platforms. The only thing that differs is where the bytes
- * land — see `emergencyCardStorage.ts` / `.web.ts`.
+ * land — see `deviceStorage.ts` / `.web.ts`.
  *
  * ## ⛔ This is the one screen that must work when nothing else does
  *
@@ -36,7 +36,7 @@
  * `mirrorMedications`.
  */
 
-import { readRaw, removeRaw, writeRaw } from "@/services/emergencyCardStorage";
+import { readRaw, removeRaw, writeRaw } from "@/services/deviceStorage";
 
 /**
  * SecureStore keys accept alphanumerics, ".", "-" and "_" only, and the web

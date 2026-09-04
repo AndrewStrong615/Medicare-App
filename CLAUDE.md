@@ -742,6 +742,132 @@ standing notice rather than letting someone assume an alarm clock.
   nearby. Accepted for now; if that becomes unacceptable the body can be made
   generic, which is a copy change in one place per platform.
 
+### Refill alerts: when a supply is estimated to run out
+
+Built on the existing `medications` record rather than beside it. Three
+nullable columns were added — `quantity_remaining`, `quantity_counted_on`,
+`doses_per_day` — and the estimate is derived server-side in
+`backend/app/services/refill_forecast.py`.
+
+**`refill_date` and `refill_estimate` are two different claims and must stay
+apart.** `refill_date` is a date the user wrote down; the estimate is
+arithmetic MedHelp did. They have separate fields, separate badges, separate
+wording, and separate lead times. ⛔ Do not collapse them — a guess that
+inherits a record's authority is exactly the failure this app is built to
+avoid elsewhere.
+
+#### ⛔ The directions line is never read
+
+`forecast()` **does not take a `frequency` argument at all**, and
+`refill_forecast.py` does not import `dose_schedule`. Both are asserted by
+tests, against the function signature and the module's import statements,
+so adding one is a failing suite rather than a quiet change of policy.
+
+Reading a dose count out of "TAKE 1 TABLET BY MOUTH TWICE DAILY" is the decode
+the verbatim rule forbids, for the same reason it forbids expanding BID into
+two alarms: a wrong expansion changes when someone takes a medicine.
+
+So `doses_per_day` comes from one of two places, in this order:
+
+1. **A number the user typed** on the medication form (`"entered"`).
+2. **The count of their enabled reminder times** (`"reminders"`). Those rows
+   exist only because someone reviewed a draft and pressed save, so counting
+   them adds no guess of MedHelp's own.
+
+With neither, there is no estimate and the user is told which half is missing.
+`doses_per_day_source` is returned so the screen can show what the estimate
+rests on rather than handing over a date with no provenance.
+
+#### ⛔ It is an estimate, and every surface says so
+
+`is_estimate` is a property that cannot be constructed false, and it is true
+whenever there is a date at all. The projection assumes **every dose is taken
+exactly on schedule**, which MedHelp has no way to check — CLAUDE.md is
+explicit that this is not an adherence record, and `reminderTiming.dueState`
+already says "earlier today" rather than "missed" for the same reason.
+
+Tests assert the wording on the card badge and in the notification body, and
+assert that neither says "missed", "skipped" or "forgot".
+
+#### Declining is a normal outcome
+
+No quantity, no confirmed doses-per-day, a count dated in the future, or more
+than a year's supply: each returns no date and a reason meant for the user.
+A confident wrong run-out date is worse than none for someone deciding whether
+to chase a prescription.
+
+`quantity_counted_on` is what stops a count going stale silently — "30 left"
+means nothing without the day it was true, and a projection with no origin
+would report the same answer forever. The API fills it with today when a
+quantity arrives without one.
+
+Nothing rounds up: seven tablets at two a day is three whole days, not four.
+
+#### The lead time is a device setting, not an account one
+
+Default 3 days, choosable from the reminders screen (1/3/5/7/14).
+`appSettings.ts` keeps it in `deviceStorage`, and it travels to the API as
+`GET /medications?refill_lead_days=N`.
+
+There is no user-settings table, and adding one for this would put a row about
+a named person's medication habits into a database with no encryption at rest
+— for a number that only ever changes when a notification fires on that
+device. The consequence is that each device keeps its own.
+
+The **arithmetic still happens server-side**, which is what keeps the
+medication list and the reminders screen flagging the same medications.
+
+#### Both kinds of notification are armed in one call
+
+`scheduleAll(reminders, { refillAlerts })`, from `MedicationRemindersScreen`
+and nowhere else.
+
+⛔ They cannot be armed separately. `cancelAll()` clears everything — on native
+it calls `cancelAllScheduledNotificationsAsync`, which does not distinguish
+between them — so two arming functions would take turns cancelling each
+other's work. The symptom would be a notification type that silently stopped
+firing depending on which screen was opened last. A test asserts both survive
+one call.
+
+| | Trigger | Repeats |
+|---|---|---|
+| Dose reminder | daily, at a wall-clock time | yes, every day |
+| Refill alert | a one-off calendar date at 09:00 local | **no** |
+
+A refill alert is about one estimated date; repeating it would nag about a
+supply the user may already have replaced.
+
+The run-out date is parsed as **local midnight, not UTC**.
+`new Date("2026-09-18")` is UTC by specification, which is the previous
+evening anywhere west of Greenwich and would move the alert a day for most of
+the Americas. Tested.
+
+An alert whose moment has passed is not scheduled at all — a notification
+cannot fire into the past, and re-firing one on every screen load would be
+worse than not firing it. The **badge on the medication list is the part that
+is always correct**, the same division of labour the reminders screen already
+relies on. On the web the setTimeout ceiling (~24 days) also applies, and a
+refill alert is days out, so it misses far more often than a dose reminder
+does.
+
+#### ⛔ Deploying this needs a hand-run script
+
+The three columns went onto a table that already exists, and the start command
+runs `create_missing_tables.py`, which creates missing tables and never alters
+existing ones. Run `scripts/add_medication_supply_columns.py` once against any
+database created before this change, or `/medications` returns 500s. It is
+idempotent. This is the "a column added to an existing model still needs a
+hand-written script" case the deployment section already warns about.
+
+#### Not reviewed, and PHI status
+
+- **Not reviewed by a clinician.** Whether a three-day default is the right
+  lead time, and whether a supply projection should be shown at all, belong in
+  the same review as the `dose_schedule.py` phrase lists.
+- `quantity_remaining` and `doses_per_day` say how much of a named medicine a
+  named person has and how often they take it. **Not encrypted at rest** — the
+  same open finding as the rest of `medications`.
+
 ### Not reviewed, and PHI status
 
 - **Not reviewed by a clinician.** The phrase lists in `dose_schedule.py` and

@@ -1,8 +1,11 @@
 /**
- * Where the emergency card is kept in a browser.
+ * Durable on-device key/value storage in a browser.
  *
- * Metro picks this over `emergencyCardStorage.ts` for web builds. Both expose
- * the same three functions, so `emergencyCard.ts` needs no platform knowledge.
+ * Metro picks this over `deviceStorage.ts` for web builds. Both expose the
+ * same three functions, so callers need no platform knowledge.
+ *
+ * Two things live here: the emergency card (`emergencyCard.ts`) and the
+ * device's own app settings (`appSettings.ts`).
  *
  * ## ⛔ `localStorage` here, and `sessionStorage` for the token. On purpose.
  *

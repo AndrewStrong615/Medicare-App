@@ -15,7 +15,15 @@ import {
 } from "@/services/medicationService";
 import { colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
-import { validateIsoDate } from "@/utils/validation";
+import { validateIsoDate, validateWholeNumber } from "@/utils/validation";
+
+/** Today as YYYY-MM-DD in the device's own timezone, not UTC. */
+function todayIso(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationEdit">;
 
@@ -40,8 +48,24 @@ export function MedicationEditScreen({ navigation, route }: Props) {
   const [refillDate, setRefillDate] = useState(existing?.refillDate ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
 
+  // Supply, for the run-out estimate. Deliberately not prefilled from a scan:
+  // a label prints a dispensed quantity, not how many are left today, and the
+  // parser is forbidden from restating a dose either way.
+  const [quantityRemaining, setQuantityRemaining] = useState(
+    existing?.quantityRemaining != null ? String(existing.quantityRemaining) : ""
+  );
+  const [quantityCountedOn, setQuantityCountedOn] = useState(
+    existing?.quantityCountedOn ?? ""
+  );
+  const [dosesPerDay, setDosesPerDay] = useState(
+    existing?.dosesPerDay != null ? String(existing.dosesPerDay) : ""
+  );
+
   const [nameError, setNameError] = useState<string | null>(null);
   const [refillDateError, setRefillDateError] = useState<string | null>(null);
+  const [quantityError, setQuantityError] = useState<string | null>(null);
+  const [countedOnError, setCountedOnError] = useState<string | null>(null);
+  const [dosesPerDayError, setDosesPerDayError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -53,12 +77,36 @@ export function MedicationEditScreen({ navigation, route }: Props) {
 
     const nextNameError = name.trim() ? null : "Enter the medication name.";
     const nextDateError = validateIsoDate(refillDate);
+    const nextQuantityError = validateWholeNumber(quantityRemaining, {
+      min: 0,
+      max: 10_000,
+      label: "how many you have left",
+    });
+    const nextDosesError = validateWholeNumber(dosesPerDay, {
+      min: 1,
+      max: 24,
+      label: "how many times a day you take this",
+    });
+    const nextCountedOnError = validateIsoDate(quantityCountedOn);
+
     setNameError(nextNameError);
     setRefillDateError(nextDateError);
+    setQuantityError(nextQuantityError);
+    setDosesPerDayError(nextDosesError);
+    setCountedOnError(nextCountedOnError);
     setFormError(null);
 
-    if (nextNameError || nextDateError) return;
+    if (
+      nextNameError ||
+      nextDateError ||
+      nextQuantityError ||
+      nextDosesError ||
+      nextCountedOnError
+    ) {
+      return;
+    }
 
+    const quantity = quantityRemaining.trim();
     const input = {
       name: name.trim(),
       dosage: dosage.trim() || null,
@@ -66,6 +114,14 @@ export function MedicationEditScreen({ navigation, route }: Props) {
       prescribingDoctor: doctor.trim() || null,
       refillDate: refillDate.trim() || null,
       notes: notes.trim() || null,
+      quantityRemaining: quantity ? Number(quantity) : null,
+      // A count with no date could never go stale, so today stands in when the
+      // user has not said otherwise. The server does the same thing if this
+      // arrives null; setting it here means the form shows what was stored.
+      quantityCountedOn: quantity
+        ? quantityCountedOn.trim() || todayIso()
+        : null,
+      dosesPerDay: dosesPerDay.trim() ? Number(dosesPerDay.trim()) : null,
     };
 
     setSaving(true);
@@ -200,6 +256,59 @@ export function MedicationEditScreen({ navigation, route }: Props) {
         editable={!busy}
       />
 
+      {/*
+        Supply, for the run-out estimate.
+
+        ⛔ Nothing here is read off the directions line. MedHelp will not turn
+        "TWICE DAILY" into a 2, because expanding printed directions is
+        app-authored clinical content and a wrong expansion changes when
+        someone takes a medicine — the same rule the label parser follows. The
+        number is the user's, or it comes from reminder times they confirmed,
+        or there is no estimate.
+      */}
+      <View style={styles.supplySection}>
+        <Text style={styles.supplyHeading} accessibilityRole="header">
+          Running out
+        </Text>
+        <Text style={styles.supplyIntro}>
+          Optional. Fill these in and MedHelp can estimate when you will run
+          low, and remind you before you do. It is an estimate from what you
+          enter — MedHelp does not know whether you took a dose.
+        </Text>
+      </View>
+
+      <TextField
+        label="How many are left"
+        placeholder="e.g. 30"
+        value={quantityRemaining}
+        onChangeText={setQuantityRemaining}
+        error={quantityError}
+        keyboardType="number-pad"
+        hint="Optional. Count what you actually have now."
+        editable={!busy}
+      />
+
+      <TextField
+        label="Counted on"
+        placeholder="YYYY-MM-DD"
+        value={quantityCountedOn}
+        onChangeText={setQuantityCountedOn}
+        error={countedOnError}
+        hint="Optional. Today is assumed if you leave this blank."
+        editable={!busy}
+      />
+
+      <TextField
+        label="Times a day you take this"
+        placeholder="e.g. 2"
+        value={dosesPerDay}
+        onChangeText={setDosesPerDay}
+        error={dosesPerDayError}
+        keyboardType="number-pad"
+        hint="Optional. If you leave it blank, MedHelp counts your reminder times instead."
+        editable={!busy}
+      />
+
       <TextField
         label="Notes"
         placeholder="Anything you want to remember"
@@ -247,5 +356,17 @@ const styles = StyleSheet.create({
   scanNoticeText: {
     ...typography.body,
     color: colors.noticeText,
+  },
+  supplySection: {
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  supplyHeading: {
+    ...typography.title,
+    color: colors.textPrimary,
+  },
+  supplyIntro: {
+    ...typography.caption,
+    color: colors.textSecondary,
   },
 });

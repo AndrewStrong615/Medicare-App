@@ -1,18 +1,22 @@
 /**
- * Where the emergency card is kept on iOS and Android.
+ * Durable on-device key/value storage for iOS and Android.
  *
- * Metro picks this over `emergencyCardStorage.web.ts` for native builds. Both
- * expose the same three functions, so `emergencyCard.ts` needs no platform
- * knowledge — the same shape as `tokenStorage`, `labelScanner`,
- * `notificationService` and `locationService`.
+ * Metro picks this over `deviceStorage.web.ts` for native builds. Both expose
+ * the same three functions, so callers need no platform knowledge — the same
+ * shape as `tokenStorage`, `labelScanner`, `notificationService` and
+ * `locationService`.
+ *
+ * Two things live here: the emergency card (`emergencyCard.ts`) and the
+ * device's own app settings (`appSettings.ts`). Both are data that has to
+ * survive with no network and no session.
  *
  * ## Why the keystore, and why this is not `tokenStorage`
  *
- * The card holds allergies, conditions and a blood type: health data about
- * one identifiable person, so it goes in Keychain/Keystore rather than a
- * plain file, with the same `WHEN_UNLOCKED_THIS_DEVICE_ONLY` accessibility
- * the session token uses — out of iCloud Keychain sync, out of encrypted
- * device backups.
+ * The emergency card holds allergies, conditions and a blood type: health data
+ * about one identifiable person, so everything here goes in Keychain/Keystore
+ * rather than a plain file, with the same `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
+ * accessibility the session token uses — out of iCloud Keychain sync, out of
+ * encrypted device backups.
  *
  * It is a *separate* store from the token on purpose. Signing out clears the
  * token; it must not clear the card, because the card is the one screen that
@@ -21,9 +25,8 @@
  * ## ⛔ Values here must stay small
  *
  * Android's SecureStore is backed by SharedPreferences with an encrypted
- * value, and warns above ~2048 bytes. Everything written through here is
- * capped by `emergencyCard.ts` for exactly that reason. Do not add an
- * uncapped list.
+ * value, and warns above ~2048 bytes. Every caller caps what it writes for
+ * exactly that reason — see `emergencyCard.ts`. Do not add an uncapped list.
  */
 
 import * as SecureStore from "expo-secure-store";

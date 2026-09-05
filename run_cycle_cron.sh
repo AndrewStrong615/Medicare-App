@@ -7,14 +7,14 @@
 #
 #     .agent-cycles/cron.log
 #
-# Registered as scheduled task "MedHelp agent cycle", every 30 minutes.
+# Registered as scheduled task "MedHelp agent cycle", every 2 hours.
 # To change the cadence or stop it, see the bottom of this file.
 
 # --- environment a scheduled task does not inherit ---------------------------
 
 # claude is an npm global; a non-interactive scheduled shell does not have the
 # npm prefix on PATH, and the failure mode is "the claude CLI is not on PATH"
-# once every 30 minutes.
+# once every 2 hours.
 NPM_GLOBAL="/c/Users/a1str/AppData/Roaming/npm"
 [ -d "$NPM_GLOBAL" ] && export PATH="${NPM_GLOBAL}:${PATH}"
 

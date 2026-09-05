@@ -19,6 +19,7 @@
 #   BASE_BRANCH          branch to cut the cycle branch from   (default: main)
 #   PUSH                 1 to push the branch, 0 to skip       (default: 1)
 #   ALLOW_DIRTY          1 to run with a dirty working tree    (default: 0)
+#   PHASE_TIMEOUT        seconds one agent phase may take      (default: 1200)
 #   CYCLE_CLAUDE_FLAGS   flags passed to every "claude -p" call
 #                        (default: --permission-mode acceptEdits
 #                                  --allowedTools Read Write Edit Grep Glob WebSearch Bash)
@@ -41,6 +42,7 @@ set -euo pipefail
 BASE_BRANCH="${BASE_BRANCH:-main}"
 PUSH="${PUSH:-1}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
+PHASE_TIMEOUT="${PHASE_TIMEOUT:-1200}"
 
 if [ -n "${CYCLE_CLAUDE_FLAGS:-}" ]; then
   # shellcheck disable=SC2206
@@ -125,13 +127,34 @@ assert_on_branch() {
 
 # Run one phase. $1 = name, $2 = prompt.
 run_phase() {
-  local name="$1" prompt="$2" log
+  local name="$1" prompt="$2" log rc
   log="${LOGDIR}/${name}.transcript.txt"
 
   info "running ${name}... (transcript: ${log})"
-  if ! claude -p "$prompt" "${CLAUDE_FLAGS[@]}" 2>&1 | tee "$log"; then
-    die "the ${name} phase exited non-zero — see ${log}"
+
+  # </dev/null is load-bearing, not tidiness.
+  #
+  # Launched from Task Scheduler there is no console and stdin is left
+  # unconnected, and claude then blocks before producing any output at all.
+  # Observed 2026-09-04: claude.exe alive for 6.3 minutes having used 0.047
+  # seconds of CPU, with a zero-byte transcript, while the identical command
+  # run with stdin closed answered in 3.3 seconds. Closing stdin turns that
+  # hang into an ordinary exit.
+  #
+  # The timeout is the belt to that braces. A phase that wedges for any other
+  # reason would otherwise sit until Task Scheduler's own kill limit, which
+  # kills the whole cycle mid-phase and writes nothing useful to the log.
+  set +e
+  timeout --signal=TERM --kill-after=30 "$PHASE_TIMEOUT" \
+    claude -p "$prompt" "${CLAUDE_FLAGS[@]}" </dev/null 2>&1 | tee "$log"
+  rc=${PIPESTATUS[0]}
+  set -e
+
+  if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+    die "the ${name} phase produced nothing for ${PHASE_TIMEOUT}s and was killed — see ${log}"
   fi
+  [ "$rc" -eq 0 ] || die "the ${name} phase exited ${rc} — see ${log}"
+
   assert_on_branch "$name"
 }
 

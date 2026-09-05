@@ -4,7 +4,7 @@
 #
 #     powershell -ExecutionPolicy Bypass -File .\setup_schedule.ps1
 #
-# It registers "MedHelp agent cycle" to run run_cycle_cron.sh every 30 minutes.
+# It registers "MedHelp agent cycle" to run run_cycle_cron.sh every 2 hours.
 # The task runs as you, so it inherits your git credentials and claude auth —
 # which is why it only fires while you are logged on.
 
@@ -29,20 +29,22 @@ $action = New-ScheduledTaskAction `
     -Argument '-lc "/c/Users/a1str/OneDrive/Desktop/Game/run_cycle_cron.sh"' `
     -WorkingDirectory $repo
 
-# First run three minutes from now, then every 30 minutes.
+# First run three minutes from now, then every 2 hours.
 # Note: do NOT pass -RepetitionDuration ([TimeSpan]::MaxValue) — Task Scheduler
 # rejects the resulting P99999999DT23H59M59S as out of range. Omitting the
 # duration is what gives an indefinite repetition.
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
-    -RepetitionInterval (New-TimeSpan -Minutes 30)
+    -RepetitionInterval (New-TimeSpan -Hours 2)
 
-# IgnoreNew: if a cycle overruns its 30 minutes, skip the next one rather than
+# IgnoreNew: if a cycle overruns its 2 hours, skip the next one rather than
 # running two agent cycles against one working tree.
-# ExecutionTimeLimit: kill a hung cycle before the following one is due.
+# ExecutionTimeLimit: kill a hung cycle before the following one is due. This is
+# the outer backstop only — run_cycle.sh caps each agent phase itself via
+# PHASE_TIMEOUT, which fails loudly into the log instead of being killed mute.
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 25)
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 90)
 
 Register-ScheduledTask -TaskName $name `
     -Action $action -Trigger $trigger -Settings $settings `
@@ -51,7 +53,7 @@ Register-ScheduledTask -TaskName $name `
 
 Write-Host ""
 Write-Host "Registered '$name'." -ForegroundColor Green
-Write-Host "  first run:  $((Get-Date).AddMinutes(3).ToString('HH:mm:ss')), then every 30 minutes"
+Write-Host "  first run:  $((Get-Date).AddMinutes(3).ToString('HH:mm:ss')), then every 2 hours"
 Write-Host "  log:        $repo\.agent-cycles\cron.log"
 Write-Host ""
 Write-Host "Manage it with:"

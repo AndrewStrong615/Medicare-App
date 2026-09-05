@@ -1565,6 +1565,31 @@ Adding to that list is how a route is declared intentionally unreachable by
 Nothing is nested deeper than More. A flat list of named destinations is
 findable; a menu of menus is not.
 
+### ⛔ A screen that hides the navigator header owns its own way back
+
+Reachability has two directions, and the first version of that test only
+checked one. It asked whether every route could be navigated *to*; it never
+asked whether you could get *out*.
+
+`EmergencyCard` sets `headerShown: false`, so its red header is not doubled by
+the navigator's — which also removes the back button. **A browser has no
+back gesture to fall back on, so the screen had no way out at all**: every
+control on it went deeper. Nothing failed, no test caught it, and the whole
+suite was green. It was found by opening the screen in a browser.
+
+The screen now draws its own "‹ Back" inside the red header, above the title
+so it is reachable without scrolling however long the card grows.
+`navigationReachability.test.ts` reads the navigator for screens that set
+`headerShown: false` and asserts each one calls `goBack` itself, and
+`EmergencyCardScreen.test.tsx` presses it.
+
+**Anything that turns the header off inherits this obligation.** The three
+other headerless screens are exempt for a real reason rather than by
+oversight: `Login` and `Home` are what `initialRouteName` chooses between, so
+there is nothing behind either of them, and `Login` and `Signup` each carry an
+explicit link to the other in the body of the screen. `EmergencyCard` had
+neither property, which is what made it a dead end.
+
 ### ⛔ "Add medication" opens the form, not the list
 
 The card names an action, so it performs it: `MedicationEdit` with no

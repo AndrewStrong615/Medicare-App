@@ -103,6 +103,23 @@ export function EmergencyCardScreen({ navigation }: Props) {
   return (
     <Screen wide innerStyle={styles.screen}>
       <View style={styles.header}>
+        {/*
+          ⛔ This screen draws its own header, so the navigator's is switched
+          off — which means it has to provide its own way out. Without this
+          there is none at all in a browser: there is no back gesture on the
+          web, and every other control here goes deeper. That was a real dead
+          end, found by opening the screen rather than by any test.
+        */}
+        <Pressable
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          accessibilityHint="Returns to the previous screen"
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
+        >
+          <Text style={styles.backText}>‹ Back</Text>
+        </Pressable>
+
         <Text style={styles.headerTitle} accessibilityRole="header">
           EMERGENCY CARD
         </Text>
@@ -250,6 +267,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.xl,
     gap: spacing.sm,
+  },
+  back: {
+    // Full tap target, and sat above the title so it is reachable without
+    // scrolling however long the card gets.
+    minHeight: MIN_TAP_TARGET,
+    justifyContent: "center",
+    alignSelf: "flex-start",
+    paddingRight: spacing.lg,
+  },
+  backPressed: {
+    opacity: 0.7,
+  },
+  backText: {
+    ...typography.bodyStrong,
+    color: colors.textOnAccent,
   },
   headerTitle: {
     ...typography.displayLarge,

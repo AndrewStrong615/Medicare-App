@@ -108,6 +108,42 @@ describe("navigation reachability", () => {
     );
   });
 
+  /**
+   * Reachability has two directions, and the first version of this file only
+   * checked one.
+   *
+   * `EmergencyCard` sets `headerShown: false` so its own red header is not
+   * doubled by the navigator's. That also removes the back button, and a
+   * browser has no back gesture to fall back on — so the screen had no way out
+   * at all. Every control on it went deeper. Nothing failed; it was found by
+   * opening the screen.
+   *
+   * So: a screen that turns the header off owns its own way back.
+   */
+  describe("a screen with no navigator header provides its own way back", () => {
+    const headerless = [
+      ...NAVIGATOR.matchAll(
+        /<Stack\.Screen\s+name="([A-Za-z]+)"[\s\S]{0,400}?headerShown:\s*false/g
+      ),
+    ].map((match) => match[1]);
+
+    it("finds the screens that switch the header off", () => {
+      // Guard on the guard: an empty list would pass everything below.
+      expect(headerless.length).toBeGreaterThan(0);
+      expect(headerless).toContain("EmergencyCard");
+    });
+
+    it.each(["EmergencyCard"])("%s calls goBack itself", (route) => {
+      const source = readFileSync(
+        join(SOURCE_ROOT, "screens", "emergency", `${route}Screen.tsx`),
+        "utf8"
+      );
+
+      expect(source).toMatch(/navigation\.(goBack|reset|navigate)\(/);
+      expect(source).toContain("navigation.goBack()");
+    });
+  });
+
   it("preserves every route the intake-to-booking flow uses", () => {
     // The flow CLAUDE.md documents end to end. A reshuffle that renamed any
     // of these would break it silently.

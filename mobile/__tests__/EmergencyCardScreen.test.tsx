@@ -50,10 +50,14 @@ const SYNTHETIC_CARD = {
 
 function renderScreen() {
   const navigate = jest.fn();
+  const goBack = jest.fn();
   render(
-    <EmergencyCardScreen navigation={{ navigate } as any} route={{} as any} />
+    <EmergencyCardScreen
+      navigation={{ navigate, goBack } as any}
+      route={{} as any}
+    />
   );
-  return { navigate };
+  return { navigate, goBack };
 }
 
 describe("EmergencyCardScreen", () => {
@@ -178,5 +182,17 @@ describe("EmergencyCardScreen", () => {
     fireEvent.press(await screen.findByText("Fill in my emergency card"));
 
     expect(navigate).toHaveBeenCalledWith("EmergencyCardEdit");
+  });
+
+  it("offers its own way back", async () => {
+    // This screen draws its own header, so the navigator's is switched off —
+    // which takes the back button with it, and a browser has no back gesture.
+    // Without this control the screen is a dead end: everything else on it
+    // goes deeper.
+    const { goBack } = renderScreen();
+
+    fireEvent.press(await screen.findByLabelText("Back"));
+
+    expect(goBack).toHaveBeenCalled();
   });
 });

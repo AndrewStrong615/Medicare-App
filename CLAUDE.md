@@ -119,6 +119,21 @@ these areas:
 Adding *tests* for those modules is permitted; changing the modules is not.
 An agent that believes one of these needs to change should stop and say so.
 
+**Known stale references in this fenced set (flagged 2026-09-05, left
+untouched on the user's decision — needs a real review, not a drive-by
+cleanup):**
+
+- `mobile/src/components/DisclaimerBanner.tsx` and
+  `mobile/src/components/CareGuidanceNotice.tsx` are not rendered by any
+  screen. The intake screens (`SymptomIntakeScreen.tsx`,
+  `IntakeResultScreen.tsx`, `IntakeFollowUpScreen.tsx`) carry their own inline
+  disclaimer/escalation JSX instead, sourced from `INTAKE_DISCLAIMER` /
+  `ESCALATION_GUIDANCE`. Those three screens are where "which screens show
+  them" actually resolves today, even though they aren't named above.
+- `backend/app/core/emergency.py` has two unused constants,
+  `GENERAL_CARE_GUIDANCE` and `RESULT_DISCLAIMER`, left over from before the
+  symptom-intake pivot.
+
 ## Known Gaps (intentional, for this scaffolding pass)
 
 These are stubbed out on purpose — do not treat them as bugs to silently fix,

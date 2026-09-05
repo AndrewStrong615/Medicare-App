@@ -25,6 +25,7 @@ node_modules/
 dist/
 web-build/
 *.log
+*.err
 npm-debug.*
 yarn-debug.*
 yarn-error.*

@@ -20,6 +20,8 @@
 #   PUSH                 1 to push the branch, 0 to skip       (default: 1)
 #   ALLOW_DIRTY          1 to run with a dirty working tree    (default: 0)
 #   PHASE_TIMEOUT        seconds one agent phase may take      (default: 1200)
+#   CLAUDE_BIN           path to claude.exe (default: resolved from the shim;
+#                        must NOT be the npm sh shim — see the note in preflight)
 #   CYCLE_CLAUDE_FLAGS   flags passed to every "claude -p" call
 #                        (default: --permission-mode acceptEdits
 #                                  --allowedTools Read Write Edit Grep Glob WebSearch Bash)
@@ -67,6 +69,38 @@ say "Preflight"
 
 command -v claude >/dev/null 2>&1 || die "the claude CLI is not on PATH"
 command -v git    >/dev/null 2>&1 || die "git is not on PATH"
+
+# ⛔ Invoke claude.exe directly. Do NOT "simplify" this back to `claude`.
+#
+# The npm entry on PATH (…/npm/claude) is a /bin/sh shim that hands off to
+# claude.exe. Launched from an interactive shell that works fine. Launched from
+# Task Scheduler the handoff never completes: the process sits at essentially
+# zero CPU forever, producing no output and no error. Even `claude --version`
+# hangs, which is what rules out auth, the network, stdin and the prompt.
+#
+# Measured 2026-09-04 under a scheduled task:
+#   via the shim   `claude --version`  killed at 60s, no output
+#   direct         `claude.exe --version`  exit 0 in 43s, "2.1.252 (Claude Code)"
+#
+# Resolved the same way the shim resolves it, so this follows an npm upgrade.
+CLAUDE_BIN="${CLAUDE_BIN:-}"
+if [ -z "$CLAUDE_BIN" ]; then
+  _shim="$(command -v claude)"
+  _exe="$(dirname "$_shim")/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
+  if [ -x "$_exe" ]; then CLAUDE_BIN="$_exe"; else CLAUDE_BIN="$_shim"; fi
+fi
+info "claude:     ${CLAUDE_BIN}"
+
+# Prove it actually answers before committing to a cycle. Without this the
+# failure surfaces as a wedged phase twenty minutes in, with an empty
+# transcript and nothing in the log worth reading. Slow here (~43s observed),
+# so the cap is generous.
+if ! timeout --kill-after=10 120 "$CLAUDE_BIN" --version >/dev/null 2>&1; then
+  die "${CLAUDE_BIN} did not answer --version within 120s.
+       It cannot run agents in this environment, so the cycle would hang.
+       If this is a scheduled task, check CLAUDE_BIN points at claude.exe
+       itself and not at the npm sh shim."
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "$REPO_ROOT"
@@ -132,21 +166,18 @@ run_phase() {
 
   info "running ${name}... (transcript: ${log})"
 
-  # </dev/null is load-bearing, not tidiness.
+  # </dev/null is hygiene, not the fix. An earlier version of this comment
+  # claimed it cured a hang under Task Scheduler; it did not — a controlled
+  # probe showed the hang identical with and without it. The actual cause was
+  # the npm sh shim, handled by CLAUDE_BIN above. Closing stdin is still right
+  # for an unattended run, it just is not what makes this work.
   #
-  # Launched from Task Scheduler there is no console and stdin is left
-  # unconnected, and claude then blocks before producing any output at all.
-  # Observed 2026-09-04: claude.exe alive for 6.3 minutes having used 0.047
-  # seconds of CPU, with a zero-byte transcript, while the identical command
-  # run with stdin closed answered in 3.3 seconds. Closing stdin turns that
-  # hang into an ordinary exit.
-  #
-  # The timeout is the belt to that braces. A phase that wedges for any other
-  # reason would otherwise sit until Task Scheduler's own kill limit, which
-  # kills the whole cycle mid-phase and writes nothing useful to the log.
+  # The timeout is what keeps a wedged phase legible. Without it a phase sits
+  # until Task Scheduler's own kill limit, which takes the whole cycle down
+  # mid-phase and writes nothing to the log worth reading.
   set +e
   timeout --signal=TERM --kill-after=30 "$PHASE_TIMEOUT" \
-    claude -p "$prompt" "${CLAUDE_FLAGS[@]}" </dev/null 2>&1 | tee "$log"
+    "$CLAUDE_BIN" -p "$prompt" "${CLAUDE_FLAGS[@]}" </dev/null 2>&1 | tee "$log"
   rc=${PIPESTATUS[0]}
   set -e
 

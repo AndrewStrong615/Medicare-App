@@ -4,10 +4,13 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { AppNav } from "@/components/AppNav";
 import { CardGrid } from "@/components/CardGrid";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
@@ -175,15 +178,37 @@ export function AppointmentListScreen({ navigation }: Props) {
   };
 
   return (
+    <AppNav current="Care" navigation={navigation}>
     <Screen wide page={isExpanded}>
       {/*
-        The button and the notices stay in a readable column; only the cards
+        The header and the notices stay in a readable column; only the cards
         use the whole window, and only where there is one to use.
       */}
       <TextColumn>
-        <AppButton
-          label="Find a provider"
-          onPress={() => navigation.navigate("ProviderSearch")}
+        <PageHeader
+          icon="calendar"
+          title="Care"
+          subtitle="Visits you have recorded. MedHelp does not book appointments and has not contacted anyone."
+        />
+
+        {/*
+          Searching the directory is the other half of this tab, not a separate
+          destination. It stays a pushed screen because it is a task with its
+          own results and back path — the segment is how you start it.
+        */}
+        <SegmentedControl
+          segments={[
+            { key: "visits", label: "My visits", hint: "Appointments you have recorded" },
+            {
+              key: "search",
+              label: "Find a provider",
+              hint: "Searches a public directory by ZIP code and care setting",
+            },
+          ]}
+          selected="visits"
+          onSelect={(key) => {
+            if (key === "search") navigation.navigate("ProviderSearch");
+          }}
         />
 
         {error && <ErrorNotice message={error} onRetry={() => void load()} />}
@@ -221,6 +246,7 @@ export function AppointmentListScreen({ navigation }: Props) {
         </CardGrid>
       )}
     </Screen>
+    </AppNav>
   );
 }
 

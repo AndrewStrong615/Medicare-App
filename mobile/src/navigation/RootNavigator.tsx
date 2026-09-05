@@ -7,7 +7,7 @@ import { AppointmentConfirmationScreen } from "@/screens/appointments/Appointmen
 import { AppointmentListScreen } from "@/screens/appointments/AppointmentListScreen";
 import { AppointmentRequestScreen } from "@/screens/appointments/AppointmentRequestScreen";
 import { BookingIdentityScreen } from "@/screens/appointments/BookingIdentityScreen";
-import { HomeScreen } from "@/screens/HomeScreen";
+import { TodayScreen } from "@/screens/TodayScreen";
 import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
@@ -107,11 +107,17 @@ export function RootNavigator() {
         */}
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Signup" component={SignupScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+        {/*
+          The four tab roots draw no navigation header. `AppNav` is their
+          chrome — it names where you are and offers the other three — and a
+          stack header on top of it would add a back arrow to a screen that
+          is the bottom of its own stack.
+        */}
+        <Stack.Screen name="Home" component={TodayScreen} options={{ headerShown: false }} />
         <Stack.Screen
           name="SymptomIntake"
           component={SymptomIntakeScreen}
-          options={{ title: "Check my symptoms" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="IntakeFollowUp"
@@ -126,7 +132,7 @@ export function RootNavigator() {
         <Stack.Screen
           name="MedicationList"
           component={MedicationListScreen}
-          options={{ title: "My Medications" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="MedicationScan"
@@ -172,12 +178,13 @@ export function RootNavigator() {
         <Stack.Screen
           name="AppointmentList"
           component={AppointmentListScreen}
-          options={{ title: "My Appointments" }}
+          options={{ headerShown: false }}
         />
+        {/* A second view of the Medications tab, not a destination of its own. */}
         <Stack.Screen
           name="MedicationReminders"
           component={MedicationRemindersScreen}
-          options={{ title: "Medication Reminders" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ReminderEdit"

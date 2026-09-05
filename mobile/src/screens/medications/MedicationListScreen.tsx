@@ -4,6 +4,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { AppNav } from "@/components/AppNav";
 import { CardGrid } from "@/components/CardGrid";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
@@ -11,6 +12,7 @@ import { Glyph } from "@/components/Glyph";
 import { MedicationCard } from "@/components/MedicationCard";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
@@ -63,12 +65,40 @@ export function MedicationListScreen({ navigation }: Props) {
   );
 
   return (
+    <AppNav
+      current="Medications"
+      navigation={navigation}
+      attention={
+        needingRefill.length > 0 ? { Medications: needingRefill.length } : undefined
+      }
+    >
     <Screen wide page={isExpanded}>
       <TextColumn>
         <PageHeader
           icon="pill"
           title="My medications"
           subtitle="A list you keep yourself. MedHelp does not prescribe or change anything here."
+        />
+
+        {/*
+          What you take and when you take it are two views of one list, not two
+          features. They used to be separate destinations off the home hub,
+          which made the user navigate between them as though a reminder meant
+          anything apart from the medication it belongs to.
+        */}
+        <SegmentedControl
+          segments={[
+            { key: "list", label: "My list", hint: "The medications you have added" },
+            {
+              key: "times",
+              label: "Reminder times",
+              hint: "The times you have set for each medication",
+            },
+          ]}
+          selected="list"
+          onSelect={(key) => {
+            if (key === "times") navigation.navigate("MedicationReminders");
+          }}
         />
 
         {/*
@@ -135,6 +165,7 @@ export function MedicationListScreen({ navigation }: Props) {
         )
       )}
     </Screen>
+    </AppNav>
   );
 }
 

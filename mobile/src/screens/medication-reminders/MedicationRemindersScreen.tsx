@@ -4,10 +4,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { AppNav } from "@/components/AppNav";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import {
   ApiError,
@@ -134,11 +136,28 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
   );
 
   return (
+    <AppNav current="Medications" navigation={navigation}>
     <Screen wide>
       <PageHeader
         icon="clock"
         title="Medication reminders"
         subtitle="MedHelp will remind you at the times you set. It does not track whether you have taken anything."
+      />
+
+      {/* The other view of the same list — see the note in MedicationListScreen. */}
+      <SegmentedControl
+        segments={[
+          { key: "list", label: "My list", hint: "The medications you have added" },
+          {
+            key: "times",
+            label: "Reminder times",
+            hint: "The times you have set for each medication",
+          },
+        ]}
+        selected="times"
+        onSelect={(key) => {
+          if (key === "list") navigation.navigate("MedicationList");
+        }}
       />
 
       {savedFor && <SuccessNotice message={`Reminders saved for ${savedFor}.`} />}
@@ -283,6 +302,7 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
         </View>
       )}
     </Screen>
+    </AppNav>
   );
 }
 

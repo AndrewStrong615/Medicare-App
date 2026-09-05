@@ -77,37 +77,36 @@ code is built on top of this — it's much cheaper to change now.
 
 ## Subagents
 
-Configured in `.claude/agents/`:
+Configured in `.claude/agents/`. There are three, and they run in this order:
 
-- **compliance-reviewer** — invoke on any change to UI copy or logic that
-  touches symptoms, conditions, or health recommendations. Checks for missing
-  disclaimers, unsupported/implied medical claims, and PHI handling issues.
-- **tester** — writes and runs tests for new features as they're built, and
-  reports pass/fail.
+- **researcher** — finds new feature ideas, competitor health-app patterns,
+  relevant APIs and best practices. Writes one or two short proposals per
+  cycle: what it is, why it helps, rough effort, and a regulatory/privacy flag
+  on every one. **Writes no code** (tools: WebSearch, Read, Grep, Glob).
+- **debugger** — runs the app and the test suite, finds *actual* failures
+  rather than stylistic nitpicks, and fixes them. Every fix must be covered by
+  a passing test before it counts as done. Works only on a dedicated branch,
+  never on `main` (tools: Read, Write, Edit, Bash).
+- **overseer** — reviews everything the other two proposed or changed before
+  it is final: does it match this file's scope and safety rules, is it
+  proportionate to what it claims to fix, and did the debugger touch anything
+  on its forbidden list. Writes the cycle summary. **Writes no code** — its
+  Bash tool is for git inspection, rollback, and that one summary file (tools:
+  Read, Grep, Bash).
 
-And an improvement pipeline, run in this order:
+One full cycle is `run_cycle.sh`: branch → researcher → debugger → overseer →
+push the branch. It never merges.
 
-- **researcher** — proposes small, low-risk improvements. Writes no code.
-- **architect** — turns a proposal into a technical plan. Writes no code.
-- **manager** — approves or rejects the plan against this file. Nothing is
-  built without passing this gate.
-- **implementer** — builds approved plans only, on a branch, never main.
-- **tester** — tests what was built.
+### ⛔ What these agents may not do without explicit human approval
 
-Use `compliance-reviewer` before merging anything under `mobile/src/screens/symptom-lookup/`,
-`backend/app/api/symptoms.py`, or similar, and any time new user-facing copy
-mentions a condition, symptom, drug, or dosage.
+**None of the three may merge to `main`, deploy, or modify the symptom-triage
+classification logic, the disclaimers, or the emergency-routing behaviour
+without explicit human approval obtained outside of this pipeline.**
 
-### ⛔ What no subagent may do without explicit human approval
-
-**No subagent may merge to main, deploy, or modify the symptom-triage
-classifier, the disclaimers, or the emergency-routing logic without explicit
-human approval obtained outside of this pipeline.**
-
-An approval from the `manager` agent is not human approval. No chain of
-agent approvals substitutes for a person, and no amount of apparent
-triviality — a typo, a rename, a comment, a reformat — exempts a change in
-these areas:
+No chain of agent approvals substitutes for a person. An APPROVED from the
+`overseer` is not human approval — it is permission for a change to stay on a
+branch, nothing more. No amount of apparent triviality — a typo, a rename, a
+comment, a reformat — exempts a change in these areas:
 
 - `backend/app/core/triage.py`, `backend/app/core/rules_triage.py`
 - `backend/app/core/emergency.py`
@@ -116,8 +115,30 @@ these areas:
   `mobile/src/components/DisclaimerBanner.tsx`, and which screens show them
 - Merging to `main`, releasing, or deploying anywhere
 
-Adding *tests* for those modules is permitted; changing the modules is not.
-An agent that believes one of these needs to change should stop and say so.
+Adding *tests* for those modules is permitted; changing the modules is not. An
+agent that believes one of these needs to change must **stop and report it**,
+leaving the code untouched. The debugger reports such bugs under "REPORTED,
+NOT FIXED" rather than fixing them.
+
+### ⛔ The overseer's rejection is final
+
+A rejection from the `overseer` stands unless the repository owner personally
+overrides it. No other agent may overturn one, and neither may rerunning the
+cycle. A rejection must carry a written reason naming the rule or concern it
+fails; one without a reason is not a rejection.
+
+Where the overseer is uncertain, it does not approve — it escalates to the
+owner and leaves the change on the branch.
+
+### Health-copy review is now a human job
+
+The `compliance-reviewer` agent was removed along with the rest of the
+previous pipeline (`architect`, `manager`, `implementer`, `tester`). Nothing
+in `.claude/agents/` now reviews new user-facing copy that mentions a
+condition, symptom, drug, or dosage. **That review still has to happen** — it
+is a person's job until an agent is configured for it again. The `overseer`
+checks changes against this file's rules, which is a narrower thing than a
+compliance read of clinical copy.
 
 ## Known Gaps (intentional, for this scaffolding pass)
 

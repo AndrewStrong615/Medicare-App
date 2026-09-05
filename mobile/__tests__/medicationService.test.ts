@@ -1,4 +1,4 @@
-import { getToken } from "@/services/authService";
+import { getToken, logout } from "@/services/authService";
 import {
   MedicationError,
   createMedication,
@@ -7,7 +7,10 @@ import {
   updateMedication,
 } from "@/services/medicationService";
 
-jest.mock("@/services/authService", () => ({ getToken: jest.fn() }));
+jest.mock("@/services/authService", () => ({
+  getToken: jest.fn(),
+  logout: jest.fn(async () => undefined),
+}));
 
 const mockedGetToken = getToken as jest.MockedFunction<typeof getToken>;
 
@@ -128,6 +131,9 @@ describe("medicationService", () => {
 
     expect(error.isAuthError).toBe(true);
     expect(error.message).toMatch(/session has expired/i);
+    // The refused token is dropped, so a reload does not restore a dead
+    // session and land the user back on a screen that cannot load.
+    expect(logout).toHaveBeenCalled();
   });
 
   it("reports an unreachable server as a network error", async () => {

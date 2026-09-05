@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { EmergencyCallBar } from "@/components/EmergencyCallBar";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
@@ -14,13 +15,42 @@ import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SymptomIntake">;
 
-export function SymptomIntakeScreen({ navigation }: Props) {
+export function SymptomIntakeScreen({ navigation, route }: Props) {
   const [description, setDescription] = useState("");
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const reset = route.params?.reset;
+
+  /*
+    Start "Describe something else" from empty.
+
+    That button navigates BACK to this screen rather than opening a new one —
+    it is already in the stack, underneath the result — so the component never
+    unmounts and its state survives. Someone describing a second complaint was
+    landing on the first one's text and having to clear it by hand.
+
+    CONSENT IS RESET TOO, and that part is not cosmetic. It was ticked for a
+    particular description; carrying it silently onto the next one would store
+    a second piece of health data under permission given for something else.
+    A new description asks again.
+
+    The param is cleared as it is consumed, so returning here later — from the
+    follow-up questions, say — does not wipe text the user is still editing.
+  */
+  useEffect(() => {
+    if (!reset) return;
+
+    setDescription("");
+    setDescriptionError(null);
+    setConsent(false);
+    setError(null);
+    setIsOffline(false);
+    navigation.setParams({ reset: undefined });
+  }, [reset, navigation]);
 
   const speech = useSpeechToText((transcript) => {
     // Appended rather than replacing, so dictation can add to typed text.
@@ -42,8 +72,23 @@ export function SymptomIntakeScreen({ navigation }: Props) {
     setSubmitting(true);
 
     try {
-      const assessment = await submitIntake(trimmed, consent);
-      navigation.navigate("IntakeResult", { assessment });
+      const result = await submitIntake(trimmed, consent);
+      if (result.status === "needs_detail") {
+        // The server could not make sense of this and is asking rather than
+        // guessing. A red-flag description never lands here — it comes back
+        // as an assessment with its emergency guidance already attached.
+        navigation.navigate("IntakeFollowUp", {
+          followUp: result,
+          description: trimmed,
+          consent,
+        });
+      } else {
+        navigation.navigate("IntakeResult", {
+          assessment: result,
+          // Carried so the appointment flow can prefill the reason for visit.
+          description: trimmed,
+        });
+      }
     } catch (caught) {
       if (caught instanceof IntakeError) {
         setError(caught.message);
@@ -63,15 +108,11 @@ export function SymptomIntakeScreen({ navigation }: Props) {
       {/* Reachable before, during, and after assessment — never conditional. */}
       <EmergencyCallBar />
 
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          What's going on?
-        </Text>
-        <Text style={styles.subtitle}>
-          Describe how you're feeling in your own words. Include when it
-          started and anything that's changed.
-        </Text>
-      </View>
+      <PageHeader
+        icon="symptom"
+        title="What's going on?"
+        subtitle="Describe how you're feeling in your own words. Include when it started and anything that's changed."
+      />
 
       {/*
         Shown before the user submits anything, not after. Required by the
@@ -147,9 +188,6 @@ export function SymptomIntakeScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: { gap: spacing.xs },
-  title: { ...typography.display, color: colors.textPrimary },
-  subtitle: { ...typography.body, color: colors.textSecondary },
   disclaimer: {
     backgroundColor: colors.noticeSurface,
     borderColor: colors.noticeBorder,

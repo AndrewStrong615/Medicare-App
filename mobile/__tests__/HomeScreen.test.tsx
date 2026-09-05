@@ -1,12 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { HomeScreen } from "@/screens/HomeScreen";
+import { logout } from "@/services/authService";
+
+jest.mock("@/services/authService", () => ({
+  logout: jest.fn(async () => undefined),
+}));
 
 function renderHomeScreen() {
   const navigate = jest.fn();
-  const navigation = { navigate } as any;
+  const reset = jest.fn();
+  const navigation = { navigate, reset } as any;
   render(<HomeScreen navigation={navigation} route={{} as any} />);
-  return { navigate };
+  return { navigate, reset };
 }
 
 describe("HomeScreen", () => {
@@ -47,5 +53,16 @@ describe("HomeScreen", () => {
     renderHomeScreen();
 
     expect(screen.getByText(/does not diagnose conditions/i)).toBeTruthy();
+  });
+
+  it("signs the user out and leaves nothing to go back to", () => {
+    // The session survives a reload now, so there has to be a way out of one —
+    // and the signed-in screens must not be reachable by swiping back.
+    const { reset } = renderHomeScreen();
+
+    fireEvent.press(screen.getByText("Sign out"));
+
+    expect(logout).toHaveBeenCalled();
+    expect(reset).toHaveBeenCalledWith({ index: 0, routes: [{ name: "Login" }] });
   });
 });

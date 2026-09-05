@@ -1,13 +1,12 @@
 import { useRef, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import type { TextInput } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
+import { AuthShell } from "@/components/AuthShell";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { AuthError, signup } from "@/services/authService";
-import { colors, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 import { MIN_PASSWORD_LENGTH, validateEmail, validatePassword } from "@/utils/validation";
 
@@ -56,15 +55,10 @@ export function SignupScreen({ navigation }: Props) {
   };
 
   return (
-    <Screen centerContent>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          Create account
-        </Text>
-        <Text style={styles.subtitle}>
-          You'll use this to sign in and keep your medication reminders.
-        </Text>
-      </View>
+    <AuthShell
+      title="Create account"
+      subtitle="You'll use this to sign in and keep your medication reminders."
+    >
 
       {formError && (
         <ErrorNotice message={formError} onRetry={isOffline ? handleSignup : undefined} />
@@ -114,20 +108,7 @@ export function SignupScreen({ navigation }: Props) {
         onPress={() => navigation.navigate("Login")}
         disabled={submitting}
       />
-    </Screen>
+    </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  header: {
-    gap: spacing.xs,
-  },
-  title: {
-    ...typography.display,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-});

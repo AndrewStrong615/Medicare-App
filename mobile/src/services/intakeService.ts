@@ -5,9 +5,9 @@
  * render a result that is missing its disclaimer or escalation guidance.
  */
 
-import { getToken } from "@/services/authService";
+import { API_BASE_URL, baseUrlIsTransportSafe } from "@/services/baseUrl";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { getToken, logout } from "@/services/authService";
 
 export type Tier = "EMERGENT" | "URGENT" | "SELF_CARE";
 
@@ -18,7 +18,7 @@ export interface EmergencyGuidance {
   matchedTerms: string[];
 }
 
-export interface SelfCareTopic {
+export interface RelatedTopic {
   topicId: string;
   title: string;
   summary: string;
@@ -27,15 +27,67 @@ export interface SelfCareTopic {
   groups: string[];
 }
 
+export interface FollowUpQuestion {
+  questionId: string;
+  prompt: string;
+  kind: "text" | "choice";
+  choices: string[];
+  helper: string;
+}
+
+/**
+ * Returned instead of an assessment when the description was not understood.
+ *
+ * Carries no tier on purpose. A provisional urgency shown next to "tell me
+ * more" is a number the app has just said it cannot stand behind, and users
+ * would act on it anyway. A red-flag description never comes back this way —
+ * emergencies skip the questions entirely.
+ */
+export interface FollowUpRequest {
+  status: "needs_detail";
+  /**
+   * Which round of questions this is, 1-based. The server decides how many
+   * rounds there are and when to stop; the client only reports which one it
+   * is showing, so a second set does not read as the first set repeating.
+   */
+  round: number;
+  intro: string;
+  questions: FollowUpQuestion[];
+  disclaimer: string;
+  escalationGuidance: string;
+}
+
+/**
+ * What the app took from the follow-up answers, and what it still does not
+ * know.
+ *
+ * `value` is the user's own text. The server never infers, rephrases or
+ * categorises it — see `summarise` in backend/app/core/followup.py — so this
+ * is safe to render as-is without it becoming app-authored clinical content.
+ */
+export interface IntakeRecap {
+  understood: { label: string; value: string }[];
+  unclear: string[];
+}
+
 export interface IntakeAssessment {
+  status: "assessed";
   id: string | null;
   tier: Tier;
   reasoning: string;
   redFlagMatch: boolean;
   escalatedBySafetyNet: boolean;
   emergency: EmergencyGuidance | null;
-  selfCareTopics: SelfCareTopic[];
-  selfCareSourceNote: string | null;
+  relatedTopics: RelatedTopic[];
+  topicsSourceNote: string | null;
+  /**
+   * The reading-material feature is switched off entirely, rather than
+   * switched on and having matched nothing. The screen must not say "we
+   * couldn't find anything" when nothing was ever looked up.
+   */
+  topicsDisabled: boolean;
+  /** Present only when follow-up questions were answered. */
+  summary: IntakeRecap | null;
   disclaimer: string;
   escalationGuidance: string;
 }
@@ -59,8 +111,10 @@ const OFFLINE_MESSAGE =
   "Can't reach the MedHelp server, so we couldn't assess this. If you feel unwell, contact a healthcare professional — and call 911 or your local emergency number if this may be an emergency.";
 
 function assertSecureBaseUrl(): void {
-  const isDev = typeof __DEV__ !== "undefined" && __DEV__;
-  if (!isDev && !API_BASE_URL.startsWith("https://")) {
+  // https anywhere, or plain http only to loopback/LAN. See `baseUrl.ts` —
+  // the previous `__DEV__` test refused an exported build talking to a server
+  // on your own network, which is exactly how this app is run on a phone.
+  if (!baseUrlIsTransportSafe()) {
     throw new IntakeError(
       "MedHelp is not configured securely and can't send your description. Please update the app."
     );
@@ -84,8 +138,9 @@ function readDetail(body: unknown): string | null {
 
 export async function submitIntake(
   description: string,
-  consentToStore: boolean
-): Promise<IntakeAssessment> {
+  consentToStore: boolean,
+  followUpAnswers?: Record<string, string>
+): Promise<IntakeAssessment | FollowUpRequest> {
   assertSecureBaseUrl();
 
   const token = getToken();
@@ -108,6 +163,7 @@ export async function submitIntake(
       body: JSON.stringify({
         description,
         consent_to_store: consentToStore,
+        ...(followUpAnswers ? { follow_up_answers: followUpAnswers } : {}),
       }),
     });
   } catch {
@@ -123,6 +179,9 @@ export async function submitIntake(
 
   if (!response.ok) {
     if (response.status === 401) {
+      // The token the server just refused is worthless, so drop it here
+      // rather than leaving a dead session to be restored on the next launch.
+      void logout();
       throw new IntakeError("Your session has expired. Please sign in again.", {
         isAuthError: true,
       });
@@ -135,6 +194,32 @@ export async function submitIntake(
 
   const data = body as Record<string, any>;
 
+  // The server asks for more detail instead of guessing. Handled before the
+  // assessment checks below, because this shape has no tier to validate.
+  if (data?.status === "needs_detail") {
+    if (!data?.disclaimer || !data?.escalation_guidance || !Array.isArray(data?.questions)) {
+      throw new IntakeError(
+        "We couldn't load this safely. Please try again, and seek care directly if you are worried."
+      );
+    }
+    return {
+      status: "needs_detail",
+      // Defaults to the first round so an older server, which sends no round,
+      // still renders rather than showing "round 0 of questions".
+      round: typeof data.round === "number" ? data.round : 1,
+      intro: data.intro ?? "",
+      questions: data.questions.map((q: any) => ({
+        questionId: q.question_id,
+        prompt: q.prompt,
+        kind: q.kind === "choice" ? "choice" : "text",
+        choices: q.choices ?? [],
+        helper: q.helper ?? "",
+      })),
+      disclaimer: data.disclaimer,
+      escalationGuidance: data.escalation_guidance,
+    };
+  }
+
   // Safety copy is not optional. A result rendered without its disclaimer or
   // escalation path would breach the rules this feature is built around, so
   // an incomplete payload is treated as a failure.
@@ -145,6 +230,7 @@ export async function submitIntake(
   }
 
   return {
+    status: "assessed",
     id: data.id ?? null,
     tier: data.tier as Tier,
     reasoning: data.reasoning ?? "",
@@ -158,7 +244,7 @@ export async function submitIntake(
           matchedTerms: data.emergency.matched_terms ?? [],
         }
       : null,
-    selfCareTopics: (data.self_care_topics ?? []).map((item: any) => ({
+    relatedTopics: (data.related_topics ?? []).map((item: any) => ({
       topicId: item.topic_id,
       title: item.title,
       summary: item.summary,
@@ -166,7 +252,17 @@ export async function submitIntake(
       sourceName: item.source_name,
       groups: item.groups ?? [],
     })),
-    selfCareSourceNote: data.self_care_source_note ?? null,
+    topicsSourceNote: data.topics_source_note ?? null,
+    topicsDisabled: Boolean(data.topics_disabled),
+    summary: data.summary
+      ? {
+          understood: (data.summary.understood ?? []).map((entry: any) => ({
+            label: entry.label,
+            value: entry.value,
+          })),
+          unclear: data.summary.unclear ?? [],
+        }
+      : null,
     disclaimer: data.disclaimer,
     escalationGuidance: data.escalation_guidance,
   };

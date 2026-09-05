@@ -8,7 +8,7 @@ import {
   type ReturnKeyTypeOptions,
 } from "react-native";
 
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 
 /**
  * A labelled input. The visible label stays put once typing starts (a
@@ -117,8 +117,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   label: {
-    ...typography.caption,
-    fontWeight: "600",
+    ...typography.captionStrong,
     color: colors.textPrimary,
   },
   input: {
@@ -126,9 +125,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    ...elevation.sm,
     ...typography.body,
     color: colors.textPrimary,
   },
@@ -138,6 +138,9 @@ const styles = StyleSheet.create({
   },
   inputFocused: {
     borderColor: colors.borderFocus,
+    // A tinted fill as well as a thicker border, so the active field is
+    // obvious at a glance on a long form.
+    backgroundColor: colors.accentSurface,
     // Two pixels of border rather than a colour-only change, so focus is
     // visible without relying on colour perception.
     borderWidth: 2,
@@ -149,6 +152,7 @@ const styles = StyleSheet.create({
   inputDisabled: {
     backgroundColor: colors.surfaceMuted,
     color: colors.textSecondary,
+    ...elevation.none,
   },
   error: {
     ...typography.caption,

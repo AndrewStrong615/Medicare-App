@@ -1,17 +1,37 @@
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
+# Pinned explicitly, though FastAPI pulls it in: installing an MCP server into
+# the same interpreter dragged starlette to 1.6.0, which FastAPI 0.115 cannot
+# use, and every route stopped importing. Keep agent tooling in its own venv.
+starlette>=0.37.2,<0.39.0
+# uvicorn >= 0.52 needs websockets >= 13; an older websockets in the same
+# interpreter makes the server fail to start with
+# "cannot import name 'ServerProtocol' from 'websockets.server'". That is not a
+# uvicorn bug, it is two projects sharing one site-packages — install this file
+# into a virtualenv (README shows how), not into a global Python.
+uvicorn[standard]>=0.30.6,<1
+websockets>=13
 sqlalchemy==2.0.35
 alembic==1.13.2
 psycopg2-binary==2.9.12
 pydantic==2.9.2
 pydantic-settings==2.5.2
 email-validator==2.2.0
-python-jose[cryptography]==3.3.0
+# >=3.4.0 fixes two advisories against 3.3.0: CVE-2024-33663 (algorithm
+# confusion) and CVE-2024-33664 (a decompression bomb in the JWE path). Neither
+# is reachable the way this app uses the library — it verifies HS256 with a
+# fixed algorithm list and never calls jwe.decrypt — but a JWT library on a
+# known-vulnerable version is not a thing to leave sitting in a health app.
+python-jose[cryptography]>=3.4.0,<4
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.9
 # Also used at runtime for outbound calls to the MedlinePlus health library.
 httpx==0.27.2
+
+# The optional model layer of symptom triage (app/core/triage.py). The feature
+# runs without credentials — the rule layer is the product — but the import is
+# unconditional, so the package itself is required, not optional.
+anthropic==1.2.0
 
 # dev/test
 pytest==8.3.3

@@ -23,6 +23,8 @@ SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <content name="FullSummary">&lt;p&gt;A short intro.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;First item&lt;/li&gt;&lt;li&gt;Second item&lt;/li&gt;&lt;/ul&gt;</content>
       <content name="groupName">Example Group</content>
       <content name="groupName">Symptoms</content>
+      <content name="altTitle">&lt;span class="qt0"&gt;Other&lt;/span&gt; Name</content>
+      <content name="altTitle">Second Other Name</content>
     </document>
     <document rank="1" url="https://medlineplus.gov/othertopic.html">
       <content name="title">Other Topic</content>
@@ -117,3 +119,26 @@ class TestStripMarkup:
 
     def test_collapses_excess_blank_lines(self):
         assert "\n\n\n" not in strip_markup("<p>a</p><p></p><p></p><p>b</p>")
+
+
+def test_the_sources_own_alternate_titles_are_captured():
+    """
+    NLM publishes lay names separately from the title -- "Bunions" is an
+    altTitle of "Toe Injuries and Disorders". Dropping them meant a user who
+    wrote the name the source itself gives a topic was told nothing matched.
+    """
+    topics = parse_search_response(SAMPLE_XML)
+
+    assert topics[0].alt_titles == ["Other Name", "Second Other Name"]
+
+
+def test_highlight_markup_is_removed_from_alternate_titles():
+    topics = parse_search_response(SAMPLE_XML)
+
+    assert "<span" not in topics[0].alt_titles[0]
+
+
+def test_a_topic_with_no_alternate_titles_gets_an_empty_list():
+    topics = parse_search_response(SAMPLE_XML)
+
+    assert topics[1].alt_titles == []

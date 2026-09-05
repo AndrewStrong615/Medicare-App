@@ -5,9 +5,9 @@
  * scopes them to the signed-in user. Nothing here is cached to disk.
  */
 
-import { getToken } from "@/services/authService";
+import { API_BASE_URL, baseUrlIsTransportSafe } from "@/services/baseUrl";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { getToken, logout } from "@/services/authService";
 
 export interface Medication {
   id: string;
@@ -50,8 +50,10 @@ const OFFLINE_MESSAGE =
   "Can't reach the MedHelp server. Check your internet connection and try again.";
 
 function assertSecureBaseUrl(): void {
-  const isDev = typeof __DEV__ !== "undefined" && __DEV__;
-  if (!isDev && !API_BASE_URL.startsWith("https://")) {
+  // https anywhere, or plain http only to loopback/LAN. See `baseUrl.ts` —
+  // the previous `__DEV__` test refused an exported build talking to a server
+  // on your own network, which is exactly how this app is run on a phone.
+  if (!baseUrlIsTransportSafe()) {
     throw new MedicationError(
       "MedHelp is not configured securely and can't load your medications. Please update the app."
     );
@@ -152,6 +154,9 @@ async function request(
 
   if (!response.ok) {
     if (response.status === 401) {
+      // The token the server just refused is worthless, so drop it here
+      // rather than leaving a dead session to be restored on the next launch.
+      void logout();
       throw new MedicationError("Your session has expired. Please sign in again.", {
         isAuthError: true,
       });

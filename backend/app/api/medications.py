@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
 from app.db.session import get_db
 from app.models.medication import Medication
+from app.models.reminder import MedicationReminder
 from app.models.user import User
 from app.schemas.medication import (
     REFILL_SOON_DAYS,
@@ -127,5 +128,14 @@ def delete_medication(
     user: User = Depends(get_current_user),
 ) -> None:
     medication = _get_owned_or_404(medication_id, user, db)
+
+    # Take the reminders with it. The foreign key cascades on Postgres, but
+    # doing it here as well means the rows go whatever the database enforces —
+    # and a leftover reminder is not an untidy row, it is an alarm telling
+    # someone to take a medication they have stopped.
+    db.query(MedicationReminder).filter(
+        MedicationReminder.medication_id == medication.id
+    ).delete()
+
     db.delete(medication)
     db.commit()

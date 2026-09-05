@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import {
@@ -12,7 +13,7 @@ import {
   deleteMedication,
   updateMedication,
 } from "@/services/medicationService";
-import { colors, spacing, typography } from "@/theme";
+import { colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 import { validateIsoDate } from "@/utils/validation";
 
@@ -22,10 +23,20 @@ export function MedicationEditScreen({ navigation, route }: Props) {
   const existing = route.params?.medication;
   const isEditing = Boolean(existing);
 
-  const [name, setName] = useState(existing?.name ?? "");
-  const [dosage, setDosage] = useState(existing?.dosage ?? "");
-  const [frequency, setFrequency] = useState(existing?.frequency ?? "");
-  const [doctor, setDoctor] = useState(existing?.prescribingDoctor ?? "");
+  // Present when the form was reached by scanning a label. It prefills the
+  // fields and nothing more: the user still reviews every one and presses the
+  // same save button as someone who typed it in. There is deliberately no
+  // path that saves a scan without this step.
+  const scanned = route.params?.scanned;
+
+  const [name, setName] = useState(existing?.name ?? scanned?.name ?? "");
+  const [dosage, setDosage] = useState(existing?.dosage ?? scanned?.dosage ?? "");
+  const [frequency, setFrequency] = useState(
+    existing?.frequency ?? scanned?.frequency ?? ""
+  );
+  const [doctor, setDoctor] = useState(
+    existing?.prescribingDoctor ?? scanned?.prescribingDoctor ?? ""
+  );
   const [refillDate, setRefillDate] = useState(existing?.refillDate ?? "");
   const [notes, setNotes] = useState(existing?.notes ?? "");
 
@@ -110,15 +121,33 @@ export function MedicationEditScreen({ navigation, route }: Props) {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title} accessibilityRole="header">
-          {isEditing ? "Edit medication" : "Add a medication"}
-        </Text>
-        <Text style={styles.subtitle}>
-          Enter this exactly as it appears on your prescription or packaging.
-          MedHelp does not check or suggest medications or dosages.
-        </Text>
-      </View>
+      <PageHeader
+        icon="pill"
+        title={isEditing ? "Edit medication" : "Add a medication"}
+        subtitle="Enter this exactly as it appears on your prescription or packaging. MedHelp does not check or suggest medications or dosages."
+      />
+
+      {/*
+        The confirmation step for a scanned label, and the reason scanning is
+        safe to offer at all. Reading a dose off a photograph can go wrong in
+        ways that look perfectly plausible on screen — "10 mg" for "70 mg" —
+        so the read is presented as a draft to check, never as a result.
+      */}
+      {scanned && (
+        <View style={styles.scanNotice} accessibilityRole="summary">
+          <Text style={styles.scanNoticeTitle}>Check this against the label</Text>
+          <Text style={styles.scanNoticeText}>
+            These details were read from your photo and can be wrong. Compare
+            each one with the label and correct anything that does not match
+            before you save it.
+          </Text>
+          {scanned.warnings.length > 0 && (
+            <Text style={styles.scanNoticeText}>
+              {scanned.warnings.join(" ")} You can fill those in yourself.
+            </Text>
+          )}
+        </View>
+      )}
 
       {formError && <ErrorNotice message={formError} />}
 
@@ -203,15 +232,20 @@ export function MedicationEditScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  scanNotice: {
+    backgroundColor: colors.noticeSurface,
+    borderColor: colors.noticeBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
     gap: spacing.xs,
   },
-  title: {
-    ...typography.display,
-    color: colors.textPrimary,
+  scanNoticeTitle: {
+    ...typography.bodyStrong,
+    color: colors.noticeText,
   },
-  subtitle: {
+  scanNoticeText: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: colors.noticeText,
   },
 });

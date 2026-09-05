@@ -18,13 +18,19 @@ from __future__ import annotations
 import html
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
 MEDLINEPLUS_ENDPOINT = "https://wsearch.nlm.nih.gov/ws/query"
 SOURCE_NAME = "MedlinePlus, US National Library of Medicine"
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+# Largest response we will read into memory. A search for five topics returns a
+# few tens of KB; anything approaching this is not a search result. The cap
+# exists so a hostile or broken endpoint - or anything sitting between us and
+# it - cannot exhaust this process's memory by streaming without end.
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
 class MedlinePlusUnavailable(Exception):
@@ -39,6 +45,19 @@ class SymptomTopic:
     url: str
     source_name: str
     groups: list[str]
+    # The source's OWN alternate names for this topic (`altTitle` in the XML).
+    # NLM says, for example, that "Toe Injuries and Disorders" is also called
+    # "Bunions" and that "Sun Exposure" is also called "Sunburn".
+    #
+    # Kept because matching a description against the title alone throws away
+    # the source's own vocabulary: someone who writes "bunions" is written off
+    # as having matched nothing, even though NLM has just said that is the
+    # name of the topic it returned. Using these is still a lexical test
+    # against words the user wrote — it just uses the publisher's synonym list
+    # instead of pretending the title is the only name a topic has.
+    #
+    # Not rendered anywhere. Match input only.
+    alt_titles: list[str] = field(default_factory=list)
 
 
 # The service marks search-term hits with <span class="qtN">…</span>.
@@ -83,8 +102,21 @@ def _topic_id_from_url(url: str) -> str:
     return tail.removesuffix(".html")
 
 
+# A document type declaration is the only way an XML payload can define
+# entities, and entity expansion ("billion laughs") is the one attack
+# ElementTree does not defend against on its own. This response is a search
+# result from a fixed https endpoint and never legitimately carries a DTD, so
+# refusing one outright costs nothing and removes the class.
+_DOCTYPE_RE = re.compile(r"<!\s*(DOCTYPE|ENTITY)", re.IGNORECASE)
+
+
 def parse_search_response(xml_text: str) -> list[SymptomTopic]:
     """Parse the service's XML into topics, skipping any malformed entry."""
+    if _DOCTYPE_RE.search(xml_text):
+        raise MedlinePlusUnavailable(
+            "MedlinePlus returned a response we could not read."
+        )
+
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
@@ -100,6 +132,7 @@ def parse_search_response(xml_text: str) -> list[SymptomTopic]:
         title = ""
         summary = ""
         groups: list[str] = []
+        alt_titles: list[str] = []
 
         for content in document.findall("content"):
             name = content.get("name")
@@ -117,6 +150,10 @@ def parse_search_response(xml_text: str) -> list[SymptomTopic]:
                 group = strip_markup(value)
                 if group:
                     groups.append(group)
+            elif name == "altTitle":
+                alt_title = strip_markup(value)
+                if alt_title:
+                    alt_titles.append(alt_title)
 
         if not title:
             continue
@@ -129,6 +166,7 @@ def parse_search_response(xml_text: str) -> list[SymptomTopic]:
                 url=url,
                 source_name=SOURCE_NAME,
                 groups=groups,
+                alt_titles=alt_titles,
             )
         )
 
@@ -147,6 +185,11 @@ async def search_topics(term: str, *, limit: int = 10) -> list[SymptomTopic]:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
             response = await client.get(MEDLINEPLUS_ENDPOINT, params=params)
             response.raise_for_status()
+
+            if len(response.content) > MAX_RESPONSE_BYTES:
+                raise MedlinePlusUnavailable(
+                    "MedlinePlus returned a response we could not read."
+                )
     except httpx.HTTPError as exc:
         # Callers turn this into a 503 with a plain-language message; the app
         # must never fall back to inventing content when the source is down.

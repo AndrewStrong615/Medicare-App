@@ -94,8 +94,8 @@ And an improvement pipeline, run in this order:
 - **implementer** — builds approved plans only, on a branch, never main.
 - **tester** — tests what was built.
 
-Use `compliance-reviewer` before merging anything under `mobile/src/screens/symptom-lookup/`,
-`backend/app/api/symptoms.py`, or similar, and any time new user-facing copy
+Use `compliance-reviewer` before merging anything under `mobile/src/screens/intake/`,
+`backend/app/api/intake.py`, or similar, and any time new user-facing copy
 mentions a condition, symptom, drug, or dosage.
 
 ### ⛔ What no subagent may do without explicit human approval

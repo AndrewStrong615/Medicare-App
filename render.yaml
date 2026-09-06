@@ -114,6 +114,26 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
 
+      # The free alternative: any OpenAI-compatible endpoint. Setting a base
+      # URL and a model switches the model layer to the agentic deduction loop
+      # (app/core/deduction.py) and costs nothing. Also left unset here, and
+      # for the same reason — a key in a blueprint is a key in source control.
+      #
+      # ⛔ ON A DEPLOYMENT THIS CAN ONLY BE A HOSTED ENDPOINT, AND THAT MEANS
+      # TRANSMITTING HEALTH DATA. The local option that raises no BAA question
+      # (Ollama on localhost) cannot run on a free instance — there is not
+      # enough memory, and nothing is listening on localhost here. So setting
+      # these makes Groq, Google or OpenRouter a processor of symptom
+      # descriptions typed into a public URL, and this project has a BAA with
+      # nobody. Same decision as ANTHROPIC_API_KEY above, not a cheaper way
+      # around it. See docs/free-model-setup.md.
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+
       # ⛔ Both off, and neither should be switched on here. The first attaches
       # MedlinePlus reading material that a compliance review rejected; the
       # second writes symptom descriptions to the application log.

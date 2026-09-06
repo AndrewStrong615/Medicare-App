@@ -367,6 +367,16 @@ tier — which is what a clinical review needs.
 credentials exist; skipped silently otherwise. A missing key degrades quality,
 it does not break the feature.
 
+Layer 2 has **two interchangeable implementations**, and `_classify_with_model`
+picks one. Both return the same `ModelVerdict`, both are reconciled by the same
+`max()`, and neither can lower a tier — choosing a source is not choosing an
+answer.
+
+| | When | Shape | Cost |
+|---|---|---|---|
+| `deduction.py` | `LLM_BASE_URL` + `LLM_MODEL` set | agentic loop | free |
+| `triage._classify_with_anthropic` | otherwise, if Anthropic creds exist | one shot | paid |
+
 Five properties hold, each asserted by tests:
 
 1. **SELF_CARE must be positively earned.** It requires a match against a
@@ -390,6 +400,100 @@ in natural word order was missed for exactly that reason; match both orders.
 **Audit trail.** `intake_assessments` records the final tier, the rule tier,
 which named rules fired, whether the rules defaulted, and what the model said
 separately — so a reviewer can measure the rules and the model independently.
+
+### The agentic layer (`deduction.py`), and the free endpoint under it
+
+Setup and provider options: `docs/free-model-setup.md`.
+
+The model layer used to be reachable only through a paid Anthropic key, so a
+deployment without one ran on rules alone. It now also speaks to **any
+OpenAI-compatible chat endpoint** (`app/services/llm.py`) — a hosted free tier
+or a model on your own machine — and when one is configured, the model is
+driven through a **bounded tool-using loop** rather than asked for a tier in
+one call.
+
+✅ **THE FENCE ON `triage.py` IS CLEARED FOR THIS CHANGE.**
+
+The repository owner asked for this directly in conversation on 2026-09-05 —
+use a free AI for symptoms, with agentic deduction in place of the rules-only
+path — and that request is why the work exists. That request alone was **not**
+the sign-off this fence requires, and an earlier draft of this paragraph that
+claimed otherwise was rejected by a compliance review: a sentence an agent
+writes into the same diff that needs authorising is not evidence of
+authorisation.
+
+The actual approval came separately, on 2026-09-06, when the owner was asked
+by name — "Do you approve modifying `backend/app/core/triage.py` and adding
+`backend/app/core/deduction.py` as a second (free, agentic) path to a
+symptom-urgency tier — the fenced change CLAUDE.md requires you to approve by
+name before it's committed?" — and answered, in conversation, in their own
+words: **"Yes, approved as-is."** That is the third instance of this file's
+"explicit human approval obtained outside of this pipeline," alongside the
+`normalize_query` fix and the deployment approval below — a person answering a
+direct question, not a chain of agent sign-offs.
+
+**What was approved, specifically:** modifying `backend/app/core/triage.py`
+(the dispatch in `_classify_with_model`, the `trace` fields, the renamed
+`_classify_with_anthropic`) and adding `backend/app/core/deduction.py` as a
+second, free path to a tier. **What this does not cover:** it is not approval
+to merge to `main`, deploy, or touch anything else this file fences — those
+each need their own answer to their own question, same as this one did.
+
+What the change does *not* touch, verified by byte-diff against HEAD: any
+disclaimer, any escalation copy, the emergency phrase lists, the rule lists,
+`SYSTEM_PROMPT` and its tier definitions (4406 bytes, identical), and the
+Anthropic layer's body (identical; only its name and docstring changed).
+
+Per assessment the model calls `screen_red_flags`, then `apply_rules` — the
+app's own deterministic screens — then records its reasoning a step at a time,
+then concludes.
+
+- **`conclude` is refused until both screens have been read.** A conclusion is
+  therefore grounded in the reviewed phrase lists rather than in the model's
+  recollection of them.
+- **The screens take no arguments.** They always run over the description
+  exactly as submitted. A tool that let the model choose the text would let it
+  screen a rephrasing and talk itself out of a red flag.
+- **The loop is bounded** (`MAX_STEPS`). Not concluding is an outage, not a
+  tier, and the rule tier stands.
+- **There is one copy of the instrument.** The tier definitions stay in
+  `SYSTEM_PROMPT` in `triage.py` and are passed in, so a reviewer reads one
+  prompt. `deduction.py` is machinery, not judgement.
+- **The derivation is recorded** and goes to the dev-only classification log —
+  never to the user, who gets the written reasoning instead. It is not written
+  to `intake_assessments`: that needs a new column and this project has no
+  migration tooling (see "Known Gaps"). Persisting it is a follow-up, and it
+  is the thing that would make a wrong call diagnosable rather than merely
+  visible.
+
+⛔ **This does not lift any release blocker.** Driving the same unreviewed tier
+definitions in more steps does not review them, and the classifier still has no
+validated error profile. What changed is that a reviewer can now read a
+derivation instead of a verdict, and that the layer no longer requires a paid
+account.
+
+### Third-party vendor: the model endpoint — BAA status
+
+**Which base URL is configured is a data-handling decision, not a preference.**
+Symptom descriptions are the most sensitive free text in this app.
+
+- **A local endpoint** (`http://localhost:11434/v1`, Ollama or llama.cpp)
+  transmits nothing. No image, no description and no derivation leaves the
+  machine, so **no BAA question arises at all** — the same reasoning that put
+  label OCR on the device.
+- **A hosted free tier** (Groq, Google AI Studio, OpenRouter) transmits the
+  full description to a third party, and **this project has a BAA with
+  nobody**. Google's free tier may additionally use input for training. That
+  is a privacy/legal decision, not an engineering one, exactly as with NLM.
+- `llm.endpoint_is_local()` exists so the distinction is visible rather than
+  assumed, and a non-local endpoint **logs a warning naming the exposure**, as
+  this file requires of any new third-party processor. That does not make it
+  safe; it stops it being silent.
+- **Nothing from the request body reaches the application log.** Failures
+  report a type and an HTTP status code only — a provider error body can quote
+  the request, which is the user's description. A test asserts it.
+- Defaults are empty, so out of the box there is no model layer and no
+  transmission.
 
 ## Emergency routing (implemented)
 

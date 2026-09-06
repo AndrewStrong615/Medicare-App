@@ -159,9 +159,20 @@ services:
     #
     # EXPO_PUBLIC_* is inlined into the bundle by babel at build time, so the
     # API address is baked in here and cannot be changed without rebuilding.
-    # That is why it is composed from the API service's real hostname rather
-    # than guessed: `baseUrl.ts` otherwise looks for the API on port 8000 of
-    # whatever host served the page, which is right on a LAN and wrong here.
+    # That is why it is set explicitly rather than guessed: `baseUrl.ts`
+    # otherwise looks for the API on port 8000 of whatever host served the
+    # page, which is right on a LAN and wrong here.
+    #
+    # ⛔ This used to be `fromService: {..., property: host}`, which reads as
+    # "the API's hostname" but is actually Render's *private-network* name for
+    # service-to-service calls within Render — for this API it resolves to
+    # the bare string `medhelp-api-as615`, with no `.onrender.com`. That got
+    # baked into the public bundle verbatim, so every request the browser made
+    # went to a hostname that doesn't resolve anywhere, and the app reported
+    # "can't connect to the MedHelp servers." A static site's build step has
+    # no private-network access anyway; a browser needs the *public* host,
+    # which is the literal below — the same reasoning CORS_ALLOW_ORIGINS above
+    # already uses for the reverse direction.
     buildCommand: >-
       npm ci &&
       EXPO_PUBLIC_API_BASE_URL="https://$MEDHELP_API_HOST"
@@ -170,11 +181,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20.18.0"
+      # ⛔ If Render suffixed the API service's name (see the CORS note
+      # above), update this to match, or the web build keeps baking in a
+      # hostname that doesn't exist.
       - key: MEDHELP_API_HOST
-        fromService:
-          type: web
-          name: medhelp-api-as615
-          property: host
+        value: medhelp-api-as615.onrender.com
     routes:
       # Single-page app: a deep link or a refresh on any path has to be served
       # index.html rather than a 404, or the router never gets to run.

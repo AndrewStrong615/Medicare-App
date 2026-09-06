@@ -1102,6 +1102,24 @@ that person's health data.
 - ⛔ **There is still no revocation.** `logout()` forgets the token on the
   device; a stolen one stays valid at the server until it expires (60 minutes
   by default). Session invalidation remains a Known Gap.
+- **The library is PyJWT, and it was python-jose.** python-jose drags in
+  `ecdsa`, which carries an unfixed Minerva timing advisory with no patched
+  release to move to — the only way off it was to stop depending on it. It was
+  never reachable here (HS256 only; no EC key is ever loaded), but the same
+  library had already cost this file two CVE notes in a year, and "unreachable"
+  is an argument you have to re-make at every audit. Same algorithm, same
+  verified claims.
+  - ⛔ **The two libraries spell claim requirements differently, and PyJWT
+    ignores option keys it does not recognise.** jose's `require_exp` /
+    `require_iat` / `require_sub` are one `"require": [...]` list in PyJWT.
+    Carried over verbatim they would have read like they demanded those claims
+    while demanding nothing — and a token with no `exp` and no expiry check is
+    a token that never expires. It fails silently, so
+    `test_a_token_missing_a_required_claim_is_rejected` pins each claim.
+  - `strict_aud` is now on. Without it PyJWT accepts an `aud` **list** that
+    merely contains ours, so a token minted for another service that also
+    listed this one would authenticate here. Every token minted here has a
+    string `aud`.
 
 ### The session survives a reload, and dies with the tab
 
@@ -1380,6 +1398,23 @@ reviewer's call and not a layout one.
    unhandled failure, so nothing crosses the wire either.
 6. ~~**The signing key is the published placeholder.**~~ See "The signing key
    is the whole of authentication" above.
+7. ~~**The deployed API ran on dependencies with 18 known advisories.**~~
+   `pip-audit` now reports none. The reachable ones were in code that runs
+   *before* a route is chosen, so they were exposed to anyone who could reach
+   the API: nine against `starlette` 0.38.6 (Host-header and request-path
+   injection into `request.url` reconstruction, unbounded multipart buffering,
+   `form()` limits being ignored) and seven against `python-multipart` 0.0.9
+   (parsing denial of service, field-separator confusion). Closing the
+   starlette ones needed `fastapi` to move first — 0.115.0 held starlette below
+   0.39, and every fix lands in 1.x — so the pinned pair is now
+   `fastapi==0.141.1` with `starlette>=1.3.1,<1.7`, verified against the whole
+   backend suite. `pytest` moved to 9.0.3 for a predictable-tmpdir advisory
+   that only ever affected developer machines. The last one, `ecdsa`, had no
+   fix to move to and was removed with the library that pulled it in — see
+   "Tokens".
+
+   **Re-run `pip-audit` rather than trusting this paragraph.** Advisory counts
+   are a snapshot; this one is from 2026-09-06.
 
 ### Still open — each needs a call before the app holds real user data
 
@@ -1412,11 +1447,41 @@ reviewer's call and not a layout one.
 7. **Nothing writes an access log or an audit trail of reads.** There is no
    record of who read which record, which is normally a requirement wherever
    the BAA question above is being asked.
-8. **The mobile build tree has known-vulnerable dev dependencies** (`tar`,
-   `postcss`, `image-size`, `@xmldom/xmldom`, `ajv` and others, via Expo 51's
-   CLI). None ships in the app bundle — they are build tooling — so the risk is
-   to the machine that builds, not to a user's data. The fix is an Expo major
-   upgrade and should be scheduled rather than forced.
+8. **The mobile build tree has known-vulnerable dev dependencies**, via Expo
+   51's CLI and React Native 0.74's. `npm audit` reported 43; it now reports 6,
+   after `overrides` in `mobile/package.json` pinned the patched transitive
+   versions of `tar`, `postcss`, `ajv`, `send`, `uuid`, `fast-xml-parser`,
+   `@xmldom/xmldom` and `decode-uri-component`.
+
+   ⛔ **This finding used to say "none ships in the app bundle". That was
+   wrong**, and the correction is the reason the overrides exist rather than
+   being deferred with the rest. `decode-uri-component` is reached at runtime
+   through `query-string` ← `@react-navigation/core`, and its code was verified
+   present in the exported web bundle by grepping for the library's own
+   regexes. Its advisory is a denial of service via exponential decoding of
+   malformed percent-encoded input — reachable from a crafted URL, so it was a
+   real property of the deployed site, not of the build machine. The patched
+   0.5.0 replaces that with a single left-to-right scan; the old matcher is
+   gone from the bundle and the new one is in, both checked by grep.
+
+   The remaining 6 are one chain: `image-size` ← `metro` ← `metro-config` /
+   `metro-transform-worker` ← `@react-native/community-cli-plugin` ←
+   `react-native`. **`image-size` has no fixed release at all** — every
+   published version including the latest (2.0.2) sits inside the advisory's
+   vulnerable range, so there is nothing to pin. It is Metro's, used at build
+   time, and clears only with the React Native upgrade.
+
+   Everything still deferred here is genuinely build tooling — Expo CLI, Metro,
+   the native-prebuild tooling, the dev static server — so the risk is to the
+   machine that builds, not to a user's data. The real fix remains an Expo
+   major upgrade, still to be scheduled rather than forced; the overrides are a
+   stopgap and are commented as one.
+
+   ⛔ **The overrides are verified against `npm test` and
+   `expo export --platform web` only.** Neither exercises `expo prebuild` or an
+   EAS native build, which is where forcing majors into `@expo/plist`, `xcode`
+   and the RN CLI would surface first. Anyone doing a native build should
+   expect to re-check them there.
 9. **A dev-only classification log exists** (`backend/app/core/triage_log.py`,
    flag `TRIAGE_LOG_CLASSIFICATIONS`). It writes the description and the
    follow-up answers to the application log, which CLAUDE.md otherwise

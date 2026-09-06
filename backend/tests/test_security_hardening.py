@@ -137,7 +137,7 @@ def test_algorithm_is_fixed_at_hs256():
 
 
 def test_token_signed_with_another_key_is_rejected():
-    from jose import jwt
+    import jwt
 
     forged = jwt.encode(
         {
@@ -159,7 +159,7 @@ def test_token_with_alg_none_is_rejected():
     """
     The unsigned-token attack, assembled by hand.
 
-    `jose.jwt.encode` refuses to produce one, but an attacker is not using our
+    `jwt.encode` refuses to produce one, but an attacker is not using our
     library — they concatenate base64 themselves. `jwt.decode` is pinned to a
     one-element algorithm list, so a token whose header claims `alg: none`
     never gets its signature check skipped.
@@ -189,7 +189,7 @@ def test_token_with_alg_none_is_rejected():
 
 
 def test_token_for_another_audience_is_rejected():
-    from jose import jwt
+    import jwt
 
     from app.core.config import settings
 
@@ -212,7 +212,7 @@ def test_token_for_another_audience_is_rejected():
 def test_token_of_the_wrong_type_is_rejected():
     """A refresh token, if one is ever added, must not authenticate a request
     on its own."""
-    from jose import jwt
+    import jwt
 
     from app.core.config import settings
 
@@ -233,7 +233,7 @@ def test_token_of_the_wrong_type_is_rejected():
 
 
 def test_expired_token_is_rejected():
-    from jose import jwt
+    import jwt
 
     from app.core.config import settings
 
@@ -253,6 +253,63 @@ def test_expired_token_is_rejected():
     assert decode_access_token(expired) is None
 
 
+@pytest.mark.parametrize("missing", ["exp", "iat", "sub"])
+def test_a_token_missing_a_required_claim_is_rejected(missing):
+    """
+    Guards the `require` list in `decode_access_token`.
+
+    PyJWT ignores option keys it does not recognise, so the old jose spelling
+    (`require_exp`) would still *read* like it demanded the claim while
+    demanding nothing. A token with no `exp` and no expiry check is a token
+    that never expires, so this is pinned per claim rather than in aggregate.
+    """
+    import jwt
+
+    from app.core.config import settings
+
+    claims = {
+        "sub": "user-id",
+        "iss": "medhelp-api",
+        "aud": "medhelp-app",
+        "typ": "access",
+        "exp": 9999999999,
+        "iat": 1600000000,
+    }
+    del claims[missing]
+
+    incomplete = jwt.encode(claims, settings.jwt_secret_key, algorithm="HS256")
+
+    assert decode_access_token(incomplete) is None
+
+
+def test_token_listing_our_audience_among_others_is_rejected():
+    """
+    Guards `strict_aud`.
+
+    Without it PyJWT accepts an `aud` *list* that merely contains ours, so a
+    token minted for another service that also lists this one would
+    authenticate here.
+    """
+    import jwt
+
+    from app.core.config import settings
+
+    multi_audience = jwt.encode(
+        {
+            "sub": "user-id",
+            "iss": "medhelp-api",
+            "aud": ["some-other-app", "medhelp-app"],
+            "typ": "access",
+            "exp": 9999999999,
+            "iat": 1600000000,
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    assert decode_access_token(multi_audience) is None
+
+
 def test_valid_token_still_round_trips():
     assert decode_access_token(create_access_token("synthetic-user-1")) == (
         "synthetic-user-1"
@@ -264,7 +321,7 @@ def test_forged_token_cannot_read_another_users_medications(client, auth_headers
     The end-to-end version of the tests above: every per-user filter in the API
     trusts the signature, so a forgeable key would defeat all of them at once.
     """
-    from jose import jwt
+    import jwt
 
     owner = client.post(
         "/medications",

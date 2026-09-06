@@ -34,6 +34,40 @@
     "react-native-web": "~0.19.10",
     "tesseract.js": "^7.0.0"
   },
+  "comments": {
+    "overrides": [
+      "Advisories against packages Expo 51 and React Native 0.74 pull in. npm's",
+      "own remedy for every one of them is `expo@57`/`react-native@0.87` — a",
+      "major upgrade this project has not scheduled — so these pin the patched",
+      "transitive version instead. A stopgap, not the fix: see 'Known Gaps' in",
+      "CLAUDE.md.",
+      "",
+      "Only ONE of these ships to users. decode-uri-component is reached at",
+      "runtime through query-string <- @react-navigation/core, and its code is",
+      "in the exported web bundle (verified by grepping for its own regexes).",
+      "The rest — tar, postcss, ajv, uuid, fast-xml-parser, @xmldom/xmldom,",
+      "send — are Expo CLI, Metro, the RN native-prebuild tooling and the dev",
+      "static server. They run on the machine that builds, never in a browser.",
+      "",
+      "image-size is deliberately absent: every published version including the",
+      "latest (2.0.2) is in the advisory's vulnerable range, so there is nothing",
+      "to pin. It is Metro's, build-time only, and clears with the RN upgrade.",
+      "",
+      "Verified by `npm test` and `expo export --platform web`. Those do NOT",
+      "exercise `expo prebuild` or an EAS native build, which is where forcing",
+      "majors into @expo/plist, xcode and the RN CLI would show up first."
+    ]
+  },
+  "overrides": {
+    "decode-uri-component": "^0.5.0",
+    "postcss": "^8.5.28",
+    "ajv": "^8.20.0",
+    "send": "^0.19.2",
+    "tar": "^7.5.22",
+    "uuid": "^11.1.1",
+    "fast-xml-parser": "^5.11.1",
+    "@xmldom/xmldom": "^0.9.12"
+  },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@testing-library/react-native": "12.5.2",

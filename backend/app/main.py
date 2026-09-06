@@ -234,12 +234,14 @@ def warn_if_triage_unconfigured() -> None:
     """
     if not credentials_available():
         logging.getLogger(__name__).warning(
-            "Symptom intake is running RULES-ONLY: no Anthropic credentials "
-            "found. Every description still gets a tier, and red-flag "
+            "Symptom intake is running RULES-ONLY: no model layer is "
+            "configured. Every description still gets a tier, and red-flag "
             "screening is unaffected — but the explanation shown to the user "
             "is one of a few fixed sentences rather than one written to what "
             "they typed, and the classifier can never ask a clarifying "
-            "question. Set ANTHROPIC_API_KEY in backend/.env and restart."
+            "question. Set LLM_BASE_URL and LLM_MODEL in backend/.env for the "
+            "free agentic layer (see docs/free-model-setup.md), or "
+            "ANTHROPIC_API_KEY for the paid one, and restart."
         )
 
 

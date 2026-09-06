@@ -101,6 +101,27 @@ class Settings(BaseSettings):
     # feature reports itself unavailable — it never falls back to guessing.
     anthropic_api_key: str = ""
 
+    # The free model layer: any OpenAI-compatible chat endpoint. Naming a base
+    # URL and a model switches symptom intake to the agentic deduction loop in
+    # app/core/deduction.py, which drives the model through this app's own
+    # deterministic screens instead of asking it for a tier in one shot.
+    #
+    # ⛔ THE BASE URL IS A DATA-HANDLING DECISION. A symptom description is
+    # the most sensitive free text in this app, and this project has a signed
+    # BAA with nobody. A local endpoint (http://localhost:11434/v1 for Ollama)
+    # transmits nothing and raises no BAA question; a hosted free tier
+    # transmits health data to a third party and does. app/services/llm.py
+    # logs a warning naming the exposure when the endpoint is not local.
+    #
+    # Both empty (the default) means no model layer at all — the deterministic
+    # rule layer still runs, which is the product. See CLAUDE.md.
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    # A local model on modest hardware is slower than a hosted one, and this
+    # call blocks the assessment, so the ceiling is generous rather than tight.
+    llm_timeout_seconds: float = 60.0
+
     # ⛔ OFF pending clinician review. Do not flip this without reading the
     # note in CLAUDE.md under "Related reading is gated off".
     #

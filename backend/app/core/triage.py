@@ -35,6 +35,14 @@ Safety architecture — read before changing anything here:
    unclassifiable description takes the rule tier — URGENT — and says so in
    plain words rather than presenting the default as a judgement it made.
 
+7. There are two model layers and they are interchangeable to everything
+   above. `_classify_with_model` picks one: the agentic loop in
+   `app.core.deduction` when an OpenAI-compatible endpoint is configured
+   (the layer that can be free, including a model on your own machine), and
+   the original one-shot Anthropic call otherwise. Both return a
+   `ModelVerdict`, both are reconciled by `_reconcile`, and neither can lower
+   a tier. Choosing a source is not choosing an answer.
+
 NOT CLINICALLY VALIDATED. The tier definitions and the prompt below were
 written by a software engineer, not a clinician. See CLAUDE.md — this is a
 blocking release item.
@@ -51,9 +59,11 @@ from pathlib import Path
 
 import anthropic
 
-from app.core import rules_triage
+from app.core import deduction, rules_triage
 from app.core.config import settings
 from app.core.emergency import EmergencyGuidance
+from app.services import llm
+from app.services.llm import LLMUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +146,11 @@ class TriageResult:
     # could not be classified, so the safe default was applied and said out
     # loud rather than presented as a judgement.
     exhausted_followup: bool = False
+    # How the agentic layer got to its answer, step by step. Recorded for
+    # review and never shown to the user — it is a derivation, not an
+    # explanation written for a worried person. Empty when no model ran, or
+    # when the one-shot layer ran instead.
+    deduction_trace: list[str] = field(default_factory=list)
 
 
 SYSTEM_PROMPT = """\
@@ -274,6 +289,10 @@ class ModelVerdict:
     reasoning: str
     model_id: str
     confidence: str | None
+    # The derivation, when the agentic layer produced one: the deterministic
+    # screens it read and the inferences it recorded, in order. Empty from the
+    # one-shot layer, which has no steps to report.
+    trace: list[str] = field(default_factory=list)
 
     @property
     def requested_followup(self) -> bool:
@@ -282,13 +301,20 @@ class ModelVerdict:
 
 def credentials_available() -> bool:
     """
-    Whether the SDK has any credential source to work with.
+    Whether either model layer has something to work with.
 
-    An unset ANTHROPIC_API_KEY does not mean there are no credentials — the
-    SDK also resolves ANTHROPIC_AUTH_TOKEN and a stored CLI login profile.
-    Constructing the client is what actually resolves them, so this only
-    reports the cases we can cheaply rule in.
+    A configured OpenAI-compatible endpoint counts, and is checked first,
+    because it is the layer that needs no paid account: a local Ollama server
+    has no credential at all, so "has a key" was the wrong question to ask on
+    its behalf.
+
+    For the Anthropic layer, an unset ANTHROPIC_API_KEY does not mean there
+    are no credentials — the SDK also resolves ANTHROPIC_AUTH_TOKEN and a
+    stored CLI login profile. Constructing the client is what actually
+    resolves them, so this only reports the cases we can cheaply rule in.
     """
+    if llm.configured():
+        return True
     return bool(
         settings.anthropic_api_key
         or os.environ.get("ANTHROPIC_API_KEY")
@@ -319,7 +345,58 @@ def _build_client() -> anthropic.Anthropic:
 
 
 def _classify_with_model(description: str) -> ModelVerdict:
-    """Return the model's verdict. Raises TriageUnavailable on failure."""
+    """
+    Return the model's verdict. Raises TriageUnavailable on failure.
+
+    Two layers can produce one, and a configured OpenAI-compatible endpoint
+    wins because it is the one that can be free. Whichever answers, the caller
+    reconciles it against the rule tier in exactly the same way — this
+    function chooses a source, never a tier.
+    """
+    if llm.configured():
+        return _deduce_with_model(description)
+    return _classify_with_anthropic(description)
+
+
+def _deduce_with_model(description: str) -> ModelVerdict:
+    """
+    The agentic layer: drive the model through this app's own deterministic
+    screens and read back what it deduced.
+
+    Every failure inside the loop — an unreachable endpoint, an unusable
+    answer, a loop that never concluded — arrives here as LLMUnavailable and
+    leaves as TriageUnavailable, which is the same "no model answer" the
+    one-shot layer produces. The rule tier stands underneath either way.
+    """
+    try:
+        result = deduction.deduce(description, system_prompt=SYSTEM_PROMPT)
+    except LLMUnavailable as exc:
+        logger.warning("Deduction unavailable: %s", exc)
+        raise TriageUnavailable("The triage service is unavailable.") from exc
+    except Exception as exc:  # noqa: BLE001 - see comment
+        # Anything unexpected is still "no tier". Letting it escape would turn
+        # a safe 503 into a 500 and, on the red-flag path, suppress an
+        # EMERGENT result entirely.
+        logger.warning("Unexpected deduction failure: %s", type(exc).__name__)
+        raise TriageUnavailable("The triage service is unavailable.") from exc
+
+    return ModelVerdict(
+        # None here is NEEDS_MORE_INFO — the model asking rather than judging.
+        tier=None if result.tier_name is None else Tier[result.tier_name],
+        reasoning=result.reasoning,
+        model_id=result.model_id,
+        confidence=result.confidence,
+        trace=[f"{step.kind}: {step.detail}" for step in result.trace],
+    )
+
+
+def _classify_with_anthropic(description: str) -> ModelVerdict:
+    """
+    The original one-shot layer, unchanged.
+
+    Used only when no OpenAI-compatible endpoint is configured. It asks for a
+    tier in a single call rather than deducing one through the screens.
+    """
     client = _build_client()
 
     try:
@@ -536,4 +613,5 @@ def assess(description: str, *, followup_already_asked: bool = False) -> TriageR
         model_confidence=confidence,
         model_requested_followup=model_requested_followup,
         exhausted_followup=exhausted,
+        deduction_trace=verdict.trace if verdict else [],
     )

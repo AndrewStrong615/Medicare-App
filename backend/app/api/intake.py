@@ -12,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core import followup, triage_log
 from app.core.config import settings
@@ -65,8 +66,10 @@ USER_FACING_UNAVAILABLE = (
 # Appended only outside production, so a developer can tell a missing key from
 # a real outage.
 DEV_CONFIG_HINT = (
-    "(Developer note: symptom intake has no Anthropic credentials. Set "
-    "ANTHROPIC_API_KEY in backend/.env and restart the server.)"
+    "(Developer note: symptom intake has no model layer configured. Set "
+    "LLM_BASE_URL and LLM_MODEL in backend/.env for the free agentic layer — "
+    "http://localhost:11434/v1 with Ollama keeps every description on this "
+    "machine — or ANTHROPIC_API_KEY for the paid one, then restart.)"
 )
 
 
@@ -141,10 +144,26 @@ async def create_assessment(
     description = followup.merge(payload.description, answers) if answers else payload.description
 
     try:
+        # ⛔ OFF THE EVENT LOOP. `assess` is synchronous and, when a model
+        # layer is configured, spends nearly all of its time blocked on a
+        # network call to it. This endpoint is `async def`, so calling it
+        # directly ran it ON the event loop — and a blocked event loop serves
+        # nobody: every other request in the process, including the sync
+        # threadpool routes that load medications, appointments and reminders,
+        # simply queues behind it. The symptom is the whole app hanging while
+        # one person submits a symptom description.
+        #
+        # This was always latent — the Anthropic call took seconds — but a
+        # local model turns seconds into minutes, so it became the app's
+        # dominant failure mode rather than a hiccup. `run_in_threadpool` is
+        # what FastAPI already does for a plain `def` route; this endpoint
+        # cannot be one, because it awaits the topic lookup below.
+        #
         # "Already asked" means "and will not be asked again" — which is only
         # true once every round is spent. Before that, a model asking for more
         # detail should get it rather than falling to the safe default.
-        result = assess(
+        result = await run_in_threadpool(
+            assess,
             description,
             followup_already_asked=rounds_asked >= followup.MAX_ROUNDS,
         )
@@ -155,9 +174,10 @@ async def create_assessment(
 
         if isinstance(exc, TriageNotConfigured):
             logger.error(
-                "Symptom intake is unreachable: no Anthropic credentials are "
-                "configured. Set ANTHROPIC_API_KEY in backend/.env (or export "
-                "it) and restart the server."
+                "Symptom intake is unreachable: no model layer is configured. "
+                "Set LLM_BASE_URL and LLM_MODEL in backend/.env for the free "
+                "agentic layer, or ANTHROPIC_API_KEY for the paid one, and "
+                "restart the server."
             )
             # Outside production, say why. A developer seeing only "couldn't
             # assess" cannot tell a misconfiguration from an outage; an end
@@ -221,6 +241,7 @@ async def create_assessment(
         model_requested_followup=result.model_requested_followup,
         exhausted_followup=result.exhausted_followup,
         asked_followup=rounds_asked > 0,
+        deduction_trace=result.deduction_trace,
     )
 
     # Reading material for the tiers the user can act on at their own pace.

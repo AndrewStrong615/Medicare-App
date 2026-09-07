@@ -130,6 +130,24 @@ class TestModifiersRevokeSelfCare:
             for rid in rule_ids
         )
 
+    @pytest.mark.parametrize(
+        "description",
+        [
+            # "for over a week" / "for over two weeks" do not contain the
+            # literal substring "for a week" / "for two weeks", so these were
+            # falling through to SELF_CARE despite plainly describing a
+            # persisting, unresolved complaint. Found via ad-hoc testing
+            # against a mono-like description.
+            "sore throat for over a week",
+            "sore throat for over two weeks",
+            "mild cough for over a week",
+            "runny nose for over a week",
+            "sore throat for more than two weeks, swollen glands, extremely tired",
+        ],
+    )
+    def test_over_and_more_than_duration_phrasing_prevents_self_care(self, description):
+        assert classify(description).tier_name != "SELF_CARE"
+
 
 class TestReasoningLanguage:
     @pytest.mark.parametrize(

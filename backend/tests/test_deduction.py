@@ -546,7 +546,10 @@ class TestTheClientItself:
     def test_a_hosted_endpoint_says_so_in_the_log(self, monkeypatch, caplog):
         monkeypatch.setattr(settings, "llm_base_url", "https://api.groq.com/openai/v1")
         monkeypatch.setattr(settings, "llm_model", "llama-3.3-70b-versatile")
-        monkeypatch.setattr(llm, "_warned_about_transmission", False)
+        # Now a set of hosts already warned about, not a single bool: two
+        # features may have two endpoints, and a warning about one is not a
+        # warning about the other. See tests/test_llm_endpoints.py.
+        monkeypatch.setattr(llm, "_warned_about_transmission", set())
         monkeypatch.setattr(
             httpx, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("x"))
         )

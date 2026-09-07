@@ -1221,6 +1221,30 @@ reviewer's call, not a layout one. They carry a plain statement about the
 software instead — MedHelp tracks what you decide to do, does not decide what
 your goals should be, and cannot tell you whether one is right for you.
 
+### Goals may use a different model endpoint from triage
+
+`GOALS_LLM_BASE_URL` / `GOALS_LLM_MODEL` / `GOALS_LLM_API_KEY`, each falling
+back to its `LLM_*` counterpart when empty.
+
+**Why this is not gratuitous config.** One set of settings used to serve every
+model caller, so pointing them at a hosted provider to get goal suggestions
+also started sending *symptom descriptions* there — the most sensitive free
+text in the app, belonging to the feature with the standing release blocker.
+A data-handling decision must not happen as a side effect of switching on a
+different feature.
+
+- **Unset, the overrides change nothing.** A deployment that never sets them
+  behaves exactly as it did before the split. Asserted by a test, because that
+  property is the whole reason this was safe to add.
+- `llm.Endpoint` carries a `label`, so the transmission warning names *which*
+  data is leaving — "Health goal descriptions" or "Symptom descriptions".
+- The warning fires **once per host**, not once per process. Two endpoints
+  mean a warning about one is not a warning about the other.
+- ⛔ **`tests/conftest.py` must blank these too.** The autouse `_no_live_model`
+  guard exists because the suite once made real calls from a developer's
+  `.env`; a second set of settings is a second hole in it, and
+  `tests/test_llm_endpoints.py` asserts the guard covers them.
+
 ### PHI status
 
 `health_goals`, `goal_activities` and `goal_completions` say that a named

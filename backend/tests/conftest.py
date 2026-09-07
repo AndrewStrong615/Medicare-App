@@ -26,6 +26,7 @@ from app.main import app
 # create_all runs.
 from app.models import (  # noqa: F401
     appointment,
+    goal,
     intake,
     medication,
     provider_location,

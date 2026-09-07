@@ -41,10 +41,15 @@ import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
  * does not know whether a dose was taken and nothing here may imply it does.
  */
 
-export type TabName = "Today" | "Symptoms" | "Medications" | "Care";
+export type TabName = "Today" | "Symptoms" | "Medications" | "Care" | "Goals";
 
 /** The stack route that is each tab's root. */
-type TabRoute = "Home" | "SymptomIntake" | "MedicationList" | "AppointmentList";
+type TabRoute =
+  | "Home"
+  | "SymptomIntake"
+  | "MedicationList"
+  | "AppointmentList"
+  | "HealthGoals";
 
 interface Tab {
   name: TabName;
@@ -57,6 +62,7 @@ const TABS: readonly Tab[] = [
   { name: "Symptoms", route: "SymptomIntake", icon: "symptom" },
   { name: "Medications", route: "MedicationList", icon: "pill" },
   { name: "Care", route: "AppointmentList", icon: "calendar" },
+  { name: "Goals", route: "HealthGoals", icon: "check" },
 ];
 
 /** Only the part of the navigation prop this needs, so screens can pass theirs. */

@@ -1,14 +1,24 @@
 # Health goals: the planning prompt
 
-**Status: nothing here is wired.** No endpoint calls it, no screen renders it,
-no table stores it. This is the prompt and its contract, written down so a
-reviewer can read the instrument before it exists.
+**Status: built.** `backend/app/core/goal_structuring.py` holds the prompt and
+the checks, `backend/app/api/goals.py` the endpoints, and the Goals tab the
+screens. The repository owner approved building it in conversation on
+2026-09-07.
 
-⛔ **Building on this needs approval, in two parts.** CLAUDE.md fences clinical
-content; a person must approve the feature by name, the same way the
-`normalize_query` fix and `deduction.py` were approved. Separately, the copy
-and the refusal list below belong in the same clinician read as `followup.py`
-and `dose_schedule.py`.
+⛔ **Approval to build is not clinical sign-off.** The prompt, the refusal
+list and the cadence copy are a software engineer's construction and belong in
+the same clinician read as `followup.py` and `dose_schedule.py`. Nor is it
+approval to merge to `main` or deploy — CLAUDE.md fences those separately, and
+they need their own answer.
+
+**The prompt itself lives in `SYSTEM_PROMPT` in
+`backend/app/core/goal_structuring.py`, and this file no longer repeats it.**
+One copy of an instrument, the same rule that keeps the triage tier
+definitions in `triage.py` while `deduction.py` stays machinery — two copies
+drift, and a reviewer then has to guess which one runs.
+
+This document is the reasoning: why the feature is shaped this way, what is
+checked, and what a reviewer should decide.
 
 ---
 
@@ -76,187 +86,20 @@ rather than merely discouraged.
 
 ---
 
-## The system prompt
+## The prompt and the tools
 
-```
-You are a structuring step inside a health application. You do not give
-health advice, and nothing you write is read as advice.
+Both live in `backend/app/core/goal_structuring.py`: `SYSTEM_PROMPT`,
+`STRUCTURE_GOAL` and `CANNOT_STRUCTURE`. Read them there.
 
-A person has written down a goal and the things they intend to do about it.
-Your only job is to arrange THEIR OWN WORDS into a schedule the application
-can track. You are not a coach, a planner or a clinician.
-
-WHAT YOU MAY DO
-
-- Split what the person wrote into separate activities that can be tracked
-  one at a time.
-- Carry each activity across in the person's own words. You may trim filler,
-  fix capitalisation, and turn it into a plain instruction — "I want to try
-  walking in the mornings" becomes "Walk in the mornings". Never substitute a
-  different activity word for the one they used.
-- Give each activity the cadence the person stated: every day, three times a
-  week, at the weekend. If they stated no cadence, leave it unset.
-- Carry across any quantity they stated, exactly as they wrote it: a
-  duration, a count, a distance, a time of day.
-- Order the activities into weeks only if the person described a sequence or
-  a build-up themselves. Otherwise give one repeating week.
-- Suggest a short, plain title for the goal, drawn from their own words.
-
-WHAT YOU MUST NOT DO
-
-These are hard constraints. If following one means returning less, return
-less.
-
-- Never add an activity the person did not name. If they wrote "walk more",
-  you do not add stretching, hydration, sleep routines, journalling or
-  anything else, however helpful it would be.
-- Never set a quantity they did not state. No durations, distances, counts,
-  repetitions, weights, calorie figures, hours of sleep or heart rates of
-  your own.
-- Never increase a quantity over time. Whether to progress, and by how much,
-  is the person's decision and not yours.
-- Never explain why an activity is good for them, what it does to the body,
-  or what result to expect from it. No benefits, no mechanisms, no promises.
-- Never name, imply, suggest or rule out any medical condition, symptom,
-  medication or treatment.
-- Never comment on the person's body, weight, size, shape or appearance, and
-  never turn what they wrote into a goal about any of those.
-- Never restrict food, design a diet, set a calorie target, or schedule
-  fasting or skipped meals.
-- Never tell the person to push through pain, or to exercise, eat or sleep in
-  any way they did not themselves describe.
-- Do not judge whether the goal is realistic, healthy, safe or a good idea.
-  The application is not asking you that, and it is not your call.
-
-EVIDENCE FOR EVERY ACTIVITY
-
-Each activity you return must carry a `source_phrase`: an exact, unmodified
-run of characters copied from what the person wrote, being the part of their
-text that activity came from. Copy it character for character. The
-application checks it against the original and discards your entire answer if
-it does not match, so an activity you cannot quote is one you must not
-return.
-
-WHEN TO REFUSE
-
-Call `cannot_structure` — do not call `structure_goal` — when:
-
-- The person named no activity at all. "I want to be healthier", "help me
-  feel better", "get in shape" describe a destination and no steps.
-  Structuring this would mean inventing the plan.
-- What they wrote is about a symptom, an illness, an injury, a medication, or
-  a change to their body rather than about something they intend to do.
-  "Stop my headaches", "lose 20 pounds", "come off my blood pressure
-  tablets", "stop feeling dizzy" are all refusals.
-- They are asking you for a diet, a calorie target, a training programme, or
-  anything else you would have to author.
-- You cannot tell from the text what the activities actually are.
-
-Refusing is always available and is always the right answer when you are
-unsure. A refusal costs the person one screen on which they type their own
-activities. An invented plan puts words into a health application's mouth
-that no one has reviewed.
-
-Give the reason code only. The application writes what the person reads; do
-not write a message to them yourself.
-```
-
-## The tools
-
-Structured output goes through a tool call rather than "return only JSON" —
+Structured output goes through a tool call rather than "return only JSON" -
 that is what `llm.chat` already speaks, and it is how `deduction.py` gets a
 parseable answer today.
 
-```python
-STRUCTURE_GOAL = {
-    "type": "function",
-    "function": {
-        "name": "structure_goal",
-        "description": (
-            "Return the person's own stated activities, arranged into a "
-            "trackable schedule. Every activity must quote their text."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Short plain title drawn from their words.",
-                },
-                "activities": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "text": {
-                                "type": "string",
-                                "description": "The activity as a plain instruction, in their words.",
-                            },
-                            "source_phrase": {
-                                "type": "string",
-                                "description": "Exact substring of the submitted text this came from.",
-                            },
-                            "cadence": {
-                                "type": "string",
-                                "enum": ["daily", "times_per_week", "unspecified"],
-                            },
-                            "times_per_week": {
-                                "type": ["integer", "null"],
-                                "description": "Only if the person stated it. Otherwise null.",
-                            },
-                            "quantity_text": {
-                                "type": ["string", "null"],
-                                "description": "Verbatim quantity they stated, e.g. '20 minutes'. Otherwise null.",
-                            },
-                            "preferred_time": {
-                                "type": "string",
-                                "enum": ["morning", "afternoon", "evening", "unspecified"],
-                            },
-                        },
-                        "required": ["text", "source_phrase", "cadence", "preferred_time"],
-                        "additionalProperties": False,
-                    },
-                },
-                "sequenced": {
-                    "type": "boolean",
-                    "description": "True only if the person themselves described a build-up.",
-                },
-            },
-            "required": ["title", "activities", "sequenced"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-CANNOT_STRUCTURE = {
-    "type": "function",
-    "function": {
-        "name": "cannot_structure",
-        "description": "Decline. Always available, and correct whenever unsure.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "enum": [
-                        "NO_ACTIVITY_NAMED",
-                        "MEDICAL_GOAL",
-                        "WOULD_REQUIRE_AUTHORING",
-                        "UNCLEAR",
-                    ],
-                }
-            },
-            "required": ["reason"],
-            "additionalProperties": False,
-        },
-    },
-}
-```
-
-The refusal returns **a code, not a sentence.** The app owns the four strings
-the person actually reads, for the same reason `emergency.py` owns its guidance
-copy: user-facing health text is reviewed text, and a model writing its own
-apology is unreviewed text on a screen.
+The refusal tool returns **a code, not a sentence.** The four strings a person
+reads live in `_REFUSAL_NOTICES` in `backend/app/api/goals.py`, for the same
+reason `emergency.py` owns its guidance copy: user-facing text in a health app
+is reviewed text, and a model writing its own apology is unreviewed text on a
+screen.
 
 ## Validation the app performs on the answer
 
@@ -280,17 +123,19 @@ and the person types their own.
 - **Emergency screening**, first, deterministically, before any of this.
 - **Every user-facing sentence** except the activity text and title, both of
   which are anchored to the person's own words.
-- **Scheduling and notification**, through the existing local-only
-  `notificationService` — no push token, no Web Push, for the reasons under
-  *Medication reminders* in CLAUDE.md. A reminder naming a health goal on a
-  lock screen carries the same exposure as one naming a medication.
-- **Progress, completion and streaks.** These are counts of what the person
-  ticked. They are not an adherence record and must not be presented as one —
-  the same rule that makes a passed reminder "earlier today" rather than
-  "missed".
-- **Weekly review.** The person's own answers, shown back as a receipt, the way
-  `summarise` in `followup.py` does it. Not interpreted, not scored, and never
-  used to tell them how they are doing.
+- **Ticking off.** A tick is a note the person made for themselves on a local
+  calendar day. It is not an adherence record and must not be presented as one
+  — the same rule that makes a passed reminder read "earlier today" rather
+  than "missed". There is deliberately no streak, no score and no percentage,
+  stored or displayed, and `HealthGoalsScreen` has a test asserting the words
+  never appear.
+
+**Not built, deliberately.** Reminders for a goal, and any weekly review, are
+absent. Neither is blocked on anything hard — a goal reminder would reuse the
+local-only `notificationService` and a review would follow `summarise` in
+`followup.py` — but both add surface to an instrument no clinician has read
+yet, and a reminder naming a health goal on a lock screen carries the same
+exposure as one naming a medication.
 
 ## What is deliberately absent
 

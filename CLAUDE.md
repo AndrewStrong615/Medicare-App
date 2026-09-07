@@ -1109,6 +1109,100 @@ the tier is already URGENT by default, so "Suddenly" usually changes nothing.
 It bites only where round-one answers bring a self-care phrase into a
 description that had none, and round two then takes it back out.
 
+## Health goals (implemented)
+
+A person writes down what they intend to do, confirms the activities MedHelp
+read out of it, and ticks them off. Reasoning and the reviewer's open
+questions: `docs/health-goals-prompt.md`.
+
+### ⛔ MedHelp does not write health plans
+
+The obvious version of this feature — hand a goal to a model, get a weekly
+plan of habits back — is the thing this repository forbids. "The app never
+authors medical content" is why MedlinePlus text is verbatim and why a sig
+line is never expanded, and a generated plan of exercise, diet and sleep
+habits is app-authored health advice however sensible each line reads.
+
+So the model gets the one job that is not authoring: **splitting text the
+person already wrote into individually trackable activities.** It supplies
+form; the person supplies content. Same line `services/search_terms.py` walks.
+
+**The rule is checked, not trusted.** Every proposed activity must carry a
+`source_phrase` that occurs in the text the person submitted, and
+`core/goal_structuring.py` discards the *whole draft* if any does not. A model
+that wants to add stretching to a walking goal has to quote "stretch" out of
+text that never contained it. Four further checks follow the same principle,
+most importantly that **no digit may appear in an activity unless the person
+wrote it** — an invented number is the likely shape of an invented duration,
+distance or dose.
+
+Rules for anyone extending this:
+
+- **Never add a progression engine.** Nothing may increase a target because a
+  week went well; that is authoring, one week at a time, and it is exactly
+  what the substring check exists to prevent.
+- **Never add a second model to review the first.** A gate whose failure mode
+  is a silent pass is not a safety layer. The checks here are deterministic
+  for the same reason the triage rule layer is a phrase list a person can read.
+- **A refusal returns a code, never a sentence.** The four strings a person
+  reads live in `_REFUSAL_NOTICES` in `api/goals.py`, because user-facing text
+  in a health app is reviewed text. `core/goal_structuring.py` must never
+  return prose.
+- **Failure is never a plan.** No endpoint, an outage, or a failed check all
+  yield an empty editor plus the server's own sentence. There is no generated
+  fallback, for the same reason a model outage in triage is never SELF_CARE.
+- **Emergency screening runs first**, in `api/goals.py`, before the model is
+  called. A goal box takes "stop feeling dizzy on the stairs" as readily as
+  intake does, and guidance is returned alongside a refusal or an outage
+  rather than instead of it.
+- ⛔ **This is not an adherence record.** A tick is a note the person made for
+  themselves. An unticked activity means nothing was ticked — not that
+  anything was missed, skipped or failed. **No streaks, no percentages, no "3
+  of 4 done" tiles**, the same mistake CLAUDE.md warns about for the home
+  screen's panels. `mobile/__tests__/GoalScreens.test.tsx` asserts the words
+  never appear.
+- A completion is a **local calendar day** sent by the client, never a UTC
+  instant — the same rule as a reminder being a wall-clock "HH:MM".
+- Deleting a goal deletes its activities and every tick, in the endpoint as
+  well as by foreign key. SQLite does not enforce the cascade, so the test
+  asserts against the table.
+
+**Not built, deliberately:** reminders for a goal, and any weekly review.
+Neither is hard — a reminder would reuse the local-only `notificationService`
+— but both add surface to an instrument no clinician has read.
+
+### Approval, and what it does not cover
+
+The repository owner asked for this feature in conversation on 2026-09-07,
+having been shown that the originally proposed design (a model authoring
+weekly plans, with a second model checking them for safety) could not be
+built here. That is approval to **build it on a branch**.
+
+⛔ It is not clinical sign-off. `SYSTEM_PROMPT`, the refusal list and the
+cadence copy in `core/goal_structuring.py` are a software engineer's
+construction and belong in the same review as `followup.py` and
+`dose_schedule.py`. It is **not** approval to merge to `main` or to deploy —
+this file fences those separately and they need their own answer.
+
+The goals screens deliberately do **not** use `DisclaimerBanner`. Which
+screens show it is fenced by this file, and adding it to a new screen is a
+reviewer's call, not a layout one. They carry a plain statement about the
+software instead — MedHelp tracks what you decide to do, does not decide what
+your goals should be, and cannot tell you whether one is right for you.
+
+### PHI status
+
+`health_goals`, `goal_activities` and `goal_completions` say that a named
+person intends to do a named thing and did or did not tick it on a named day.
+**Not encrypted at rest** — the same open finding as `medications`,
+`intake_assessments` and `appointments.reason_for_visit`.
+
+Goal text is health free text about an identified user, so a non-local
+`LLM_BASE_URL` transmits it to a third party this project has no BAA with.
+`llm.endpoint_is_local()` makes the distinction visible; it does not make it
+safe. With no endpoint configured the feature still works — the person types
+their own activities and nothing leaves the machine.
+
 ## Application security posture (implemented)
 
 What actually protects the data, and what each control does not cover. Read

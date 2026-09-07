@@ -98,6 +98,12 @@ def _no_live_model(monkeypatch):
 
     monkeypatch.setattr(settings, "llm_base_url", "")
     monkeypatch.setattr(settings, "llm_model", "")
+    # The goals overrides are a second way to reach a live endpoint, so
+    # they are blanked too. Without this the guard has a hole: a test
+    # could make a real, billed call carrying a synthetic description.
+    monkeypatch.setattr(settings, "goals_llm_base_url", "")
+    monkeypatch.setattr(settings, "goals_llm_model", "")
+    monkeypatch.setattr(settings, "goals_llm_api_key", "")
     monkeypatch.setattr(settings, "anthropic_api_key", "")
 
     def _refuse():

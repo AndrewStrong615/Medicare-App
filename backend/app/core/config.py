@@ -122,6 +122,26 @@ class Settings(BaseSettings):
     # call blocks the assessment, so the ceiling is generous rather than tight.
     llm_timeout_seconds: float = 60.0
 
+    # Health goals may use a different endpoint from symptom triage.
+    #
+    # WHY THIS EXISTS: the settings above are shared by every model caller, so
+    # pointing them at a hosted provider to get goal suggestions also starts
+    # sending symptom descriptions there — the most sensitive text in the app,
+    # belonging to the feature with the standing clinical and legal release
+    # blocker. That is a data-handling decision nobody should make as a side
+    # effect of switching on a different feature.
+    #
+    # Each of these falls back to its `llm_*` counterpart when empty, so
+    # leaving all three unset is exactly the behaviour of not having them.
+    # Setting them moves *only* goals; triage keeps whatever `llm_*` says.
+    #
+    # ⛔ Same data-handling rule as above, and it is worth stating in the
+    # direction people actually get wrong: a hosted goals endpoint transmits
+    # goal text, which is health free text about an identified user.
+    goals_llm_base_url: str = ""
+    goals_llm_model: str = ""
+    goals_llm_api_key: str = ""
+
     # ⛔ OFF pending clinician review. Do not flip this without reading the
     # note in CLAUDE.md under "Related reading is gated off".
     #

@@ -54,8 +54,9 @@ logger = logging.getLogger(__name__)
 # Hostnames that mean "this machine". Anything else is a third party.
 _LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 
-# Emitted once per process, so a hosted endpoint is stated rather than assumed.
-_warned_about_transmission = False
+# Hosts already warned about, so a hosted endpoint is stated rather than
+# assumed. Keyed by host because two features may use two endpoints.
+_warned_about_transmission: set[str] = set()
 
 
 class LLMUnavailable(Exception):
@@ -85,19 +86,71 @@ class ChatReply:
     model_id: str = ""
 
 
-def configured() -> bool:
-    """Whether an endpoint and a model have both been named."""
-    return bool(settings.llm_base_url.strip() and settings.llm_model.strip())
-
-
-def endpoint_is_local() -> bool:
+@dataclass(frozen=True)
+class Endpoint:
     """
-    Whether the configured endpoint runs on this machine.
+    Where one caller's model lives, and what it carries.
 
-    True means no symptom text leaves the host and no vendor becomes a
+    WHY THIS IS A VALUE RATHER THAN JUST SETTINGS: two features now use this
+    client, and they carry different text. Symptom triage carries the most
+    sensitive free text in the app and has a standing release blocker; health
+    goals carries goal text. Reading one global setting meant switching on a
+    hosted model for either feature silently moved the other's data too.
+
+    `label` names the data in the transmission warning, so an operator is told
+    what is actually leaving the machine rather than a generic sentence.
+    """
+
+    base_url: str
+    model: str
+    api_key: str
+    label: str
+
+    @property
+    def host(self) -> str:
+        return (urlparse(self.base_url).hostname or "").lower()
+
+
+def default_endpoint() -> Endpoint:
+    """The `LLM_*` settings. Used by symptom triage and by anything unstated."""
+    return Endpoint(
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        label="Symptom descriptions",
+    )
+
+
+def goals_endpoint() -> Endpoint:
+    """
+    The `GOALS_LLM_*` settings, each falling back to its `LLM_*` counterpart.
+
+    Leaving all three unset is exactly the behaviour of not having them — the
+    property a test asserts, because "this change does nothing unless you ask
+    for it" is the whole reason it is safe to add.
+    """
+    return Endpoint(
+        base_url=settings.goals_llm_base_url.strip() or settings.llm_base_url,
+        model=settings.goals_llm_model.strip() or settings.llm_model,
+        api_key=settings.goals_llm_api_key.strip() or settings.llm_api_key,
+        label="Health goal descriptions",
+    )
+
+
+def configured(endpoint: Endpoint | None = None) -> bool:
+    """Whether an endpoint and a model have both been named."""
+    resolved = endpoint or default_endpoint()
+    return bool(resolved.base_url.strip() and resolved.model.strip())
+
+
+def endpoint_is_local(endpoint: Endpoint | None = None) -> bool:
+    """
+    Whether the endpoint runs on this machine.
+
+    True means no health text leaves the host and no vendor becomes a
     processor of health data. False means it does and one does.
     """
-    host = (urlparse(settings.llm_base_url).hostname or "").lower()
+    host = (endpoint or default_endpoint()).host
     if not host:
         return False
     if host in _LOCAL_HOSTNAMES:
@@ -108,29 +161,33 @@ def endpoint_is_local() -> bool:
         return False
 
 
-def _warn_once_about_transmission() -> None:
+def _warn_once_about_transmission(endpoint: Endpoint) -> None:
     """
-    Say plainly, once, that health data is being sent to a third party.
+    Say plainly, once per host, that health data is being sent to a third party.
 
     CLAUDE.md requires a new third-party processor to be flagged rather than
     assumed handled. An operator who points this at a free hosted tier has
     made that decision; this makes sure they made it knowingly.
+
+    Once per *host* rather than once per process, because two features may now
+    have two endpoints and a warning about one is not a warning about the
+    other.
     """
-    global _warned_about_transmission
-    if _warned_about_transmission or endpoint_is_local():
+    if endpoint_is_local(endpoint) or endpoint.host in _warned_about_transmission:
         return
-    _warned_about_transmission = True
+    _warned_about_transmission.add(endpoint.host)
     logger.warning(
-        "Symptom descriptions are being transmitted to a third-party model "
-        "endpoint (%s). No BAA is in place with any vendor. Use a local "
-        "endpoint (e.g. http://localhost:11434/v1) if that is not acceptable.",
-        urlparse(settings.llm_base_url).hostname or "unknown host",
+        "%s are being transmitted to a third-party model endpoint (%s). No "
+        "BAA is in place with any vendor. Use a local endpoint (e.g. "
+        "http://localhost:11434/v1) if that is not acceptable.",
+        endpoint.label,
+        endpoint.host or "unknown host",
     )
 
 
-def _headers() -> dict[str, str]:
+def _headers(endpoint: Endpoint) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    key = settings.llm_api_key.strip()
+    key = endpoint.api_key.strip()
     if key:
         # A local Ollama or llama.cpp server needs no key and rejects none.
         headers["Authorization"] = f"Bearer {key}"
@@ -141,6 +198,7 @@ def chat(
     *,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
+    endpoint: Endpoint | None = None,
 ) -> ChatReply:
     """
     One round trip. Raises LLMUnavailable on anything that is not a usable answer.
@@ -150,13 +208,14 @@ def chat(
     produces a tier. A retry loop on a health endpoint buys a slower failure,
     not a better one.
     """
-    if not configured():
+    resolved = endpoint or default_endpoint()
+    if not configured(resolved):
         raise LLMUnavailable("No model endpoint is configured.")
 
-    _warn_once_about_transmission()
+    _warn_once_about_transmission(resolved)
 
     body: dict[str, Any] = {
-        "model": settings.llm_model.strip(),
+        "model": resolved.model.strip(),
         "messages": messages,
         # Triage must be as close to reproducible as a model gets: the same
         # description should not oscillate between tiers across submissions.
@@ -166,13 +225,13 @@ def chat(
         body["tools"] = tools
         body["tool_choice"] = "auto"
 
-    url = settings.llm_base_url.strip().rstrip("/") + "/chat/completions"
+    url = resolved.base_url.strip().rstrip("/") + "/chat/completions"
 
     try:
         response = httpx.post(
             url,
             json=body,
-            headers=_headers(),
+            headers=_headers(resolved),
             timeout=settings.llm_timeout_seconds,
         )
         response.raise_for_status()
@@ -188,10 +247,10 @@ def chat(
     except ValueError as exc:
         raise LLMUnavailable("The model endpoint returned invalid JSON.") from exc
 
-    return _parse(payload)
+    return _parse(payload, resolved.model)
 
 
-def _parse(payload: Any) -> ChatReply:
+def _parse(payload: Any, model: str = "") -> ChatReply:
     """Read one choice out of an OpenAI-compatible response."""
     try:
         choice = payload["choices"][0]
@@ -207,7 +266,7 @@ def _parse(payload: Any) -> ChatReply:
     return ChatReply(
         text=(message.get("content") or "").strip(),
         tool_calls=_parse_tool_calls(message.get("tool_calls")),
-        model_id=str(payload.get("model") or settings.llm_model),
+        model_id=str(payload.get("model") or model),
     )
 
 

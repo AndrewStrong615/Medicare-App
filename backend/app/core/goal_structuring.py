@@ -303,8 +303,13 @@ class Refusal:
 
 
 def available() -> bool:
-    """Whether a model endpoint is configured at all."""
-    return llm.configured()
+    """
+    Whether a model endpoint is configured for goals.
+
+    Goals may use a different endpoint from symptom triage — see
+    `GOALS_LLM_*` in config. Unset, it is the same one.
+    """
+    return llm.configured(llm.goals_endpoint())
 
 
 def structure(description: str) -> GoalDraft | Refusal | None:
@@ -327,6 +332,7 @@ def structure(description: str) -> GoalDraft | Refusal | None:
                 {"role": "user", "content": description},
             ],
             tools=[STRUCTURE_GOAL, CANNOT_STRUCTURE],
+            endpoint=llm.goals_endpoint(),
         )
     except LLMUnavailable:
         # Already logged by the client, without the body. Nothing about the
@@ -615,6 +621,7 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | None:
                 {"role": "user", "content": description},
             ],
             tools=[SUGGEST_PLAN, CANNOT_STRUCTURE],
+            endpoint=llm.goals_endpoint(),
         )
     except LLMUnavailable:
         return None

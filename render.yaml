@@ -189,9 +189,18 @@ services:
     # That is why it is composed from the API service's real hostname rather
     # than guessed: `baseUrl.ts` otherwise looks for the API on port 8000 of
     # whatever host served the page, which is right on a LAN and wrong here.
+    # ⛔ `property: host` returns the service NAME, not a resolvable hostname.
+    # This built EXPO_PUBLIC_API_BASE_URL as "https://medhelp-api-as615",
+    # which resolves nowhere, so the deployed app loaded and then failed every
+    # request with "Can't reach the MedHelp server" — including sign-in. The
+    # API was healthy the whole time; only the address baked into the bundle
+    # was wrong.
+    #
+    # `${VAR%.onrender.com}` strips the suffix if it is already there before
+    # appending it, so this is correct whichever form Render returns.
     buildCommand: >-
       npm ci &&
-      EXPO_PUBLIC_API_BASE_URL="https://$MEDHELP_API_HOST"
+      EXPO_PUBLIC_API_BASE_URL="https://${MEDHELP_API_HOST%.onrender.com}.onrender.com"
       npx expo export --platform web
     staticPublishPath: dist
     envVars:

@@ -66,14 +66,19 @@ class ActivityDraftOut(BaseModel):
     `source_phrase` travels to the client so the screen can show the person
     which of their own words each row came from. It is the evidence the server
     already checked, shown rather than merely asserted.
+
+    `generated` is True for a row MedHelp suggested rather than read out of
+    what the person wrote, and `source_phrase` is then None. The screen must
+    label those: a person has to be able to tell which lines are theirs.
     """
 
     text: str
-    source_phrase: str
+    source_phrase: str | None
     cadence: str
     times_per_week: int | None
     quantity_text: str | None
     preferred_time: str
+    generated: bool = False
 
 
 class GoalDraftOut(BaseModel):

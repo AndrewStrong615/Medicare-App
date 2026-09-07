@@ -1067,26 +1067,57 @@ A person writes down what they intend to do, confirms the activities MedHelp
 read out of it, and ticks them off. Reasoning and the reviewer's open
 questions: `docs/health-goals-prompt.md`.
 
-### ⛔ MedHelp does not write health plans
+### Two paths, and the person can always tell them apart
 
-The obvious version of this feature — hand a goal to a model, get a weekly
-plan of habits back — is the thing this repository forbids. "The app never
-authors medical content" is why MedlinePlus text is verbatim and why a sig
-line is never expanded, and a generated plan of exercise, diet and sleep
-habits is app-authored health advice however sensible each line reads.
+**If the person names activities, MedHelp invents nothing.** Their text is
+split into trackable rows and every row must quote them — the check below.
+This is the main path and the safest one.
 
-So the model gets the one job that is not authoring: **splitting text the
-person already wrote into individually trackable activities.** It supplies
-form; the person supplies content. Same line `services/search_terms.py` walks.
+**If they name none** — "I want to be healthier" — MedHelp proposes a few
+ordinary starting points rather than giving them a dead end
+(`suggest_plan`). The repository owner asked for this directly on 2026-09-07.
 
-**The rule is checked, not trusted.** Every proposed activity must carry a
-`source_phrase` that occurs in the text the person submitted, and
-`core/goal_structuring.py` discards the *whole draft* if any does not. A model
-that wants to add stretching to a walking goal has to quote "stretch" out of
-text that never contained it. Four further checks follow the same principle,
-most importantly that **no digit may appear in an activity unless the person
-wrote it** — an invented number is the likely shape of an invented duration,
-distance or dose.
+⛔ **This is the one place in the app that proposes health content nobody
+wrote.** Three things keep it inside what this app may do, and none may be
+removed:
+
+1. **It only runs when the person named nothing.** A draft that structured
+   successfully is never replaced by suggestions, and a `MEDICAL_GOAL`
+   refusal — "stop my headaches", "lose weight" — is **never** answered with a
+   plan. Only the `NO_ACTIVITY_NAMED` refusal opens that path. Both tested.
+2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
+   the screen, the row reads "Suggested by MedHelp — edit it or remove it",
+   and editing a row clears the label because it has become the person's own.
+   Nothing is saved until they press save. ⛔ Never render a suggested row
+   without that label.
+3. **A deterministic veto, not a model gate.** `_FORBIDDEN` in
+   `core/goal_structuring.py` is a phrase list a clinician can read line by
+   line — food quantity and restriction, weight and body, medicines and
+   clinical measurements, exercise intensity — and one match discards the
+   *whole* plan. A second model asked "is this safe?" fails silently open; a
+   phrase list fails closed. ⛔ Do not replace it with a model, and do not
+   remove entries without the clinical review. Adding to it is free.
+
+The generation prompt also forbids explaining what an activity will do for the
+person — propose the activity and stop. A benefit claim is the app authoring a
+health claim, which is the line this whole feature is built around.
+
+⛔ **Suggestions are not clinically reviewed.** They are general wellbeing
+prompts written by a software engineer, and no clinician has read the prompt
+or the veto list.
+
+### The structuring rule is checked, not trusted
+
+Every activity read out of the person's own words must carry a `source_phrase`
+that occurs in the submitted text, and `core/goal_structuring.py` discards the
+*whole draft* if any does not. A model that wants to add stretching to a
+walking goal has to quote "stretch" out of text that never contained it.
+
+Four further checks follow the same principle, most importantly that **no digit
+may appear in an activity unless the person wrote it** — an invented number is
+the likely shape of an invented duration, distance or dose. Suggested rows are
+exempt from the quoting and digit rules by construction, since nothing was
+written to quote; the veto list is what guards them instead.
 
 Rules for anyone extending this:
 

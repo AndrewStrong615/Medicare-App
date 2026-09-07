@@ -127,6 +127,15 @@ def draft_goal(
 
     result = goal_structuring.structure(payload.description)
 
+    # Someone who named no activities gets a starting point rather than a dead
+    # end. Only this one refusal opens that door: a MEDICAL_GOAL must never be
+    # answered with a plan, and a model that could not read the text at all is
+    # not a model to ask for suggestions.
+    if isinstance(result, Refusal) and result.reason == NO_ACTIVITY_NAMED:
+        suggested = goal_structuring.suggest_plan(payload.description)
+        if suggested is not None:
+            result = suggested
+
     if isinstance(result, GoalDraft):
         return GoalDraftOut(
             title=result.title,
@@ -138,6 +147,7 @@ def draft_goal(
                     times_per_week=activity.times_per_week,
                     quantity_text=activity.quantity_text,
                     preferred_time=activity.preferred_time,
+                    generated=activity.generated,
                 )
                 for activity in result.activities
             ],

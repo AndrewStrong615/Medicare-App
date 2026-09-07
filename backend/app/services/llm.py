@@ -123,16 +123,33 @@ def default_endpoint() -> Endpoint:
 
 def goals_endpoint() -> Endpoint:
     """
-    The `GOALS_LLM_*` settings, each falling back to its `LLM_*` counterpart.
+    The `GOALS_LLM_*` settings, or the `LLM_*` ones when no goals URL is set.
 
-    Leaving all three unset is exactly the behaviour of not having them — the
-    property a test asserts, because "this change does nothing unless you ask
-    for it" is the whole reason it is safe to add.
+    Leaving `GOALS_LLM_BASE_URL` unset is exactly the behaviour of not having
+    these settings at all — the property a test asserts, because "this changes
+    nothing unless you ask for it" is the whole reason it was safe to add.
+
+    ⛔ THE FALLBACK IS ALL-OR-NOTHING, DELIBERATELY. It used to fall back field
+    by field, so an operator who set the goals URL and key but left the model
+    blank got Groq's URL and key with the *other* provider's model name. That
+    combination is not a working endpoint of either provider — it fails as
+    `model_not_found`, which reaches the user as a silent "no suggestions".
+
+    Per-field fallback only makes sense when both point at the same provider,
+    and the entire purpose of these settings is that they do not. So the base
+    URL decides: name one, and the model and key must come from beside it.
     """
+    if settings.goals_llm_base_url.strip():
+        return Endpoint(
+            base_url=settings.goals_llm_base_url.strip(),
+            model=settings.goals_llm_model.strip(),
+            api_key=settings.goals_llm_api_key.strip(),
+            label="Health goal descriptions",
+        )
     return Endpoint(
-        base_url=settings.goals_llm_base_url.strip() or settings.llm_base_url,
-        model=settings.goals_llm_model.strip() or settings.llm_model,
-        api_key=settings.goals_llm_api_key.strip() or settings.llm_api_key,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
         label="Health goal descriptions",
     )
 

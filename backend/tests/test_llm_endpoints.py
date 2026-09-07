@@ -68,18 +68,32 @@ def test_an_override_moves_goals_and_only_goals(shared_endpoint, monkeypatch):
     assert default.api_key == ""
 
 
-def test_each_setting_falls_back_on_its_own(shared_endpoint, monkeypatch):
+def test_naming_a_goals_url_takes_the_whole_endpoint_with_it(
+    shared_endpoint, monkeypatch
+):
     """
-    A partial override is not an error.
+    ⛔ The fallback is all-or-nothing, and this is the bug that made it so.
 
-    Someone naming only a model for goals still gets the shared base URL,
-    rather than an endpoint that is half-configured and fails at request time.
+    It used to fall back field by field, so setting the goals URL and key but
+    leaving the model blank produced Groq's URL and key with the *other*
+    provider's model name. That is not a working endpoint of either provider:
+    it fails as model_not_found, which reaches the user as a silent "no
+    suggestions" and is very hard to diagnose from the outside.
+
+    Per-field fallback only makes sense when both settings point at the same
+    provider, and the whole purpose of these is that they do not.
     """
-    monkeypatch.setattr(settings, "goals_llm_model", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(settings, "goals_llm_base_url", "https://api.groq.com/openai/v1")
+    monkeypatch.setattr(settings, "goals_llm_api_key", "gsk_synthetic")
+    # Deliberately not set — it must NOT be borrowed from LLM_MODEL.
+    monkeypatch.setattr(settings, "goals_llm_model", "")
 
     goals = llm.goals_endpoint()
-    assert goals.model == "llama-3.3-70b-versatile"
-    assert goals.base_url == "http://localhost:11434/v1"
+    assert goals.base_url == "https://api.groq.com/openai/v1"
+    assert goals.model == ""
+    # Half-configured is reported as not configured, rather than sent as a
+    # request that mixes two providers and fails confusingly.
+    assert llm.configured(goals) is False
 
 
 def test_goals_reads_its_own_endpoint(shared_endpoint, monkeypatch):

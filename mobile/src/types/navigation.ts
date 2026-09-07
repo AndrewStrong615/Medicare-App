@@ -84,4 +84,16 @@ export type RootStackParamList = {
 
   /** Choosing the reminder times for one medication. */
   ReminderEdit: { medicationId: string; medicationName: string };
+
+  /**
+   * The person's goals and today's ticks.
+   *
+   * `savedFor` is a display name only, carried so the list can confirm what
+   * was just saved — never anything that was not already on the screen the
+   * user came from.
+   */
+  HealthGoals: { savedFor?: string } | undefined;
+
+  /** Writing a goal and confirming the activities read out of it. */
+  GoalCreate: undefined;
 };

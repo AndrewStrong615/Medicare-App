@@ -8,6 +8,8 @@ import { AppointmentListScreen } from "@/screens/appointments/AppointmentListScr
 import { AppointmentRequestScreen } from "@/screens/appointments/AppointmentRequestScreen";
 import { BookingIdentityScreen } from "@/screens/appointments/BookingIdentityScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
+import { GoalCreateScreen } from "@/screens/goals/GoalCreateScreen";
+import { HealthGoalsScreen } from "@/screens/goals/HealthGoalsScreen";
 import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
@@ -190,6 +192,16 @@ export function RootNavigator() {
           name="ReminderEdit"
           component={ReminderEditScreen}
           options={{ title: "Reminder times" }}
+        />
+        <Stack.Screen
+          name="HealthGoals"
+          component={HealthGoalsScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="GoalCreate"
+          component={GoalCreateScreen}
+          options={{ title: "Add a goal" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

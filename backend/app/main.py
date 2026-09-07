@@ -6,7 +6,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import appointments, auth, intake, medications, providers, reminders
+from app.api import (
+    appointments,
+    auth,
+    goals,
+    intake,
+    medications,
+    providers,
+    reminders,
+)
 from app.core.config import settings
 from app.core.triage import credentials_available
 
@@ -214,6 +222,7 @@ app.include_router(medications.router)
 app.include_router(providers.router)
 app.include_router(reminders.router)
 app.include_router(appointments.router)
+app.include_router(goals.router)
 
 
 @app.on_event("startup")

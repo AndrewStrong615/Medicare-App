@@ -74,6 +74,29 @@ def test_additional_red_flag_categories(query, expected_category):
     assert guidance.category == expected_category
 
 
+@pytest.mark.parametrize(
+    "query,expected_category",
+    [
+        # A user writes "my X is Y-ing", not the gerund-noun phrase the
+        # original lists matched literally. Found via ad-hoc testing against
+        # common illness descriptions: real anaphylaxis/breathing/vision-loss
+        # phrasing was falling through to no match at all.
+        ("my throat is closing and my tongue is swelling", "anaphylaxis"),
+        ("my lips are swelling up", "anaphylaxis"),
+        ("chest feels tight and it hurts", "cardiac"),
+        ("I am having a hard time breathing", "breathing"),
+        ("I can't catch my breath", "breathing"),
+        ("I suddenly lost vision in my left eye", "vision_loss"),
+        ("stiff neck with a fever", "sepsis_meningitis"),
+    ],
+)
+def test_natural_phrasing_variants_are_detected(query, expected_category):
+    guidance = screen_for_emergency(query)
+
+    assert guidance is not None, f"no emergency guidance for {query!r}"
+    assert guidance.category == expected_category
+
+
 def test_no_guidance_instructs_administering_a_treatment():
     # An earlier draft told users to use an epinephrine auto-injector. Giving
     # drug-administration instructions is treatment advice this app must not

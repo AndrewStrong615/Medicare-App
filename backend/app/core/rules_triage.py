@@ -100,6 +100,15 @@ _URGENT_RULES: list[tuple[str, str, tuple[str, ...]]] = [
             "won't go away", "wont go away", "not getting better",
             "for weeks", "for a week", "for several days", "for two weeks",
             "for a month", "for months",
+            # "over"/"more than" breaks a literal match on the phrases above
+            # ("for over a week" does not contain "for a week"), so a
+            # description that has plainly persisted was falling through
+            # unrecognised. Same class of gap as the glued-list fix in
+            # emergency.normalize_query: a natural insertion defeating a
+            # literal phrase match.
+            "for over a week", "for over two weeks", "for over a month",
+            "for more than a week", "for more than two weeks",
+            "for more than a month",
         ),
     ),
     (
@@ -212,7 +221,16 @@ _ESCALATING_MODIFIERS: tuple[str, ...] = (
     "sudden", "suddenly", "out of nowhere",
     "getting worse", "worsening", "spreading",
     "won't go away", "wont go away", "not getting better",
-    "for weeks", "for a week", "for a month", "for months",
+    "for weeks", "for a week", "for several days", "for two weeks",
+    "for a month", "for months",
+    # Kept in sync with _URGENT_RULES' persistent_or_worsening phrases above:
+    # this list previously lacked "for two weeks"/"for several days" (already
+    # in the urgent list) and the "over"/"more than" variants of all of them,
+    # so a recognised self-care phrase with a plainly-persistent duration
+    # could still resolve to SELF_CARE if nothing else in this file happened
+    # to catch it first.
+    "for over a week", "for over two weeks", "for over a month",
+    "for more than a week", "for more than two weeks", "for more than a month",
     "high fever", "can't sleep", "cant sleep",
     "pregnant", "my baby", "my newborn", "my infant",
     "immunocompromised", "chemotherapy", "transplant",

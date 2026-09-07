@@ -1014,6 +1014,54 @@ can collect anything now.
   assigned at birth and address. It holds none of those today, and acquiring
   them is a decision for the user, not an implementation detail.
 
+### Natural phrasing missed by literal phrase matching (FIXED 2026-09-06/07)
+
+Found by testing the rule layer against ~50 lay descriptions of common
+American illnesses (an ad-hoc exercise, not a permanent test corpus). Two
+gaps, both the same root cause as the glued-list bug below: the phrase lists
+in `emergency.py` and `rules_triage.py` require an exact literal substring, so
+an ordinary insertion a real person types defeats a match that a slightly
+different sentence would have hit.
+
+- **Emergency screening missed common phrasings of anaphylaxis, breathing
+  difficulty, sudden vision loss, and cardiac chest tightness.** `"my throat
+  is closing and my tongue is swelling"` (anaphylaxis), `"hard time
+  breathing"` / `"can't catch my breath"` (breathing), `"suddenly lost vision
+  in my left eye"` (vision_loss), and `"chest feels tight"` (cardiac) all
+  matched **nothing** and fell to the URGENT default instead of EMERGENT —
+  the exact "not recognised is not the same as harmless" failure mode this
+  file warns about, but on genuinely life-threatening presentations.
+  **Fixed** by adding the missing phrasings to the existing lists in
+  `_EMERGENCY_RULES`. `sepsis_meningitis` got a partial fix only (`"stiff neck
+  with/and a fever"` variants); `"my neck is stiff and I have a fever"` — the
+  two concepts named separately, in reverse order — is a **known limit**,
+  same class as the all-caps glued-list limit below: catching it needs a
+  two-term combinator, which is a structural change beyond a phrase-list
+  addition and needs its own review.
+- **A duration-escalation rule silently broke on the word "over."**
+  `"sore throat for a week"` correctly returned URGENT, but `"sore throat for
+  over a week"` — or `"sore throat for over two weeks, swollen glands,
+  extremely tired"`, a plausible mono description — returned **SELF_CARE**,
+  because `"for a week"` requires that exact substring and `"for over a
+  week"` does not contain it. This directly undercut the module's own central
+  invariant ("SELF_CARE must be positively earned... absence of alarming
+  words is not evidence of safety"). **Fixed** by adding `"for over a
+  week"`/`"for over two weeks"`/`"for over a month"` and `"for more than
+  ..."` variants to `_URGENT_RULES`' `persistent_or_worsening` phrases, and
+  bringing `_ESCALATING_MODIFIERS` back in sync with it (it was also missing
+  `"for two weeks"` and `"for several days"`, which were already in the
+  urgent list).
+- ⛔ **Both edits were made to fenced modules** (`rules_triage.py`,
+  `emergency.py`). They landed only after the user was told the specific
+  bugs and specific proposed phrase additions in conversation and replied
+  "fix it" — the same "explicit human approval obtained outside of this
+  pipeline" basis the glued-list fix below records. Neither change lowers a
+  tier, reorders evaluation, or touches a disclaimer, an emergency number, or
+  escalation copy; both only add recognised phrases, which can make screening
+  more sensitive and cannot make it less. `tests/test_emergency.py` and
+  `tests/test_rules_triage.py` guard the new phrasings; full suite (598
+  tests) passes.
+
 ### Glued list items used to defeat red-flag screening (FIXED 2026-09-01)
 
 Found from a real dev submission. A pasted list whose items arrive with no

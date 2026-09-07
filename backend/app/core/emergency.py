@@ -70,6 +70,8 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "chest pain",
             "chest pressure",
             "chest tightness",
+            "chest feels tight",
+            "chest is tight",
             "pain in my chest",
             "heart attack",
             "crushing chest",
@@ -88,6 +90,9 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "cannot breathe",
             "difficulty breathing",
             "trouble breathing",
+            "hard time breathing",
+            "can't catch my breath",
+            "cant catch my breath",
             "shortness of breath",
             "struggling to breathe",
             "choking",
@@ -155,9 +160,12 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "anaphylaxis",
             "anaphylactic",
             "throat closing",
+            "throat is closing",
             "tongue swelling",
+            "tongue is swelling",
             "severe allergic reaction",
             "lips swelling",
+            "lips are swelling",
         ),
     ),
     (
@@ -206,6 +214,8 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         "emergency department.",
         (
             "sudden vision loss",
+            "suddenly lost vision",
+            "lost vision in",
             "lost my vision",
             "can't see",
             "cant see",
@@ -215,6 +225,13 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         ),
     ),
     (
+        # KNOWN LIMIT, same class as the glued-list limit in normalize_query:
+        # this list is contiguous phrases, so "my neck is stiff and I have a
+        # fever" (stiffness and fever named separately, in that order) is not
+        # recognised even after this pass. Catching that would need a
+        # two-term combinator like rules_triage.py's self-care/modifier
+        # check, which is a structural change beyond the phrase-list
+        # additions approved here and needs its own review.
         "sepsis_meningitis",
         "These symptoms need emergency care now.",
         "A stiff neck with fever, a rash that does not fade when pressed, or "
@@ -222,6 +239,8 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         "your local emergency number).",
         (
             "stiff neck and fever",
+            "stiff neck with a fever",
+            "stiff neck and a fever",
             "rash that doesn't fade",
             "rash that does not fade",
             "non-blanching rash",

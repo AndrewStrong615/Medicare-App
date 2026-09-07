@@ -28,12 +28,21 @@ export interface EmergencyGuidance {
 
 export interface DraftActivity {
   text: string;
-  /** The person's own words this row came from. Shown as evidence. */
-  sourcePhrase: string;
+  /**
+   * The person's own words this row came from. Shown as evidence, and null
+   * for a row MedHelp suggested — there is nothing to quote.
+   */
+  sourcePhrase: string | null;
   cadence: Cadence;
   timesPerWeek: number | null;
   quantityText: string | null;
   preferredTime: PreferredTime;
+  /**
+   * True when MedHelp proposed this rather than reading it out of what the
+   * person wrote. The screen must label these: someone has to be able to tell
+   * which lines are theirs.
+   */
+  generated: boolean;
 }
 
 export interface GoalDraft {
@@ -129,7 +138,8 @@ export async function draftGoal(description: string): Promise<GoalDraft> {
   })) as {
     title: string | null;
     activities: Array<Omit<ApiActivity, "id" | "completed_today"> & {
-      source_phrase: string;
+      source_phrase: string | null;
+      generated: boolean;
     }>;
     notice: string | null;
     emergency: {
@@ -149,6 +159,7 @@ export async function draftGoal(description: string): Promise<GoalDraft> {
       timesPerWeek: raw.times_per_week,
       quantityText: raw.quantity_text,
       preferredTime: raw.preferred_time,
+      generated: raw.generated ?? false,
     })),
     notice: body.notice,
     emergency: body.emergency

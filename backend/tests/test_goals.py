@@ -443,3 +443,149 @@ def test_goals_require_a_signed_in_person(client):
         401,
         403,
     )
+
+
+# ---------------------------------------------------------------------------
+# Suggesting a starting plan, for someone who named no activities.
+#
+# This is the one place MedHelp proposes content nobody wrote, so the tests are
+# about what it refuses rather than what it produces.
+# ---------------------------------------------------------------------------
+
+
+def _plan(**arguments) -> ChatReply:
+    return ChatReply(
+        text="",
+        tool_calls=[ToolCall(id="1", name="suggest_plan", arguments=arguments)],
+        model_id="test-model",
+    )
+
+
+def _walk_suggestion(text="Walk after lunch"):
+    return {"text": text, "cadence": "daily", "preferred_time": "unspecified"}
+
+
+def test_a_suggested_plan_is_labelled_as_suggested(model):
+    model(_plan(title="Feeling better", activities=[_walk_suggestion()]))
+    draft = goal_structuring.suggest_plan("I want to be healthier")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    activity = draft.activities[0]
+    assert activity.generated is True
+    # It quotes nothing, because the person wrote nothing to quote.
+    assert activity.source_phrase is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Eat 1500 calories a day",
+        "Start a low carb diet",
+        "Try fasting until lunch",
+        "Aim to lose weight this month",
+        "Take a vitamin D supplement",
+        "Check your blood pressure each morning",
+        "Do a high-intensity workout",
+        "Push through the discomfort",
+        "Skip breakfast twice a week",
+    ],
+)
+def test_forbidden_categories_discard_the_whole_plan(model, text):
+    """
+    A phrase list, not a model gate.
+
+    A second model asked "is this safe?" fails silently open. This fails
+    closed, and one bad row discards the good ones with it — a model that
+    proposed a calorie target has not earned the other four suggestions.
+    """
+    model(
+        _plan(
+            title="Feeling better",
+            activities=[_walk_suggestion(), _walk_suggestion(text)],
+        )
+    )
+    assert goal_structuring.suggest_plan("I want to be healthier") is None
+
+
+def test_a_forbidden_title_is_refused_too(model):
+    model(_plan(title="Weight loss plan", activities=[_walk_suggestion()]))
+    assert goal_structuring.suggest_plan("I want to be healthier") is None
+
+
+def test_a_suggested_plan_stays_small(model):
+    model(
+        _plan(
+            title="Feeling better",
+            activities=[_walk_suggestion()] * (goal_structuring.MAX_SUGGESTED + 1),
+        )
+    )
+    assert goal_structuring.suggest_plan("I want to be healthier") is None
+
+
+def test_suggesting_fails_closed(model):
+    model(LLMUnavailable("down"))
+    assert goal_structuring.suggest_plan("I want to be healthier") is None
+
+
+def test_the_endpoint_suggests_only_when_nothing_was_named(
+    client, auth_headers, monkeypatch
+):
+    """
+    Structuring wins whenever the person named their own activities.
+
+    The suggestion path must never overwrite someone's own words with
+    MedHelp's — it is a starting point for an empty box, not a rewrite.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: goal_structuring.GoalDraft(
+            title="Walking",
+            activities=[
+                goal_structuring.Activity(
+                    text="Walk in the mornings",
+                    cadence="daily",
+                    preferred_time="morning",
+                    source_phrase="walk in the mornings",
+                )
+            ],
+        ),
+    )
+    called = []
+    monkeypatch.setattr(
+        goal_structuring, "suggest_plan", lambda d: called.append(d) or None
+    )
+
+    body = client.post(
+        "/goals/draft", json={"description": WALKING}, headers=auth_headers
+    ).json()
+
+    assert called == []
+    assert body["activities"][0]["generated"] is False
+
+
+def test_a_medical_goal_is_never_answered_with_a_plan(
+    client, auth_headers, monkeypatch
+):
+    """"Stop my headaches" gets a refusal, never a set of suggestions."""
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: goal_structuring.Refusal(goal_structuring.MEDICAL_GOAL),
+    )
+    called = []
+    monkeypatch.setattr(
+        goal_structuring, "suggest_plan", lambda d: called.append(d) or None
+    )
+
+    body = client.post(
+        "/goals/draft",
+        json={"description": "stop my headaches"},
+        headers=auth_headers,
+    ).json()
+
+    assert called == []
+    assert body["activities"] == []
+    assert "symptoms" in body["notice"]

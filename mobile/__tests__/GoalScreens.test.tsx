@@ -39,7 +39,7 @@ const navigation = {
   navigate: jest.fn(),
   reset: jest.fn(),
   goBack: jest.fn(),
-} as never;
+};
 
 function emptyDraft(overrides: Partial<GoalDraft> = {}): GoalDraft {
   return { title: null, activities: [], notice: null, emergency: null, ...overrides };
@@ -83,12 +83,13 @@ describe("GoalCreateScreen", () => {
             timesPerWeek: null,
             quantityText: null,
             preferredTime: "morning",
+            generated: false,
           },
         ],
       })
     );
 
-    render(<GoalCreateScreen navigation={navigation} route={{ key: "k", name: "GoalCreate" }} />);
+    render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(
       screen.getByLabelText(/What do you plan to do/i),
       "walk in the mornings"
@@ -113,12 +114,13 @@ describe("GoalCreateScreen", () => {
             timesPerWeek: null,
             quantityText: null,
             preferredTime: "morning",
+            generated: false,
           },
         ],
       })
     );
 
-    render(<GoalCreateScreen navigation={navigation} route={{ key: "k", name: "GoalCreate" }} />);
+    render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "walk in the mornings");
     fireEvent.press(screen.getByText("Suggest activities"));
 
@@ -132,7 +134,7 @@ describe("GoalCreateScreen", () => {
       emptyDraft({ notice: "MedHelp has no suggestions right now." })
     );
 
-    render(<GoalCreateScreen navigation={navigation} route={{ key: "k", name: "GoalCreate" }} />);
+    render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "get healthier");
     fireEvent.press(screen.getByText("Suggest activities"));
 
@@ -156,7 +158,7 @@ describe("GoalCreateScreen", () => {
       })
     );
 
-    render(<GoalCreateScreen navigation={navigation} route={{ key: "k", name: "GoalCreate" }} />);
+    render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(
       screen.getByLabelText(/What do you plan to do/i),
       "stop the chest pain when I walk"
@@ -170,7 +172,7 @@ describe("GoalCreateScreen", () => {
     mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
     mockCreate.mockResolvedValue(goal());
 
-    render(<GoalCreateScreen navigation={navigation} route={{ key: "k", name: "GoalCreate" }} />);
+    render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "swim");
     fireEvent.press(screen.getByText("Suggest activities"));
     await waitFor(() => expect(screen.getByLabelText(/Activity 1/i)).toBeTruthy());
@@ -187,6 +189,44 @@ describe("GoalCreateScreen", () => {
         })
       )
     );
+  });
+
+  it("labels a suggested row, and drops the label once it is edited", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({
+        title: "Feeling better",
+        activities: [
+          {
+            text: "Walk after lunch",
+            sourcePhrase: null,
+            cadence: "daily",
+            timesPerWeek: null,
+            quantityText: null,
+            preferredTime: "unspecified",
+            generated: true,
+          },
+        ],
+      })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What do you plan to do/i),
+      "I want to be healthier"
+    );
+    fireEvent.press(screen.getByText("Suggest activities"));
+
+    // A person must be able to tell which lines are theirs.
+    await waitFor(() => expect(screen.getByText(/Suggested by MedHelp/i)).toBeTruthy());
+
+    // Editing it makes it theirs, so the label goes.
+    fireEvent.changeText(screen.getByLabelText(/Activity 1/i), "Walk after dinner");
+    await waitFor(() => expect(screen.queryByText(/Suggested by MedHelp/i)).toBeNull());
   });
 });
 
@@ -211,7 +251,7 @@ describe("HealthGoalsScreen", () => {
       })
     );
 
-    render(<HealthGoalsScreen navigation={navigation} route={route} />);
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
 
     fireEvent.press(screen.getByLabelText("Walk in the mornings"));
@@ -228,7 +268,7 @@ describe("HealthGoalsScreen", () => {
   it("never describes an unticked activity as missed", async () => {
     mockList.mockResolvedValue([goal()]);
 
-    render(<HealthGoalsScreen navigation={navigation} route={route} />);
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
 
     // MedHelp has no idea whether anything was done. Adherence language here
@@ -242,7 +282,7 @@ describe("HealthGoalsScreen", () => {
     mockList.mockResolvedValue([goal()]);
     mockDelete.mockResolvedValue();
 
-    render(<HealthGoalsScreen navigation={navigation} route={route} />);
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("Getting outdoors")).toBeTruthy());
 
     fireEvent.press(screen.getByLabelText("Delete Getting outdoors"));
@@ -252,7 +292,7 @@ describe("HealthGoalsScreen", () => {
   it("invites a first goal rather than showing an empty page", async () => {
     mockList.mockResolvedValue([]);
 
-    render(<HealthGoalsScreen navigation={navigation} route={route} />);
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("No goals yet")).toBeTruthy());
 
     fireEvent.press(screen.getByText("Add a goal"));

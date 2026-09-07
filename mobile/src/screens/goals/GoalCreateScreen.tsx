@@ -32,12 +32,21 @@ type Props = NativeStackScreenProps<RootStackParamList, "GoalCreate">;
  * reason: MedHelp must not put words in someone's mouth about their own
  * health.
  *
- * ⛔ The suggestion may only ever contain the person's own words rearranged.
- * The server checks that every proposed activity quotes the text they typed
- * and discards the whole draft otherwise, so an activity nobody asked for
- * cannot reach this screen. `sourcePhrase` is shown beneath each row so the
- * person can see which of their words it came from rather than taking it on
- * trust.
+ * ## Two kinds of row, and the person can always tell them apart
+ *
+ * When the person named activities, the draft may only ever contain their own
+ * words rearranged: the server checks that each row quotes the text they typed
+ * and discards the whole draft otherwise. `sourcePhrase` is shown beneath the
+ * row so that is visible rather than taken on trust.
+ *
+ * When they named none — "I want to be healthier" — MedHelp proposes a few
+ * ordinary starting points instead of giving them a dead end. Those rows are
+ * `generated`, and they say so on screen. ⛔ Never render a suggested row
+ * without that label: a person must be able to tell which lines are theirs,
+ * and editing one clears the label because it has become theirs.
+ *
+ * A suggestion is confirmed the same way everything else here is — nothing is
+ * saved until they press save.
  *
  * A draft can legitimately be empty — no model configured, an outage, or a
  * refusal. The screen then shows the server's sentence and an empty row to
@@ -52,6 +61,8 @@ export function GoalCreateScreen({ navigation }: Props) {
   const [title, setTitle] = useState("");
   const [activities, setActivities] = useState<ActivityInput[]>([]);
   const [sources, setSources] = useState<(string | null)[]>([]);
+  // Which rows MedHelp proposed rather than read out of the person's text.
+  const [suggested, setSuggested] = useState<boolean[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [emergency, setEmergency] = useState<EmergencyGuidance | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +101,11 @@ export function GoalCreateScreen({ navigation }: Props) {
           ? draft.activities.map((activity) => activity.sourcePhrase)
           : [null]
       );
+      setSuggested(
+        draft.activities.length > 0
+          ? draft.activities.map((activity) => activity.generated)
+          : [false]
+      );
     } catch (caught) {
       // An outage is not a reason to block someone writing their own list.
       setNotice(
@@ -99,6 +115,7 @@ export function GoalCreateScreen({ navigation }: Props) {
       );
       setActivities([blank()]);
       setSources([null]);
+      setSuggested([false]);
     } finally {
       setDrafting(false);
     }
@@ -110,16 +127,20 @@ export function GoalCreateScreen({ navigation }: Props) {
     );
     // Once edited it is the person's line, not a quote of anything.
     setSources((current) => current.map((source, at) => (at === index ? null : source)));
+    // Edited by hand, so it is the person's line now and stops being labelled.
+    setSuggested((current) => current.map((was, at) => (at === index ? false : was)));
   };
 
   const removeActivity = (index: number) => {
     setActivities((current) => current.filter((_, at) => at !== index));
     setSources((current) => current.filter((_, at) => at !== index));
+    setSuggested((current) => current.filter((_, at) => at !== index));
   };
 
   const addActivity = () => {
     setActivities((current) => [...current, blank()]);
     setSources((current) => [...current, null]);
+    setSuggested((current) => [...current, false]);
   };
 
   const filled = activities.filter((activity) => activity.text.trim().length > 0);
@@ -172,7 +193,7 @@ export function GoalCreateScreen({ navigation }: Props) {
         onChangeText={setDescription}
         multiline
         placeholder="For example: walk in the mornings and swim at the weekend"
-        hint="Write it however you like. MedHelp only splits up what you write — it never adds activities of its own."
+        hint="Write it however you like. If you list what you plan to do, MedHelp only splits up your own words. If you don't, it will suggest a few ordinary starting points for you to edit."
       />
 
       <AppButton
@@ -204,9 +225,13 @@ export function GoalCreateScreen({ navigation }: Props) {
                 onChangeText={(text) => updateActivity(index, text)}
                 placeholder="Something you plan to do"
               />
-              {sources[index] && (
+              {sources[index] ? (
                 <Text style={styles.source}>From your words: “{sources[index]}”</Text>
-              )}
+              ) : suggested[index] ? (
+                <Text style={styles.suggested}>
+                  Suggested by MedHelp — edit it or remove it
+                </Text>
+              ) : null}
               {activities.length > 1 && (
                 <Pressable
                   onPress={() => removeActivity(index)}
@@ -262,6 +287,7 @@ const styles = StyleSheet.create({
   sectionLabel: { ...typography.titleSmall, color: colors.textPrimary },
   activityRow: { gap: spacing.xs },
   source: { ...typography.caption, color: colors.textSecondary },
+  suggested: { ...typography.caption, color: colors.accent },
   remove: {
     minHeight: MIN_TAP_TARGET,
     justifyContent: "center",

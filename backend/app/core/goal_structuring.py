@@ -263,14 +263,22 @@ CANNOT_STRUCTURE = {
 
 @dataclass(frozen=True)
 class Activity:
-    """One trackable thing, in the person's own words."""
+    """
+    One trackable thing.
+
+    `source_phrase` is the person's own words this came from, and is None only
+    for a suggested activity — see `suggest_plan`. `generated` is carried all
+    the way to the screen so a suggestion is always labelled as one; a person
+    must never be unable to tell which lines are theirs.
+    """
 
     text: str
-    source_phrase: str
     cadence: str
     preferred_time: str
+    source_phrase: str | None = None
     times_per_week: int | None = None
     quantity_text: str | None = None
+    generated: bool = False
 
 
 @dataclass(frozen=True)
@@ -424,6 +432,260 @@ def _validate_activity(
         times_per_week=times_per_week if cadence == "times_per_week" else None,
         quantity_text=quantity_text.strip() if quantity_text else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Suggesting a starting plan, when the person named no activities of their own.
+#
+# ⛔ THIS IS THE ONE PLACE MEDHELP PROPOSES CONTENT NOBODY WROTE, and it exists
+# because the repository owner asked for it directly on 2026-09-07: someone who
+# types "I want to be healthier" gets a dead end otherwise.
+#
+# Three things keep it inside what this app may do:
+#
+# 1. **It only runs when the person named nothing.** If they listed activities,
+#    those are structured and quoted as before and nothing is invented. This
+#    path is a starting point, not a rewrite of anyone's own words.
+# 2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
+#    the screen, the row says MedHelp suggested it, and nothing is saved until
+#    the person edits and presses save. The human review pass CLAUDE.md asks
+#    for is the person themselves.
+# 3. **A deterministic veto, not a model gate.** `_FORBIDDEN` below is a phrase
+#    list a clinician can read line by line, and any suggestion matching one is
+#    discarded. A second model asked "is this safe?" would have a silent pass
+#    as its failure mode; a phrase list fails closed.
+#
+# ⛔ NOT CLINICALLY REVIEWED. These are general wellbeing prompts, not advice
+# for any condition, and nobody qualified has read them. That review is still
+# outstanding — see `docs/health-goals-prompt.md`.
+# ---------------------------------------------------------------------------
+
+# A suggested plan stays small. A long list read as a prescription, and nobody
+# starting out keeps to fifteen new habits.
+MAX_SUGGESTED = 5
+
+PLAN_SYSTEM_PROMPT = """\
+You are helping someone start a wellbeing plan inside a health application.
+They have said what they would like to work towards but have not said what
+they intend to do about it, so you are proposing a few starting points they
+will edit before anything is saved.
+
+WHAT TO PROPOSE
+
+- Between two and five small, ordinary, everyday activities.
+- Things a person can do without equipment, a gym, a subscription or money.
+- Plain movement, rest, routine, time outdoors, time with people, and simple
+  daily habits.
+- Modest starting points, not a training programme. Assume the person is
+  starting from nothing and has little spare time.
+- Write each one as a short plain instruction: "Walk after lunch", "Go to bed
+  at the same time each night".
+- You may give a small, gentle amount of time where it helps - "ten minutes",
+  "a short walk". Keep it easy. Never a distance, a weight, a repetition
+  count, a pace or a heart rate.
+
+WHAT YOU MUST NEVER PROPOSE
+
+These are absolute. If a goal cannot be answered without one of these, refuse
+instead.
+
+- Anything about food quantity, calories, dieting, fasting, skipping meals,
+  cutting out food groups, or weight in any units.
+- Anything about losing or gaining weight, body size, body shape or appearance.
+- Supplements, vitamins, medicines, doses, or changes to anything prescribed.
+- Treating, managing, monitoring or improving any symptom, illness, injury or
+  medical measurement - including blood pressure, blood sugar and cholesterol.
+- Intense, strenuous or competitive exercise, training to exhaustion, or
+  continuing through pain of any kind.
+- Any claim about what an activity will do for the person's health, body or
+  illness. Propose the activity and stop. No benefits, no reasons, no promises.
+- Any mention of a medical condition, by name or by description.
+
+WHEN TO REFUSE
+
+Call cannot_structure instead of suggest_plan when:
+
+- The goal is about a symptom, illness, injury, medication, or a change to the
+  person's body. "Stop my headaches", "lose weight", "get my blood pressure
+  down", "come off my tablets". Use the reason MEDICAL_GOAL.
+- The goal asks for a diet, a calorie target or a training programme. Use
+  WOULD_REQUIRE_AUTHORING.
+- You cannot tell what the person is going for. Use UNCLEAR.
+
+Refusing is always available and is always right when you are unsure. The
+person can write their own activities on the next screen, so a refusal costs
+them very little and a bad suggestion costs them a great deal more.\
+"""
+
+SUGGEST_PLAN = {
+    "type": "function",
+    "function": {
+        "name": "suggest_plan",
+        "description": (
+            "Propose a few small everyday starting activities the person will "
+            "edit before anything is saved."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short plain title for the goal.",
+                },
+                "activities": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "Short plain instruction.",
+                            },
+                            "cadence": {"type": "string", "enum": sorted(CADENCES)},
+                            "times_per_week": {"type": ["integer", "null"]},
+                            "preferred_time": {
+                                "type": "string",
+                                "enum": sorted(PREFERRED_TIMES),
+                            },
+                        },
+                        "required": ["text", "cadence", "preferred_time"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["title", "activities"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+# The veto. Lay language, matched on word boundaries, because a model writes
+# "lose weight", not "reduce body mass". Anything matching is discarded whole.
+#
+# Each group is here because it is a category this app may not author, not
+# because the words are rude. Adding to this list is cheap and safe; removing
+# from it needs the clinical review.
+_FORBIDDEN: tuple[str, ...] = (
+    # Food quantity and restriction.
+    "calorie", "calories", "kcal", "diet", "diets", "dieting", "fasting",
+    "fast for", "skip a meal", "skip meals", "skip breakfast", "skip lunch",
+    "skip dinner", "cut out", "cut down on food", "portion control",
+    "restrict", "restricting", "detox", "cleanse", "juice cleanse",
+    # Body and weight.
+    "weight", "weigh", "pounds", "lbs", "kilograms", "kilos", "kg", "bmi",
+    "body fat", "waist", "slim", "lean down", "tone up", "belly",
+    # Medicines and measurements.
+    "supplement", "supplements", "vitamin", "vitamins", "protein powder",
+    "medication", "medicine", "tablet", "pill", "dose", "dosage", "mg",
+    "blood pressure", "blood sugar", "cholesterol", "heart rate", "bpm",
+    "symptom", "symptoms", "diagnos", "treat", "treatment", "cure", "therapy",
+    # Intensity.
+    "intense", "intensity", "high-intensity", "hiit", "strenuous", "vigorous",
+    "push through", "no pain", "to failure", "max out", "sprint", "marathon",
+    "heavy lifting", "personal best",
+)
+
+_FORBIDDEN_PATTERNS = tuple(
+    re.compile(rf"\b{re.escape(phrase)}", re.IGNORECASE) for phrase in _FORBIDDEN
+)
+
+
+def mentions_forbidden(value: str) -> bool:
+    """Whether `value` touches a category this app may not author."""
+    return any(pattern.search(value) for pattern in _FORBIDDEN_PATTERNS)
+
+
+def suggest_plan(description: str) -> GoalDraft | Refusal | None:
+    """
+    Propose starting activities for someone who named none.
+
+    Returns None for every failure, exactly as `structure` does: the person
+    gets an empty editor rather than a plan MedHelp made up while broken.
+    """
+    if not description.strip():
+        return Refusal(NO_ACTIVITY_NAMED)
+    if not available():
+        return None
+
+    try:
+        reply = llm.chat(
+            messages=[
+                {"role": "system", "content": PLAN_SYSTEM_PROMPT},
+                {"role": "user", "content": description},
+            ],
+            tools=[SUGGEST_PLAN, CANNOT_STRUCTURE],
+        )
+    except LLMUnavailable:
+        return None
+
+    if not reply.tool_calls:
+        return None
+
+    call = reply.tool_calls[0]
+    if call.name == "cannot_structure":
+        reason = call.arguments.get("reason")
+        return Refusal(reason) if reason in REFUSAL_REASONS else Refusal(UNCLEAR)
+    if call.name != "suggest_plan":
+        return None
+
+    return _validate_plan(call.arguments)
+
+
+def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
+    """
+    Check a suggested plan.
+
+    A single forbidden phrase discards the whole plan rather than the one row.
+    A model that proposed one thing it should not have is not a model whose
+    other four suggestions have been earned.
+    """
+    title = arguments.get("title")
+    raw_activities = arguments.get("activities")
+    if not isinstance(title, str) or not title.strip():
+        return None
+    if not isinstance(raw_activities, list) or not raw_activities:
+        return None
+    if len(raw_activities) > MAX_SUGGESTED:
+        return None
+    if mentions_forbidden(title):
+        return None
+
+    activities: list[Activity] = []
+    for raw in raw_activities:
+        if not isinstance(raw, dict):
+            return None
+        text = raw.get("text")
+        cadence = raw.get("cadence")
+        preferred_time = raw.get("preferred_time")
+        times_per_week = raw.get("times_per_week")
+
+        if not isinstance(text, str) or not text.strip():
+            return None
+        if cadence not in CADENCES or preferred_time not in PREFERRED_TIMES:
+            return None
+        if mentions_forbidden(text):
+            return None
+        if cadence == "times_per_week":
+            if not isinstance(times_per_week, int) or not 1 <= times_per_week <= 7:
+                return None
+        elif times_per_week is not None:
+            return None
+
+        activities.append(
+            Activity(
+                text=text.strip(),
+                cadence=cadence,
+                preferred_time=preferred_time,
+                source_phrase=None,
+                times_per_week=(
+                    times_per_week if cadence == "times_per_week" else None
+                ),
+                generated=True,
+            )
+        )
+
+    return GoalDraft(title=title.strip(), activities=activities)
 
 
 def _comparable(value: str) -> str:

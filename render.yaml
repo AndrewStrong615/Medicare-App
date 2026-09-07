@@ -134,6 +134,33 @@ services:
       - key: LLM_API_KEY
         sync: false
 
+      # Health goals may use a DIFFERENT endpoint from symptom triage. Each
+      # falls back to its LLM_* counterpart when empty, so leaving all three
+      # blank is exactly the behaviour of not having them.
+      #
+      # THIS MATTERS MORE HERE THAN LOCALLY. On a dev machine the split lets
+      # goals use a hosted model while symptoms stay on Ollama. There is no
+      # local option on a free instance, so the useful configuration here is
+      # the other one:
+      #
+      #   set GOALS_LLM_* and leave LLM_* unset
+      #
+      # That gives goal suggestions a model while symptom triage runs on the
+      # deterministic rule layer alone — which CLAUDE.md calls the product,
+      # the model being an optional upgrade. No symptom description is
+      # transmitted anywhere at all, which is the strongest position available
+      # on a public deployment with no BAA.
+      #
+      # ⛔ It still transmits goal text, which is health free text about an
+      # identified user, to a vendor this project has no agreement with. It
+      # narrows the exposure; it does not remove it.
+      - key: GOALS_LLM_BASE_URL
+        sync: false
+      - key: GOALS_LLM_MODEL
+        sync: false
+      - key: GOALS_LLM_API_KEY
+        sync: false
+
       # ⛔ Both off, and neither should be switched on here. The first attaches
       # MedlinePlus reading material that a compliance review rejected; the
       # second writes symptom descriptions to the application log.

@@ -1,0 +1,55 @@
+# Local development database.
+#
+# WHY THIS EXISTS: README asks you to "create the database referenced by
+# DATABASE_URL", which assumed a Postgres already installed. A Codespace has
+# none — only Docker — so everyone hit the same wall and solved it with a
+# different ad-hoc `docker run`. This makes it one reproducible command.
+#
+#     docker compose up -d
+#
+# ⛔ DEVELOPMENT ONLY. This runs Postgres with the credentials from
+# backend/.env on a published port with no TLS. It is not a deployment
+# artefact — the deployed database is the managed one in render.yaml. See
+# CLAUDE.md's open findings on the app connecting as a superuser and on
+# nothing being encrypted at rest; neither is solved here.
+#
+# ⛔ SYNTHETIC DATA ONLY, exactly as everywhere else. CLAUDE.md records a real
+# email address in a dev database as an open finding. Do not type real
+# symptoms, medications or health goals into a local build.
+
+services:
+  db:
+    image: postgres:16
+    container_name: medhelp-pg
+    # ⛔ Deliberately NOT `env_file: backend/.env`. That injects every variable
+    # in it — JWT_SECRET_KEY, the model API keys — into this container, which
+    # has no business seeing any of them. Only these three are passed.
+    #
+    # The defaults match backend/.env.example, so `docker compose up -d` works
+    # unchanged. If you changed the credentials in DATABASE_URL, set the same
+    # three in your shell or in a root .env (gitignored) — they must agree
+    # with DATABASE_URL, and Postgres reads them only on first boot, so
+    # changing them later needs `docker compose down -v` to take effect.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-medhelp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medhelp}
+      POSTGRES_DB: ${POSTGRES_DB:-medhelp_dev}
+    ports:
+      - "5432:5432"
+    # Comes back with the Docker daemon, so a normal working session is
+    # `uvicorn` and `npm run web` and nothing else.
+    restart: unless-stopped
+    volumes:
+      # A named volume, so `docker compose down` and container removal keep
+      # the data. `docker compose down -v` is the one that deletes it.
+      - medhelp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Lets `docker compose up --wait` block until the database actually
+      # accepts connections, rather than racing create_missing_tables.py.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  medhelp-pgdata:

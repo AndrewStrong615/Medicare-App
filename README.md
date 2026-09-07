@@ -38,8 +38,18 @@ cp .env.example .env
 # token for any account. Paste the output into JWT_SECRET_KEY in .env.
 python -c "import secrets; print(secrets.token_hex(32))"
 
-# create the database referenced by DATABASE_URL, e.g.:
-#   createdb medhelp_dev
+# Start the database referenced by DATABASE_URL. If you have no Postgres
+# installed — a Codespace does not — run the one in docker-compose.yml, which
+# uses the credentials .env.example already has:
+#
+#   docker compose up -d --wait          # from the repository root
+#
+# It keeps its data in a named volume and comes back with the Docker daemon,
+# so this is a one-time step. With your own Postgres instead: createdb medhelp_dev
+
+# Create any tables that do not exist yet. Alembic is still not wired up (see
+# CLAUDE.md, "Known Gaps"), so re-run this whenever a new model is added.
+python scripts/create_missing_tables.py
 
 uvicorn app.main:app --reload
 ```

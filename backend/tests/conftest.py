@@ -104,6 +104,10 @@ def _no_live_model(monkeypatch):
     monkeypatch.setattr(settings, "goals_llm_base_url", "")
     monkeypatch.setattr(settings, "goals_llm_model", "")
     monkeypatch.setattr(settings, "goals_llm_api_key", "")
+    # GROQ_API_KEY is a third way to reach a live endpoint: it resolves to
+    # Groq on its own, so a key in a developer's .env would otherwise make
+    # unstubbed tests place real calls carrying these descriptions.
+    monkeypatch.setattr(settings, "groq_api_key", "")
     monkeypatch.setattr(settings, "anthropic_api_key", "")
 
     def _refuse():

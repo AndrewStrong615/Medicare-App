@@ -1182,6 +1182,12 @@ Rules for anyone extending this:
 - **Failure is never a plan.** No endpoint, an outage, or a failed check all
   yield an empty editor plus the server's own sentence. There is no generated
   fallback, for the same reason a model outage in triage is never SELF_CARE.
+  Those three are one sentence to the person and three different repairs to an
+  operator, so `_discard()` logs **which check** caught a draft — the check's
+  name only, never the value that failed it, which is the person's own health
+  text. A `source_phrase is not in the submitted text` line means the model
+  paraphrased instead of quoting: the check working as designed, and worth
+  looking at the prompt only if it fires for everybody.
 - **Emergency screening runs first**, in `api/goals.py`, before the model is
   called. A goal box takes "stop feeling dizzy on the stairs" as readily as
   intake does, and guidance is returned alongside a refusal or an outage
@@ -1244,6 +1250,77 @@ different feature.
   guard exists because the suite once made real calls from a developer's
   `.env`; a second set of settings is a second hole in it, and
   `tests/test_llm_endpoints.py` asserts the guard covers them.
+
+#### A Groq key on its own is enough, wherever it is set
+
+Setting the three `GOALS_LLM_*` variables is the general form — any provider,
+stated in full. A Groq key is the one-setting form of the same thing:
+`llm.groq_endpoint_or_none()` pairs it with `GROQ_BASE_URL` and
+`GROQ_DEFAULT_MODEL`, both constants of that vendor, so goal drafting works
+from a pasted key.
+
+This exists because of a reported failure with a silent symptom. The
+`GOALS_LLM_*` fallback is all-or-nothing on purpose — see above — so a key set
+without a base URL beside it was ignored *entirely*, and goals fell through to
+`LLM_*`. Where that names an Ollama that is not running — a dev machine with
+nothing started, or a hosted instance where nothing listens on localhost — the
+result is an outage, and an outage here is the sentence "MedHelp has no
+suggestions right now" with a working key set three inches away.
+
+`llm.groq_key_source()` therefore reads a Groq key from three places, in
+order: `GROQ_API_KEY`; `GOALS_LLM_API_KEY` with no `GOALS_LLM_BASE_URL` beside
+it; `LLM_API_KEY` with no `LLM_BASE_URL` beside it. The last two are read
+**only** when the key carries Groq's own `gsk_` prefix, so the vendor is read
+off the key rather than assumed, and an OpenRouter or Google key parked in the
+same slot is never posted to Groq. A key that is already beside a base URL is
+doing a job and is never reassigned.
+
+- **Precedence: an explicit `GOALS_LLM_BASE_URL` wins, then `GROQ_API_KEY`,
+  then `LLM_*`.** Naming a provider in full is the more specific instruction,
+  so a leftover key cannot redirect goals away from an endpoint someone chose
+  deliberately — including a local one, the only choice that transmits nothing.
+- **`GOALS_LLM_MODEL` still names the model** when it is set, so a different
+  Groq model is one setting rather than a second code path.
+- ⛔ **The key is read in `goals_endpoint()` and nowhere else, and must stay
+  that way.** The reason this shortcut is safe is that it cannot move symptom
+  descriptions: those go wherever `LLM_*` says, which is nowhere by default.
+  A key that switched on both features at once would make the most sensitive
+  free text in the app a side effect of switching on goal suggestions, which
+  is precisely what the endpoint split exists to prevent. Tested.
+- The shortcut is through the configuration, never through the disclosure:
+  the endpoint is not local, so the transmission warning names Groq and the
+  goal text exactly as any other hosted endpoint does. Also tested.
+- ⛔ `tests/conftest.py` blanks this too, for the same reason it blanks the
+  others — it is a third way to reach a live endpoint from a developer's
+  `.env`.
+
+**A wrong value fails as loudly as a missing one.** Both of these reach the
+person as the same sentence — "MedHelp has no suggestions right now" — and used
+to reach an operator as an indistinguishable `HTTP 404`:
+
+- `llm.completions_url()` corrects the two base URLs people actually mistype:
+  one that already ends in `/chat/completions` (copied from a provider's curl
+  example, and otherwise doubled), and `https://api.groq.com` with no path,
+  which is the vendor's name for itself rather than its OpenAI-compatible base.
+  ⛔ Nothing else is guessed — an unknown host with an unexpected path is sent
+  exactly as configured, because rewriting it would hide the real mistake.
+- `llm.chat` names the provider's own error **code** when it is one of the
+  handful in `_KNOWN_ERROR_CODES`, so a retired model name and a revoked key
+  stop looking alike. ⛔ It is an allowlist, not "log whatever we were given":
+  the rule that nothing from a response body is read unless it is known to be
+  safe still holds, because a provider error message can quote the request —
+  which is the person's own health text. A test asserts an unfamiliar body
+  contributes nothing but its status code.
+
+**A misconfiguration here is no longer invisible.** `report_goals_endpoint()`
+in `app/main.py` logs at boot which model goals resolved to and which setting
+the key came from — never the key itself — or says plainly that there is none.
+`GET /health` reports `health_goals_model_configured`, a boolean beside
+`symptom_intake_configured` and held to the same rule: it says a credential
+source exists and never which vendor or which key. Both exist because drafting
+answers with an empty editor for a missing key, an unreachable endpoint and a
+refusal alike, so "is a model even configured?" could not be answered from a
+deployment nobody can attach a debugger to.
 
 ### PHI status
 

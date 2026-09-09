@@ -589,3 +589,110 @@ def test_a_medical_goal_is_never_answered_with_a_plan(
     assert called == []
     assert body["activities"] == []
     assert "symptoms" in body["notice"]
+
+
+# ---------------------------------------------------------------------------
+# Whether a model is configured must be answerable without submitting a goal.
+# ---------------------------------------------------------------------------
+
+
+def test_health_reports_whether_goals_have_a_model(client, monkeypatch):
+    """
+    A misconfigured goals endpoint used to be invisible from the outside.
+
+    Drafting answers with an empty editor for a missing key, an unreachable
+    endpoint and a refusal alike, so "is a model even configured?" could not
+    be answered from a deployment you cannot attach a debugger to. It is a
+    boolean, like `symptom_intake_configured` beside it: never the vendor,
+    never the key.
+    """
+    from app.core.config import settings
+
+    assert client.get("/health").json()["health_goals_model_configured"] is False
+
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_synthetic")
+    assert client.get("/health").json()["health_goals_model_configured"] is True
+
+
+def test_boot_says_which_model_goals_will_use(monkeypatch, caplog):
+    """The key is never logged — only the host, the model, and where it came from."""
+    import logging
+
+    from app.core.config import settings
+    from app.main import report_goals_endpoint
+
+    monkeypatch.setattr(settings, "groq_api_key", "gsk_synthetic")
+    with caplog.at_level(logging.INFO):
+        report_goals_endpoint()
+
+    assert "api.groq.com" in caplog.text
+    assert "GROQ_API_KEY" in caplog.text
+    assert "gsk_synthetic" not in caplog.text
+
+
+def test_boot_says_plainly_when_goals_have_no_model(caplog):
+    """"Not configured" and "configured and failing" are different problems."""
+    report = __import__("app.main", fromlist=["report_goals_endpoint"])
+    report.report_goals_endpoint()
+
+    assert "NO MODEL configured" in caplog.text
+    assert "GROQ_API_KEY" in caplog.text
+
+
+def test_a_discarded_draft_says_which_check_caught_it(caplog):
+    """
+    A discarded draft and an unreachable endpoint look identical from outside
+    — an empty editor under the same sentence — and they are opposite
+    problems. The log now separates them.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = goal_structuring._validate(
+            {
+                "title": "Getting outdoors more",
+                "activities": [
+                    {
+                        # Paraphrased rather than quoted: the check that
+                        # carries the whole design.
+                        "text": "Go for a stroll each morning",
+                        "source_phrase": "stroll each morning",
+                        "cadence": "daily",
+                        "preferred_time": "morning",
+                    }
+                ],
+            },
+            "I want to walk in the mornings",
+        )
+
+    assert result is None
+    assert "source_phrase is not in the submitted text" in caplog.text
+
+
+def test_the_discard_log_never_carries_the_persons_words(caplog):
+    """
+    ⛔ The check name is about the app; the values are health text about a
+    person. CLAUDE.md forbids the second reaching the log.
+    """
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        goal_structuring._validate(
+            {
+                "title": "Swimming",
+                "activities": [
+                    {
+                        "text": "Swim 40 lengths on Saturdays",
+                        "source_phrase": "swim on Saturdays",
+                        "cadence": "times_per_week",
+                        "times_per_week": 1,
+                        "preferred_time": "unspecified",
+                    }
+                ],
+            },
+            "I want to swim on Saturdays",
+        )
+
+    assert "invents a digit" in caplog.text
+    assert "Saturdays" not in caplog.text
+    assert "Swim" not in caplog.text

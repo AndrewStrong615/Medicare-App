@@ -17,6 +17,7 @@ from app.api import (
 )
 from app.core.config import settings
 from app.core.triage import credentials_available
+from app.services import llm
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,42 @@ def warn_if_triage_unconfigured() -> None:
         )
 
 
+@app.on_event("startup")
+def report_goals_endpoint() -> None:
+    """
+    Name the model health goals will actually use, at boot.
+
+    WHY: a misconfigured goals endpoint is invisible from the outside. Drafting
+    answers "MedHelp has no suggestions right now" for a missing key, an
+    unreachable endpoint and a model that refused, and the person cannot tell
+    which — nor can an operator reading a deployment they cannot attach a
+    debugger to. One line at boot separates "not configured" from "configured
+    and failing", which is the first question either way.
+
+    The key is never logged, only where it resolved from. The host and the
+    model are what an operator needs and neither is a secret.
+    """
+    log = logging.getLogger(__name__)
+    endpoint = llm.goals_endpoint()
+    found = llm.groq_key_source()
+
+    if not llm.configured(endpoint):
+        log.warning(
+            "Health goals have NO MODEL configured: drafting will always "
+            "return an empty editor and the person types their own "
+            "activities. Set GROQ_API_KEY (see docs/free-model-setup.md), or "
+            "GOALS_LLM_BASE_URL and GOALS_LLM_MODEL for another provider."
+        )
+        return
+
+    log.info(
+        "Health goals will use model %r at %s%s.",
+        endpoint.model,
+        endpoint.host or "an unnamed host",
+        f" (key from {found[1]})" if found is not None else "",
+    )
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -261,4 +298,8 @@ def health() -> dict:
         # Lets you check configuration without submitting a symptom
         # description. Reports only whether a credential source exists.
         "symptom_intake_configured": credentials_available(),
+        # Same purpose, for the goals model: whether goal drafting has an
+        # endpoint at all. A boolean, like the line above — it says a
+        # credential source exists and never which vendor or which key.
+        "health_goals_model_configured": llm.configured(llm.goals_endpoint()),
     }

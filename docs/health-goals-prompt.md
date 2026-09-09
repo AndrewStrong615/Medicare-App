@@ -175,3 +175,21 @@ Goals would also be another plaintext health table beside `medications` and
    it is the most natural thing to type into an empty box?
 4. Does a goal reminder on a lock screen need different copy from a medication
    one?
+
+
+## Diagnosing "MedHelp has no suggestions right now"
+
+That one sentence covers every way the model layer can fail to produce a
+draft, and they are different repairs. The application log separates them —
+see `docs/free-model-setup.md` for the provider error codes, and:
+
+| In the log | What happened |
+|---|---|
+| `Health goals have NO MODEL configured` (at boot) | no key or endpoint resolved — the settings are not reaching the process |
+| `Health goal descriptions are being transmitted to…` | the endpoint resolved; the call was made |
+| `Model endpoint returned HTTP 401 (invalid_api_key…)` | the key was rejected |
+| `Model endpoint returned HTTP 404 (model_not_found…)` | the model name is wrong or retired |
+| `Goal draft discarded by check: …` | the model answered and a check rejected the answer |
+
+The absence of the transmission line is itself the finding: it means no goals
+endpoint was configured in that process, whatever the dashboard says.

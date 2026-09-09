@@ -142,6 +142,23 @@ class Settings(BaseSettings):
     goals_llm_model: str = ""
     goals_llm_api_key: str = ""
 
+    # Groq, from a key alone. Setting GROQ_API_KEY is enough to give health
+    # goals a model: app/services/llm.py pairs it with Groq's base URL and a
+    # listed model, so goal drafting works from one pasted key rather than
+    # three settings that must agree. GOALS_LLM_MODEL names a different Groq
+    # model if you want one; an explicit GOALS_LLM_BASE_URL wins outright.
+    #
+    # ⛔ THIS MOVES GOALS AND ONLY GOALS. It is read in goals_endpoint() and
+    # nowhere else, so a key pasted here cannot start transmitting symptom
+    # descriptions — those go wherever LLM_* says, which is nowhere by
+    # default. That separation is the whole reason a goals endpoint exists.
+    #
+    # ⛔ Same data-handling rule as every hosted endpoint above: goal text is
+    # health free text about an identified user, Groq is a third party, and
+    # this project has a signed BAA with nobody. Synthetic data only until
+    # that question has an answer.
+    groq_api_key: str = ""
+
     # ⛔ OFF pending clinician review. Do not flip this without reading the
     # note in CLAUDE.md under "Related reading is gated off".
     #

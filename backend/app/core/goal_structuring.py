@@ -352,6 +352,26 @@ def structure(description: str) -> GoalDraft | Refusal | None:
     return _validate(call.arguments, description)
 
 
+def _discard(check: str) -> None:
+    """
+    Record which check discarded a draft, and return None for the caller.
+
+    ⛔ THE NAME OF THE CHECK, NEVER THE VALUE THAT FAILED IT. The values here
+    are the person's own health text and the model's rendering of it, and
+    CLAUDE.md forbids either reaching the application log. A check name is
+    about the app, not about anyone.
+
+    WHY IT IS WORTH LOGGING AT ALL: a discarded draft and an unreachable
+    endpoint are the same event from outside — an empty editor under "MedHelp
+    has no suggestions right now" — and they are opposite problems. One is a
+    misconfiguration to repair; the other is the safety net doing its job,
+    which is only worth knowing about if it is happening to everybody. Nobody
+    could tell which was which, including from a deployment's own logs.
+    """
+    logger.info("Goal draft discarded by check: %s.", check)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # The checks. Every one is a discard, never a repair: a draft that fails is no
 # draft. Repairing one would mean deciding what the person meant, which is the
@@ -363,11 +383,11 @@ def _validate(arguments: dict[str, Any], description: str) -> GoalDraft | None:
     title = arguments.get("title")
     raw_activities = arguments.get("activities")
     if not isinstance(title, str) or not title.strip():
-        return None
+        return _discard("title missing")
     if not isinstance(raw_activities, list) or not raw_activities:
-        return None
+        return _discard("no activities returned")
     if len(raw_activities) > MAX_ACTIVITIES:
-        return None
+        return _discard(f"more than {MAX_ACTIVITIES} activities")
 
     haystack = _comparable(description)
     written_digits = set(re.findall(r"\d", description))
@@ -381,7 +401,7 @@ def _validate(arguments: dict[str, Any], description: str) -> GoalDraft | None:
 
     # The title is shown to the person, so it is held to the digit rule too.
     if _invents_a_digit(title, written_digits):
-        return None
+        return _discard("title invents a digit")
 
     return GoalDraft(title=title.strip(), activities=activities)
 
@@ -390,7 +410,7 @@ def _validate_activity(
     raw: Any, haystack: str, written_digits: set[str]
 ) -> Activity | None:
     if not isinstance(raw, dict):
-        return None
+        return _discard("activity is not an object")
 
     text = raw.get("text")
     source_phrase = raw.get("source_phrase")
@@ -400,35 +420,38 @@ def _validate_activity(
     quantity_text = raw.get("quantity_text")
 
     if not isinstance(text, str) or not text.strip():
-        return None
+        return _discard("activity text missing")
     if not isinstance(source_phrase, str) or not source_phrase.strip():
-        return None
+        return _discard("source_phrase missing")
     if cadence not in CADENCES or preferred_time not in PREFERRED_TIMES:
-        return None
+        return _discard("cadence or preferred_time not one of the listed values")
 
     # 1. The person actually wrote this. The whole design rests on this line.
     if _comparable(source_phrase) not in haystack:
-        return None
+        # By far the most common discard, and the one worth counting: the
+        # model paraphrased instead of quoting. That is the check working, but
+        # if it fires for everybody the prompt needs looking at, not the check.
+        return _discard("source_phrase is not in the submitted text")
 
     # 2. A cadence count exists only where the person stated a cadence, and a
     #    week has seven days.
     if cadence == "times_per_week":
         if not isinstance(times_per_week, int) or not 1 <= times_per_week <= 7:
-            return None
+            return _discard("times_per_week is not 1-7")
     elif times_per_week is not None:
-        return None
+        return _discard("times_per_week set without a times_per_week cadence")
 
     # 3. A quantity is a quoted thing, like the phrase it came from.
     if quantity_text is not None:
         if not isinstance(quantity_text, str) or not quantity_text.strip():
-            return None
+            return _discard("quantity_text is empty")
         if _comparable(quantity_text) not in haystack:
-            return None
+            return _discard("quantity_text is not in the submitted text")
 
     # 4. No digit the person did not write. An invented number is the likely
     #    shape of an invented duration, distance or dose.
     if _invents_a_digit(text, written_digits):
-        return None
+        return _discard("activity invents a digit")
 
     return Activity(
         text=text.strip(),

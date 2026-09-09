@@ -161,6 +161,18 @@ services:
       - key: GOALS_LLM_API_KEY
         sync: false
 
+      # The one-setting form of the three above, for Groq: the key names the
+      # vendor, so the app supplies Groq's base URL and model itself. Setting
+      # this alone gives goal drafting a model while symptom triage stays on
+      # the deterministic rule layer — the strongest position available on a
+      # public deployment with no BAA, since no symptom description is
+      # transmitted anywhere at all.
+      #
+      # It still transmits goal text, which is health free text about an
+      # identified user, to a vendor this project has no agreement with.
+      - key: GROQ_API_KEY
+        sync: false
+
       # ⛔ Both off, and neither should be switched on here. The first attaches
       # MedlinePlus reading material that a compliance review rejected; the
       # second writes symptom descriptions to the application log.

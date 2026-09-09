@@ -69,6 +69,51 @@ Google AI Studio and OpenRouter work the same way; only the three strings
 change. There is no provider-specific code — see
 `backend/app/services/llm.py`.
 
+### Health goals, from a Groq key alone
+
+The settings above are symptom triage. Health goals read `GOALS_LLM_*` first,
+and if no base URL is named there, a single setting is enough:
+
+```
+GROQ_API_KEY=gsk_...
+```
+
+That pairs the key with Groq's base URL and one of its models (`llm.py`,
+`GROQ_BASE_URL` / `GROQ_DEFAULT_MODEL`), so goal drafting has a model with
+nothing else to configure. `GOALS_LLM_MODEL` names a different Groq model;
+an explicit `GOALS_LLM_BASE_URL` wins outright.
+
+A `gsk_` key already sitting in `GOALS_LLM_API_KEY` or `LLM_API_KEY` **with no
+base URL beside it** is read the same way, since a key with no endpoint does
+nothing at all otherwise. A key that does have a base URL beside it belongs to
+that endpoint and is left alone.
+
+To check what a running deployment resolved: `GET /health` reports
+`health_goals_model_configured`, and the boot log names the model and which
+setting the key came from.
+
+### When it is configured and still returns nothing
+
+The person sees the same sentence for every failure, so check the log rather
+than the screen. It names the provider's error code where it recognises one:
+
+| In the log | What to change |
+|---|---|
+| `model_not_found` / `model_decommissioned` | the model name — Groq retires models; check https://console.groq.com/docs/models |
+| `invalid_api_key` / `authentication_error` | the key |
+| `rate_limit_exceeded` / `insufficient_quota` | nothing; the account is over its limit |
+| `NO MODEL configured` at boot | no key or endpoint resolved at all |
+
+The base URL is the one thing you are unlikely to get wrong in a way that
+matters: `https://api.groq.com` and a URL already ending in
+`/chat/completions` are both corrected to the real endpoint.
+
+⛔ It moves goals and only goals. Symptom descriptions still go wherever
+`LLM_*` says — nowhere, if you have not set it — so this is the configuration
+that gives goal suggestions a model while triage runs on the deterministic
+rule layer alone. Goal text is still health free text about an identified
+user, and Groq is still a third party with no BAA here.
+
 ## What the loop actually does
 
 `backend/app/core/deduction.py`. Per assessment, the model:

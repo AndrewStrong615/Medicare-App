@@ -58,8 +58,21 @@ _LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.int
 # tool calling — which this app's model calls are entirely made of. Constants
 # rather than settings because they are facts about one named vendor: an
 # operator who has a Groq key should not also have to look up its URL.
+#
+# ⛔ A MODEL NAME IS A PERISHABLE FACT, AND THIS ONE HAS ALREADY EXPIRED ONCE.
+# This was `llama-3.3-70b-versatile`, which Groq retired. Every model call the
+# app made returned 404 `model_not_found` — so health goals silently stopped
+# proposing anything and fell back to splitting the person's own sentence,
+# while `GET /health` went on reporting `health_goals_model_configured: true`,
+# because that flag says a credential exists and never that the model resolves.
+#
+# `openai/gpt-oss-120b` was verified against a live key on 2026-09-09: it
+# answers, and it calls tools. Re-check it rather than trusting this line —
+# `scripts/check_triage_credentials.py` is the quickest way, and a 404 or a
+# `model_decommissioned` 400 in the logs is what this looks like from a
+# deployment.
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 # Groq issues keys with this prefix, so a key states its own vendor. That is
 # what makes reading one out of a generically-named setting a fact rather than

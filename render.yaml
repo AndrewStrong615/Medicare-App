@@ -53,8 +53,22 @@ services:
     # `create_all`, which creates what is missing and never alters what
     # exists, so it is safe to run on every boot. Replace this with a real
     # migration step before anything but a demo runs here.
+    #
+    # ⛔ `create_all` NEVER ALTERS AN EXISTING TABLE, so a column added to a
+    # model that already has a table needs its own script — and leaving those
+    # to be run by hand does not work. The refill columns went onto
+    # `medications`, which has existed for months; the deploy came up clean,
+    # reported healthy, and then returned 500s from every read of
+    # `/medications`, because the health check does not touch the table. A
+    # migration nobody runs is a migration that does not exist.
+    #
+    # Both scripts are `ADD COLUMN IF NOT EXISTS` and are idempotent, so
+    # running them on every boot costs a round trip and closes that gap.
+    # ⛔ Add the script here when you add a column to an existing model.
     startCommand: >-
       python scripts/create_missing_tables.py &&
+      python scripts/add_intake_audit_columns.py &&
+      python scripts/add_medication_supply_columns.py &&
       uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

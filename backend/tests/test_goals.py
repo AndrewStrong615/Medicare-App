@@ -673,6 +673,89 @@ def test_a_medical_goal_is_never_answered_with_a_plan(
     assert "symptoms" in body["notice"]
 
 
+def test_the_plan_tool_tells_the_model_when_times_per_week_is_required():
+    """
+    The weekly count is required by the validator and optional in the schema,
+    so the contract has to be written where the model reads it.
+
+    This is a regression test for a real breakage. `PLAN_SYSTEM_PROMPT` was
+    changed to ask for a plan spread across the week, which made the model far
+    more likely to choose the `times_per_week` cadence — while the schema still
+    described the count as an unlabelled optional integer. A weekly activity
+    that arrived without one discarded the *whole* plan, so the person got
+    their own words back and the app looked like it had ignored the change.
+
+    JSON Schema cannot express "required when cadence is times_per_week"
+    portably (it needs if/then, and providers vary in honouring it), so the
+    requirement lives in two descriptions instead. If the wording is reworked,
+    it still has to say this.
+    """
+    properties = goal_structuring.SUGGEST_PLAN["function"]["parameters"][
+        "properties"
+    ]
+    item = properties["activities"]["items"]["properties"]
+
+    count = item["times_per_week"]
+    assert "REQUIRED" in count["description"]
+    assert "times_per_week" in count["description"]
+    assert count["minimum"] == 1 and count["maximum"] == 7
+
+    # And the prompt, which is the half the model is most likely to follow.
+    assert "times_per_week" in goal_structuring.PLAN_SYSTEM_PROMPT
+    assert "discards the entire plan" in goal_structuring.PLAN_SYSTEM_PROMPT
+
+
+def test_a_weekly_activity_with_no_count_is_still_discarded_whole():
+    """
+    The check itself did not move.
+
+    The fix for the breakage above was to tell the model what the contract is,
+    not to loosen the contract. A plan whose rows do not parse is still no
+    plan — inventing a count would be MedHelp deciding how often someone
+    should do something, which is the authoring this module exists to avoid.
+    """
+    discarded = goal_structuring._validate_plan(
+        {
+            "title": "Getting out more",
+            "activities": [
+                {
+                    "text": "Walk after lunch",
+                    "cadence": "times_per_week",
+                    # No `times_per_week`.
+                    "preferred_time": "afternoon",
+                },
+                {
+                    "text": "Go to bed at the same time each night",
+                    "cadence": "daily",
+                    "preferred_time": "evening",
+                },
+            ],
+        }
+    )
+    assert discarded is None
+
+
+def test_a_weekly_activity_with_a_count_survives():
+    """The same plan, with the number the contract asks for."""
+    draft = goal_structuring._validate_plan(
+        {
+            "title": "Getting out more",
+            "activities": [
+                {
+                    "text": "Walk after lunch",
+                    "cadence": "times_per_week",
+                    "times_per_week": 4,
+                    "preferred_time": "afternoon",
+                }
+            ],
+        }
+    )
+    assert draft is not None
+    assert draft.activities[0].times_per_week == 4
+    assert draft.activities[0].generated is True
+    assert draft.activities[0].source_phrase is None
+
+
 def test_the_planner_reading_a_goal_as_medical_overrides_structure(
     client, auth_headers, monkeypatch
 ):

@@ -512,6 +512,12 @@ each one somewhere it plausibly fits - a walk after lunch is afternoon,
 winding down is evening. Two or three things on a steady weekly rhythm is a
 better plan than five things every day, which nobody keeps up.
 
+Whenever you set `cadence` to "times_per_week" you MUST also give
+`times_per_week`, a whole number from 1 to 7. A weekly activity without a
+number is rejected, and one rejected activity discards the entire plan - the
+person is left with nothing. If you do not want to commit to a number, use
+"daily" or "unspecified" instead and leave `times_per_week` null.
+
 WHAT TO PROPOSE
 
 - Between two and five small, ordinary, everyday activities.
@@ -586,8 +592,36 @@ SUGGEST_PLAN = {
                                 "type": "string",
                                 "description": "Short plain instruction.",
                             },
-                            "cadence": {"type": "string", "enum": sorted(CADENCES)},
-                            "times_per_week": {"type": ["integer", "null"]},
+                            "cadence": {
+                                "type": "string",
+                                "enum": sorted(CADENCES),
+                                "description": (
+                                    "Use 'times_per_week' for anything not "
+                                    "done every day, and give times_per_week "
+                                    "with it."
+                                ),
+                            },
+                            "times_per_week": {
+                                "type": ["integer", "null"],
+                                "minimum": 1,
+                                "maximum": 7,
+                                # ⛔ REQUIRED whenever cadence is
+                                # "times_per_week", and the schema cannot say
+                                # so - JSON Schema needs if/then for that and
+                                # providers vary in whether they honour it. The
+                                # validator discards the WHOLE plan when it is
+                                # missing, so a model that picks the weekly
+                                # cadence and omits the count costs the person
+                                # their entire plan. Stated here and in
+                                # PLAN_SYSTEM_PROMPT because those are the two
+                                # places the model actually reads.
+                                "description": (
+                                    "How many days a week, 1 to 7. REQUIRED "
+                                    "when cadence is 'times_per_week'. Use "
+                                    "null only when cadence is 'daily' or "
+                                    "'unspecified'."
+                                ),
+                            },
                             "preferred_time": {
                                 "type": "string",
                                 "enum": sorted(PREFERRED_TIMES),
@@ -662,7 +696,7 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | None:
     if not description.strip():
         return Refusal(NO_ACTIVITY_NAMED)
     if not available():
-        return None
+        return _discard("planner: no goals endpoint is configured")
 
     try:
         reply = llm.chat(
@@ -674,17 +708,25 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | None:
             endpoint=llm.goals_endpoint(),
         )
     except LLMUnavailable:
-        return None
+        # `llm.chat` has already logged the status code and, where it is one it
+        # recognises, the provider's own error code. Naming the caller is what
+        # tells an operator which of the two model calls in this request failed.
+        return _discard("planner: the endpoint was unreachable")
 
     if not reply.tool_calls:
-        return None
+        # The likeliest failure once a key is working, and previously the most
+        # invisible: the model answered in prose instead of calling a tool.
+        # Every path here returns the same empty editor, so without this line an
+        # operator cannot tell a chatty model from a revoked key.
+        return _discard("planner: the model answered without calling a tool")
 
     call = reply.tool_calls[0]
     if call.name == "cannot_structure":
         reason = call.arguments.get("reason")
+        logger.info("Goal planner declined, reason: %s.", reason)
         return Refusal(reason) if reason in REFUSAL_REASONS else Refusal(UNCLEAR)
     if call.name != "suggest_plan":
-        return None
+        return _discard("planner: the model called a tool that was not offered")
 
     return _validate_plan(call.arguments)
 
@@ -700,34 +742,38 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     title = arguments.get("title")
     raw_activities = arguments.get("activities")
     if not isinstance(title, str) or not title.strip():
-        return None
+        return _discard("plan: no usable title")
     if not isinstance(raw_activities, list) or not raw_activities:
-        return None
+        return _discard("plan: no activities")
     if len(raw_activities) > MAX_SUGGESTED:
-        return None
+        return _discard("plan: more activities than MAX_SUGGESTED")
     if mentions_forbidden(title):
-        return None
+        return _discard("plan: the title matched the forbidden list")
 
     activities: list[Activity] = []
     for raw in raw_activities:
         if not isinstance(raw, dict):
-            return None
+            return _discard("plan: an activity was not an object")
         text = raw.get("text")
         cadence = raw.get("cadence")
         preferred_time = raw.get("preferred_time")
         times_per_week = raw.get("times_per_week")
 
         if not isinstance(text, str) or not text.strip():
-            return None
+            return _discard("plan: an activity had no text")
         if cadence not in CADENCES or preferred_time not in PREFERRED_TIMES:
-            return None
+            return _discard("plan: an activity had an unrecognised cadence or time")
         if mentions_forbidden(text):
-            return None
+            # The veto doing its job. Worth separating from every other discard,
+            # because it is the one that is *correct* to fire — and the one
+            # worth investigating only if it fires for everybody, which is
+            # exactly what CLAUDE.md says about the structuring checks.
+            return _discard("plan: an activity matched the forbidden list")
         if cadence == "times_per_week":
             if not isinstance(times_per_week, int) or not 1 <= times_per_week <= 7:
-                return None
+                return _discard("plan: times_per_week was missing or out of range")
         elif times_per_week is not None:
-            return None
+            return _discard("plan: times_per_week was given for a non-weekly cadence")
 
         activities.append(
             Activity(

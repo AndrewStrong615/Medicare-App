@@ -61,9 +61,18 @@ Same three settings, e.g. for Groq:
 
 ```
 LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=openai/gpt-oss-120b
 LLM_API_KEY=gsk_...
 ```
+
+⛔ **A model name goes stale, and this one already has.** The value above was
+`llama-3.3-70b-versatile` until Groq retired it, at which point every model
+call returned 404 `model_not_found`: health goals quietly stopped proposing
+anything, and `GET /health` went on reporting
+`health_goals_model_configured: true`, because that flag says a credential
+exists and never that the model resolves. If a model-backed feature goes quiet,
+check the API log for a 404 or a `model_decommissioned` 400 before anything
+else.
 
 Google AI Studio and OpenRouter work the same way; only the three strings
 change. There is no provider-specific code — see

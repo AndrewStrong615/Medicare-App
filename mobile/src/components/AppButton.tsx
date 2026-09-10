@@ -16,9 +16,19 @@ import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "
  * as a filled, uppercased button on Android, and it cannot show a disabled or
  * loading state. This component keeps one appearance everywhere and covers all
  * four interaction states (rest, hover on web, pressed, disabled/loading).
+ *
+ * ## The variants are the prominence ladder
+ *
+ * See `PROMINENCE_LEVELS` in `theme.ts`.
+ *
+ * - `primary` (L1) — filled. **One per screen**, with the emergency palette
+ *   exempt: "Call 911" and the emergency card's contact call stay filled
+ *   however many other filled controls are on screen.
+ * - `outline` (L2) — a real control, but not the thing the screen is for.
+ * - `secondary` (L3) — borderless text, for an action that sits beside
+ *   something else rather than ending a task.
  */
-
-type Variant = "primary" | "secondary";
+type Variant = "primary" | "outline" | "secondary";
 
 // react-native-web supports hover callbacks on Pressable; the react-native
 // types don't declare them, so they're added here rather than cast away.
@@ -69,10 +79,10 @@ export function AppButton({
       accessibilityState={{ disabled: isInactive, busy: loading }}
       style={({ pressed }) => [
         styles.base,
-        isPrimary ? styles.primary : styles.secondary,
-        hovered && !isInactive && (isPrimary ? styles.primaryHover : styles.secondaryHover),
-        pressed && !isInactive && (isPrimary ? styles.primaryPressed : styles.secondaryPressed),
-        isInactive && (isPrimary ? styles.primaryInactive : styles.secondaryInactive),
+        SURFACE[variant],
+        hovered && !isInactive && HOVER[variant],
+        pressed && !isInactive && PRESSED[variant],
+        isInactive && INACTIVE[variant],
         style,
       ]}
     >
@@ -84,14 +94,7 @@ export function AppButton({
             style={styles.spinner}
           />
         )}
-        <Text
-          style={[
-            styles.label,
-            isPrimary ? styles.labelPrimary : styles.labelSecondary,
-            isInactive && isPrimary && styles.labelPrimaryInactive,
-            isInactive && !isPrimary && styles.labelSecondaryInactive,
-          ]}
-        >
+        <Text style={[styles.label, LABEL[variant], isInactive && LABEL_INACTIVE[variant]]}>
           {label}
         </Text>
       </View>
@@ -116,6 +119,7 @@ const styles = StyleSheet.create({
   spinner: {
     marginRight: spacing.sm,
   },
+
   primary: {
     backgroundColor: colors.accent,
     borderColor: colors.accent,
@@ -136,6 +140,23 @@ const styles = StyleSheet.create({
     // A disabled control should not look like it is floating above the page.
     ...elevation.none,
   },
+
+  outline: {
+    backgroundColor: colors.surface,
+    borderColor: colors.accent,
+  },
+  outlineHover: {
+    backgroundColor: colors.accentSurface,
+  },
+  outlinePressed: {
+    backgroundColor: colors.accentSurface,
+    borderColor: colors.accentPressed,
+  },
+  outlineInactive: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.borderStrong,
+  },
+
   secondary: {
     backgroundColor: "transparent",
     borderColor: "transparent",
@@ -149,6 +170,7 @@ const styles = StyleSheet.create({
   secondaryInactive: {
     backgroundColor: "transparent",
   },
+
   label: {
     ...typography.bodyStrong,
     textAlign: "center",
@@ -159,10 +181,46 @@ const styles = StyleSheet.create({
   labelPrimaryInactive: {
     color: colors.textOnAccent,
   },
-  labelSecondary: {
+  labelAccent: {
     color: colors.accent,
   },
-  labelSecondaryInactive: {
+  labelAccentInactive: {
     color: colors.textSecondary,
   },
 });
+
+const SURFACE = {
+  primary: styles.primary,
+  outline: styles.outline,
+  secondary: styles.secondary,
+} as const;
+
+const HOVER = {
+  primary: styles.primaryHover,
+  outline: styles.outlineHover,
+  secondary: styles.secondaryHover,
+} as const;
+
+const PRESSED = {
+  primary: styles.primaryPressed,
+  outline: styles.outlinePressed,
+  secondary: styles.secondaryPressed,
+} as const;
+
+const INACTIVE = {
+  primary: styles.primaryInactive,
+  outline: styles.outlineInactive,
+  secondary: styles.secondaryInactive,
+} as const;
+
+const LABEL = {
+  primary: styles.labelPrimary,
+  outline: styles.labelAccent,
+  secondary: styles.labelAccent,
+} as const;
+
+const LABEL_INACTIVE = {
+  primary: styles.labelPrimaryInactive,
+  outline: styles.labelAccentInactive,
+  secondary: styles.labelAccentInactive,
+} as const;

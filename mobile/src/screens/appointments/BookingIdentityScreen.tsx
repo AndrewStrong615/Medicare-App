@@ -12,7 +12,7 @@ import {
   submitBooking,
   type BookingIdentity,
 } from "@/services/appointmentService";
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "BookingIdentity">;
@@ -323,6 +323,6 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: colors.textOnAccent,
-    fontWeight: "600",
+    fontFamily: fonts.sansSemibold,
   },
 });

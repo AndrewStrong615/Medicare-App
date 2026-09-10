@@ -15,7 +15,7 @@ import {
   type EmergencyCard,
   type MirroredMedication,
 } from "@/services/emergencyCard";
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EmergencyCard">;
@@ -156,8 +156,20 @@ export function EmergencyCardScreen({ navigation }: Props) {
         <Text style={styles.sectionTitle} accessibilityRole="header">
           Emergency contact
         </Text>
-        <Field label="Name" value={card.contactName} />
-        <Field label="Relationship" value={card.contactRelationship} />
+        {/*
+          Name and relationship pair on one line because both are short and
+          the pair is read as one fact ("Priya Raman, sister"). Phone stays
+          full width — it is the longest value on the card and the one most
+          likely to be read aloud.
+        */}
+        <View style={styles.fieldPair}>
+          <View style={styles.fieldPairItem}>
+            <Field label="Name" value={card.contactName} />
+          </View>
+          <View style={styles.fieldPairItem}>
+            <Field label="Relationship" value={card.contactRelationship} />
+          </View>
+        </View>
         <Field label="Phone" value={card.contactPhone} />
 
         {phoneToDial ? (
@@ -191,10 +203,23 @@ export function EmergencyCardScreen({ navigation }: Props) {
         {medications.length === 0 ? (
           <Text style={styles.fieldValueEmpty}>{NOT_PROVIDED}</Text>
         ) : (
+          /*
+            Name and dose are separate cells so the doses line up in a column
+            down the right-hand edge. A responder scans this list rather than
+            reading it, and a ragged "name — dose" run is markedly slower to
+            scan than a column. Nothing about the values changed: both are
+            still the stored text, rendered verbatim.
+          */
           medications.map((medication) => (
-            <Text key={`${medication.name}-${medication.dosage ?? ""}`} style={styles.medication}>
-              {medication.dosage ? `${medication.name} — ${medication.dosage}` : medication.name}
-            </Text>
+            <View
+              key={`${medication.name}-${medication.dosage ?? ""}`}
+              style={styles.medicationRow}
+            >
+              <Text style={styles.medicationName}>{medication.name}</Text>
+              {medication.dosage ? (
+                <Text style={styles.medicationDose}>{medication.dosage}</Text>
+              ) : null}
+            </View>
           ))
         )}
         <Text style={styles.fieldNote}>
@@ -215,8 +240,19 @@ export function EmergencyCardScreen({ navigation }: Props) {
         </Text>
       </View>
 
+      {/*
+        Outlined rather than filled. The two filled controls on this screen —
+        "Call 911" and the contact call — are the emergency palette's, and
+        they are exempt from the one-filled-action rule for the obvious
+        reason. Editing the card is not what someone opened this screen to do,
+        and a third filled button would make the two that matter ordinary.
+
+        It stays filled when the card is empty: there is then nothing to read,
+        and filling it in *is* the only useful thing on the screen.
+      */}
       <AppButton
         label={isEmpty ? "Fill in my emergency card" : "Edit these details"}
+        variant={isEmpty ? "primary" : "outline"}
         onPress={() => navigation.navigate("EmergencyCardEdit")}
         accessibilityHint="Opens a form to change what this card shows"
       />
@@ -325,6 +361,14 @@ const styles = StyleSheet.create({
   field: {
     gap: 2,
   },
+  fieldPair: {
+    flexDirection: "row",
+    gap: spacing.lg,
+  },
+  fieldPairItem: {
+    flex: 1,
+    minWidth: 0,
+  },
   fieldLabel: {
     ...typography.overline,
     color: colors.textSecondary,
@@ -336,14 +380,27 @@ const styles = StyleSheet.create({
   fieldValueEmpty: {
     ...typography.title,
     color: colors.textSecondary,
-    fontStyle: "italic",
+    // The italic *face*, not `fontStyle: "italic"`. With a loaded custom
+    // family Android would synthesise the slant by shearing the upright,
+    // which looks wrong at this size — see the note on `fonts` in theme.ts.
+    fontFamily: fonts.serifItalic,
   },
   fieldNote: {
     ...typography.caption,
     color: colors.textSecondary,
   },
-  medication: {
-    ...typography.bodyStrong,
+  medicationRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: spacing.md,
+  },
+  medicationName: {
+    ...typography.titleSmall,
+    flex: 1,
+    color: colors.textPrimary,
+  },
+  medicationDose: {
+    ...typography.data,
     color: colors.textPrimary,
   },
   callButton: {

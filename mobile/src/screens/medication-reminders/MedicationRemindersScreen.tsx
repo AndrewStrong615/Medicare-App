@@ -32,7 +32,7 @@ import {
   type ReminderPermission,
 } from "@/services/notificationService";
 import { dueState, formatTimeOfDay, sortByTime } from "@/services/reminderTiming";
-import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, elevation, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationReminders">;
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
   rowPressed: { backgroundColor: colors.surfaceMuted },
   rowName: { ...typography.bodyStrong, color: colors.textPrimary },
   rowDose: { ...typography.caption, color: colors.textSecondary },
-  rowTimes: { ...typography.body, color: colors.accent, fontWeight: "600" },
+  rowTimes: { ...typography.body, color: colors.accent, fontFamily: fonts.sansSemibold },
   rowFrequency: { ...typography.caption, color: colors.textSecondary },
   loading: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   loadingText: { ...typography.body, color: colors.textSecondary },

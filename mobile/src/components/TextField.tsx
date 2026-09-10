@@ -74,6 +74,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           !!error && styles.inputError,
           !editable && styles.inputDisabled,
           multiline && styles.inputMultiline,
+          multiline && styles.inputQuoted,
         ]}
         multiline={multiline}
         textAlignVertical={multiline ? "top" : "auto"}
@@ -133,8 +134,17 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   inputMultiline: {
-    minHeight: 120,
+    minHeight: 160,
     paddingTop: spacing.md,
+  },
+  /**
+   * Free text the person is writing about themselves is set in the reading
+   * serif — the same face their words are shown back to them in on the
+   * result screen and the emergency card. Single-line fields (an email, a
+   * dosage, a ZIP) stay in the sans: those are data, not prose.
+   */
+  inputQuoted: {
+    ...typography.bodyQuoted,
   },
   inputFocused: {
     borderColor: colors.borderFocus,

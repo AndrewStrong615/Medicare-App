@@ -10,36 +10,52 @@
  * ratio is noted where it is close enough to be worth protecting during
  * future palette changes.
  *
- * The 2026 visual pass added depth (`elevation`), a tint ramp around the
- * accent, and more steps in the type scale. It changed no existing token
- * value: the notice, error, success and emergency families are byte-for-byte
- * what a reviewer signed off on, because those carry safety meaning.
+ * ## The 2026 "paper" pass
+ *
+ * The ground moved from a cool blue-grey to a warm paper, the type moved to
+ * Literata (a screen reading serif) over Public Sans, and depth moved from
+ * drop shadows to hairline rules. The reasoning is specific to this app
+ * rather than fashionable: every claim MedHelp makes is hedged — it did not
+ * author the symptom text, did not check the emergency card, cannot confirm
+ * when an appointment is. A document reads as something written down and
+ * attributable. A card floating on a drop shadow reads as a product
+ * asserting something.
+ *
+ * ⛔ **The notice, error, success and emergency families are byte-for-byte
+ * what a reviewer signed off on** and were not touched by this pass, because
+ * those carry safety meaning. Only the neutrals, the type and the depth
+ * changed. Anyone revisiting the palette should keep that line.
  */
 
 export const colors = {
-  // Surfaces
-  background: "#F7F9FA",
-  surface: "#FFFFFF",
-  surfaceMuted: "#EEF3F6",
+  // Surfaces — warm paper rather than cool grey
+  background: "#F6F2EA",
+  surface: "#FFFDF9",
+  surfaceMuted: "#EFEADF",
   /** Page ground behind a hero panel — one step darker than `background`. */
-  surfaceSunken: "#EAEFF3",
+  surfaceSunken: "#E9E2D4",
 
   // Text — on `background` unless noted
-  textPrimary: "#14293D", // 13.9:1
-  textSecondary: "#4A6072", // 6.4:1
+  textPrimary: "#23201C", // 14.6:1
+  textSecondary: "#554E44", // 7.4:1
+  /** Quietest readable ink — section labels and footnotes. 5.3:1. */
+  textMuted: "#6B6254",
   textOnAccent: "#FFFFFF",
   /** Secondary text on `accentDeep` — 6.6:1. */
   textOnAccentMuted: "#A9CBD8",
 
-  // Lines
-  border: "#D3DCE3",
-  borderStrong: "#B4C2CD",
+  // Lines. These do more work than they used to: with depth removed, a
+  // hairline is what separates one block from the next.
+  border: "#DED5C6",
+  borderStrong: "#C9BEAB",
   borderFocus: "#10657F",
   /** Hairline between rows inside one card. */
-  divider: "#E4EAEF",
+  divider: "#EDE6DA",
 
-  // Primary action — a calm clinical blue rather than an urgent one
-  accent: "#10657F", // white on this: 6.0:1
+  // Primary action — a calm clinical blue rather than an urgent one.
+  // Unchanged by the paper pass: it still reads correctly on a warm ground
+  // and it is the value every contrast note below was measured against.
+  accent: "#10657F", // white on this: 6.0:1; on `background`: 6.0:1
   accentPressed: "#0C4E62",
   accentDisabled: "#A9C2CD",
   /** Header/hero ground. White on this: 11.3:1. */
@@ -47,6 +63,10 @@ export const colors = {
   /** Tinted fill for icon tiles and quiet accent chips. accent on it: 5.7:1. */
   accentSurface: "#E8F1F5",
   accentBorder: "#BBD5DF",
+
+  // ⛔ Everything below this line is reviewed safety colour. Do not restyle
+  // it to match a new visual direction — a direction is a preference and
+  // these are a decision someone signed off on.
 
   // Errors: used for "this didn't work", not for medical urgency
   errorText: "#8C1D18", // 8.6:1
@@ -69,6 +89,38 @@ export const colors = {
   emergencyBorder: "#C5362C",
 } as const;
 
+/**
+ * The two faces, by their loaded family names.
+ *
+ * ⛔ **Set `fontFamily`, never `fontWeight`.** These are separate font files
+ * per weight, and asking Android for a bold weight of a face that is already
+ * bold gets you a synthetically smeared double-bold. The same goes for
+ * `fontStyle: "italic"` — use `serifItalic` instead of asking the renderer to
+ * slant an upright face.
+ *
+ * The pairing is not arbitrary. Public Sans is the US Web Design System's
+ * face, drawn for exactly this job — government benefits and health
+ * interfaces, a large x-height so it survives at label sizes. Literata is a
+ * reading serif designed for screens, and it is used here only for text a
+ * *person wrote or a source published*: what the user typed into the symptom
+ * field, the values on their emergency card, a destination's name. That split
+ * is the whole idea — the serif is the app quoting, the sans is the app
+ * speaking.
+ *
+ * Loaded once in `App.tsx`. Nothing renders until they are ready, because
+ * swapping a serif in after first paint reflows every screen.
+ */
+export const fonts = {
+  serif: "Literata_400Regular",
+  serifItalic: "Literata_400Regular_Italic",
+  serifSemibold: "Literata_600SemiBold",
+  serifBold: "Literata_700Bold",
+  sans: "PublicSans_400Regular",
+  sansMedium: "PublicSans_500Medium",
+  sansSemibold: "PublicSans_600SemiBold",
+  sansBold: "PublicSans_700Bold",
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -88,22 +140,46 @@ export const radius = {
 } as const;
 
 export const typography = {
-  displayLarge: { fontSize: 32, fontWeight: "700", lineHeight: 38 },
-  display: { fontSize: 28, fontWeight: "700", lineHeight: 34 },
-  title: { fontSize: 20, fontWeight: "600", lineHeight: 26 },
-  titleSmall: { fontSize: 17, fontWeight: "600", lineHeight: 24 },
-  body: { fontSize: 16, lineHeight: 24 },
-  bodyStrong: { fontSize: 16, fontWeight: "600", lineHeight: 24 },
-  caption: { fontSize: 14, lineHeight: 20 },
-  captionStrong: { fontSize: 14, fontWeight: "600", lineHeight: 20 },
+  displayLarge: { fontFamily: fonts.serifBold, fontSize: 34, lineHeight: 41 },
+  display: { fontFamily: fonts.serifBold, fontSize: 30, lineHeight: 37 },
+  title: { fontFamily: fonts.serifSemibold, fontSize: 21, lineHeight: 28 },
+  titleSmall: { fontFamily: fonts.sansSemibold, fontSize: 17, lineHeight: 24 },
+  /**
+   * Body copy at 17pt rather than 16pt. NHS sets its standard paragraph at
+   * 19px and this app is read by people who are unwell; a step up costs a
+   * line of wrapping and buys legibility.
+   */
+  body: { fontFamily: fonts.sans, fontSize: 17, lineHeight: 26 },
+  bodyStrong: { fontFamily: fonts.sansSemibold, fontSize: 17, lineHeight: 26 },
+  /**
+   * Text the *user* wrote, or that a source published, shown back to them.
+   * Set in the serif on purpose — see the note on `fonts`.
+   */
+  bodyQuoted: { fontFamily: fonts.serif, fontSize: 19, lineHeight: 29 },
+  caption: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 21 },
+  captionStrong: { fontFamily: fonts.sansSemibold, fontSize: 14, lineHeight: 21 },
+  /**
+   * A short value read at a glance — a dose, a time, a blood type.
+   * Semibold and slightly tracked so a column of them scans cleanly.
+   */
+  data: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 16,
+    lineHeight: 24,
+    letterSpacing: 0.2,
+  },
   /**
    * Section eyebrow. Letter-spaced rather than shrunk — it stays at 13px so
    * it is still legible, since small uppercase type is the first thing to
    * fail for anyone with low vision.
+   *
+   * ⛔ The visual direction this pass came from drew these at 11px. That was
+   * not adopted: the 13px floor is an accessibility decision and outranks a
+   * mockup.
    */
   overline: {
+    fontFamily: fonts.sansBold,
     fontSize: 13,
-    fontWeight: "700",
     lineHeight: 18,
     letterSpacing: 0.9,
   },
@@ -112,10 +188,16 @@ export const typography = {
 /**
  * Depth presets.
  *
- * Each carries both the iOS/web keys (`shadow*`, which react-native-web turns
- * into a box-shadow) and Android's `elevation`, so one style object covers all
- * three platforms. Shadows are tinted with the text colour rather than pure
- * black: a neutral-black shadow over a cool grey background reads as dirt.
+ * ## Deliberately almost flat
+ *
+ * The paper pass replaced drop shadows with hairline rules, so `sm` — which
+ * every resting card used — is now flat, and `md`/`lg` are a whisper rather
+ * than a lift. The keys are kept because depth is still the right vocabulary
+ * for a floating bar or a pressed button, and because zeroing the values in
+ * one place is how the change stays reversible.
+ *
+ * Shadows are tinted with the text colour rather than pure black: a
+ * neutral-black shadow over a warm paper background reads as dirt.
  *
  * Depth is decoration only. Nothing in this app uses a shadow to signal
  * urgency, state, or hierarchy that isn't also carried by text.
@@ -129,31 +211,57 @@ export const elevation = {
     shadowRadius: 0,
     elevation: 0,
   },
-  /** Resting cards and inputs. */
+  /** Resting cards and inputs — flat, separated by their border instead. */
   sm: {
-    shadowColor: "#14293D",
+    shadowColor: "transparent",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  /** Raised: primary buttons, hovered cards. */
+  md: {
+    shadowColor: "#3C372F",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 3,
     elevation: 1,
   },
-  /** Raised: primary buttons, hovered cards. */
-  md: {
-    shadowColor: "#14293D",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
-  },
   /** Floating: hero panels and sticky bars. */
   lg: {
-    shadowColor: "#14293D",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.14,
-    shadowRadius: 22,
-    elevation: 8,
+    shadowColor: "#3C372F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 3,
   },
 } as const;
+
+/**
+ * ## The prominence ladder
+ *
+ * Every block on every screen sits at one of four levels, and **a screen gets
+ * exactly one level-one action**. This is the half of the visual direction
+ * that is not about colour at all: before it, the home screen's four
+ * destination cards were visually identical, so nothing was primary and the
+ * reader had to read all four to choose.
+ *
+ *   L1  ACT      filled `accent`, white text. One per screen.
+ *   L2  READ     `surface` with a 1px `border`. Titled blocks and rows.
+ *   L3  CONTEXT  `surfaceMuted` fill, no border. Supporting detail.
+ *   L4  FINE     no fill; a `border` hairline above it. Footnotes.
+ *
+ * ⛔ **The emergency palette is exempt.** `EmergencyCallBar`'s "Call 911" and
+ * the emergency card's contact call stay filled wherever they appear, however
+ * many other filled controls are on screen. The rule exists to stop the app
+ * shouting; the one thing it may always shout about is how to get help.
+ *
+ * These are documentation, not a component — a level is expressed with the
+ * tokens above in each component's own stylesheet, because "which level is
+ * this" is a judgement per block and a `<Level n={2}>` wrapper would make it
+ * look mechanical.
+ */
+export const PROMINENCE_LEVELS = 4;
 
 /**
  * Minimum interactive size. Apple's HIG asks for 44pt and Android's Material

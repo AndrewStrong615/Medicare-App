@@ -150,7 +150,13 @@ describe("EmergencyCardScreen", () => {
 
     renderScreen();
 
-    expect(await screen.findByText("Placebofen — 10 mg")).toBeTruthy();
+    // Name and dose are separate cells so the doses line up in a column down
+    // the right-hand edge — this list is scanned, not read. They used to be
+    // one "name — dose" string; what matters, and what is still asserted, is
+    // that both values are shown verbatim and that a medication with no
+    // recorded dose still appears.
+    expect(await screen.findByText("Placebofen")).toBeTruthy();
+    expect(screen.getByText("10 mg")).toBeTruthy();
     expect(screen.getByText("Fictitine")).toBeTruthy();
     expect(screen.getByText(/may be out of date/i)).toBeTruthy();
   });

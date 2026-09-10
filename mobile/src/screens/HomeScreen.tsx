@@ -3,16 +3,15 @@ import { StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { AppButton } from "@/components/AppButton";
-import { CardGrid } from "@/components/CardGrid";
 import { EmergencyCardLink } from "@/components/EmergencyCardLink";
 import { Glyph } from "@/components/Glyph";
 import { InfoPanel } from "@/components/InfoPanel";
 import { NavCard } from "@/components/NavCard";
+import { NavGroup } from "@/components/NavGroup";
 import { Screen } from "@/components/Screen";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { listAppointments, type Appointment } from "@/services/appointmentService";
-import { colors, elevation, radius, spacing, typography } from "@/theme";
+import { colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
@@ -58,7 +57,7 @@ function openAppointments(appointments: Appointment[]): Appointment[] {
 }
 
 export function HomeScreen({ navigation }: Props) {
-  const { isMedium, isExpanded } = useBreakpoint();
+  const { isExpanded } = useBreakpoint();
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
 
   /**
@@ -101,41 +100,54 @@ export function HomeScreen({ navigation }: Props) {
         WHAT WOULD YOU LIKE TO DO?
       </Text>
 
-      <CardGrid columns={isMedium ? 2 : 1}>
-        <NavCard
-          icon="symptom"
-          title="Not feeling well?"
-          description="Describe what's wrong and get an estimate of how soon you may need care."
-          onPress={() => navigation.navigate("SymptomIntake")}
-        />
+      {/*
+        ⛔ One filled action, then a group of quieter rows — the prominence
+        ladder in `theme.ts`. These four used to be identical cards, which
+        meant nothing was primary and a reader had to read all four before
+        choosing. Symptom intake is what the app is *for*, so it is the one
+        that gets the fill.
+      */}
+      <NavCard
+        variant="primary"
+        icon="symptom"
+        eyebrow="START HERE"
+        title="Not feeling well?"
+        description="Describe what's wrong and get an estimate of how soon you may need care."
+        onPress={() => navigation.navigate("SymptomIntake")}
+      />
+
+      <NavGroup>
         {/*
           Straight to the form, not to the list. "Add medication" that opened
           a list you then had to press "Add" on would be two taps for the
           thing the card names. The list is one tap away under More.
         */}
         <NavCard
+          variant="row"
           icon="pill"
           title="Add medication"
           description="Add something you take, by typing it in or scanning the label."
           onPress={() => navigation.navigate("MedicationEdit", {})}
         />
         <NavCard
+          variant="row"
           icon="calendar"
           title="Upcoming appointments"
           description="Find a provider nearby and keep your visits in one place."
           onPress={() => navigation.navigate("AppointmentList")}
         />
         <NavCard
+          variant="row"
           icon="search"
           title="More"
           description="Your medications, reminders, past appointments and settings."
           onPress={() => navigation.navigate("More")}
         />
-      </CardGrid>
+      </NavGroup>
 
       {latest && (
         <View style={styles.appointment} accessibilityRole="summary">
-          <Glyph name="calendar" size={18} color={colors.accent} />
+          <Glyph name="calendar" size={18} color={colors.textSecondary} />
           <View style={styles.appointmentBody}>
             <Text style={styles.appointmentLabel}>MOST RECENTLY RECORDED</Text>
             <Text style={styles.appointmentName}>
@@ -169,49 +181,29 @@ export function HomeScreen({ navigation }: Props) {
   return (
     <Screen page innerStyle={styles.screen}>
       {/*
-        The hero is decoration around the app name, not a place for numbers.
-        A dashboard tile here would have to say something about the user's
+        ⛔ A masthead, not a dashboard tile.
+
+        This replaced a filled hero panel: with one primary action below it,
+        a large block of accent colour at the top was competing with the only
+        thing on the screen that is supposed to be filled.
+
+        It is still decoration around the app name and not a place for
+        numbers. A tile here would have to say something about the user's
         health — doses taken, symptoms logged, a score — and MedHelp knows
         none of that. Inventing one would be a clinical claim.
       */}
-      <View style={[styles.hero, isExpanded && styles.heroExpanded]}>
-        <View style={styles.heroText}>
-          <Text style={styles.heroEyebrow}>YOUR HEALTH COMPANION</Text>
-          <Text style={styles.title} accessibilityRole="header">
-            MedHelp
-          </Text>
-          <Text style={styles.subtitle}>
-            General health information and medication reminders.
-          </Text>
-          <View style={styles.chips}>
-            {["Informational only", "No diagnosis", "No treatment advice"].map((chip) => (
-              <View key={chip} style={styles.chip}>
-                <Text style={styles.chipText}>{chip}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/*
-          Only on a wide window, where the hero would otherwise be half a
-          panel of empty colour. It repeats the first destination card rather
-          than offering anything new — a hero that introduced a fifth thing to
-          do would be four cards' worth of navigation plus a surprise.
-        */}
-        {isExpanded && (
-          <View style={styles.heroAction}>
-            <Text style={styles.heroActionLabel}>START HERE</Text>
-            <Text style={styles.heroActionText}>
-              Describe what's wrong in your own words. MedHelp estimates how
-              soon you may need care — it never names a condition.
-            </Text>
-            <AppButton
-              label="Not feeling well?"
-              onPress={() => navigation.navigate("SymptomIntake")}
-              style={styles.heroActionButton}
-            />
-          </View>
-        )}
+      <View style={styles.masthead}>
+        <Text style={styles.mastheadEyebrow}>YOUR HEALTH COMPANION</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          MedHelp
+        </Text>
+        <Text style={styles.subtitle}>
+          General health information and medication reminders.
+        </Text>
+        <View style={styles.rule} />
+        <Text style={styles.scopeLine}>
+          Informational only · No diagnosis · No treatment advice
+        </Text>
       </View>
 
       {/*
@@ -240,10 +232,10 @@ export function HomeScreen({ navigation }: Props) {
         symptom or condition information. This shorter line sets the same
         expectation on the way in without crowding the screen.
 
-        It is styled as a quiet card rather than in the notice palette on
-        purpose: the amber notice styling is reserved for the reviewed
-        disclaimer, and a second thing that looks like it would blur which
-        one is the real one.
+        It is styled as fine print — a hairline and nothing else — rather than
+        in the notice palette on purpose: the amber notice styling is reserved
+        for the reviewed disclaimer, and a second thing that looks like it
+        would blur which one is the real one.
       */}
       <View style={styles.scopeNote}>
         <Glyph name="alert" size={18} color={colors.textSecondary} />
@@ -260,76 +252,31 @@ const styles = StyleSheet.create({
   screen: {
     gap: spacing.xl,
   },
-  hero: {
-    backgroundColor: colors.accentDeep,
-    borderRadius: radius.xl,
-    paddingVertical: spacing.xxl,
-    paddingHorizontal: spacing.xl,
-    gap: spacing.xs,
-    ...elevation.lg,
-  },
-  heroExpanded: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xxl,
-    paddingVertical: spacing.xxxl,
-    paddingHorizontal: spacing.xxl,
-  },
-  heroText: {
-    flex: 3,
-    minWidth: 0,
+  masthead: {
     gap: spacing.xs,
   },
-  heroAction: {
-    flex: 2,
-    minWidth: 0,
-    gap: spacing.md,
-    borderLeftWidth: 1,
-    borderLeftColor: colors.accent,
-    paddingLeft: spacing.xxl,
-  },
-  heroActionLabel: {
+  mastheadEyebrow: {
     ...typography.overline,
-    color: colors.textOnAccentMuted,
-  },
-  heroActionText: {
-    ...typography.caption,
-    color: colors.textOnAccentMuted,
-  },
-  heroActionButton: {
-    borderColor: colors.textOnAccentMuted,
-  },
-  heroEyebrow: {
-    ...typography.overline,
-    color: colors.textOnAccentMuted,
+    color: colors.textMuted,
     marginBottom: spacing.xs,
   },
   title: {
     ...typography.displayLarge,
-    color: colors.textOnAccent,
+    color: colors.textPrimary,
   },
   subtitle: {
     ...typography.body,
-    color: colors.textOnAccentMuted,
+    color: colors.textSecondary,
   },
-  chips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.lg,
+  rule: {
+    height: 2,
+    backgroundColor: colors.textPrimary,
+    marginTop: spacing.md,
   },
-  chip: {
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    // Drawn in the muted-on-accent pair rather than in a new colour, so the
-    // hero stays two colours deep and a chip never competes with a notice.
-    borderColor: colors.textOnAccentMuted,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  chipText: {
-    ...typography.captionStrong,
-    color: colors.textOnAccentMuted,
+  scopeLine: {
+    ...typography.overline,
+    color: colors.textMuted,
+    paddingTop: spacing.sm,
   },
   body: {
     gap: spacing.xl,
@@ -358,15 +305,15 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     ...typography.overline,
-    color: colors.textSecondary,
+    color: colors.textMuted,
   },
+  // L3: supporting detail. Filled, unbordered, so it does not read as another
+  // thing to press.
   appointment: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.sm,
-    backgroundColor: colors.accentSurface,
-    borderColor: colors.accentBorder,
-    borderWidth: 1,
+    backgroundColor: colors.surfaceMuted,
     borderRadius: radius.md,
     padding: spacing.lg,
   },
@@ -376,29 +323,28 @@ const styles = StyleSheet.create({
   },
   appointmentLabel: {
     ...typography.overline,
-    color: colors.textSecondary,
+    color: colors.textMuted,
   },
   appointmentName: {
-    ...typography.bodyStrong,
+    ...typography.titleSmall,
     color: colors.textPrimary,
   },
   appointmentNote: {
     ...typography.caption,
     color: colors.textSecondary,
   },
+  // L4: fine print. A hairline above it and no fill at all.
   scopeNote: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.sm,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.lg,
   },
   scopeNoteText: {
     ...typography.caption,
-    color: colors.textSecondary,
     flex: 1,
+    color: colors.textSecondary,
   },
 });

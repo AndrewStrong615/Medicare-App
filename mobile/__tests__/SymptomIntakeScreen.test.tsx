@@ -58,6 +58,20 @@ describe("SymptomIntakeScreen", () => {
     expect(screen.getByText("Call 911")).toBeTruthy();
   });
 
+  it("says the description is not rewritten before it is assessed", () => {
+    // The description reaches the classifier as the person wrote it — the
+    // keyword extraction in `search_terms.py` only chooses which article to
+    // look up and never alters the text. Saying so under the field is the
+    // point at which it is worth knowing, and it is a claim the code has to
+    // keep true: if anything ever paraphrases the description on the way in,
+    // this line has to go with it.
+    renderScreen();
+
+    expect(
+      screen.getByText("Your own words. Nothing here is rewritten before it is assessed.")
+    ).toBeTruthy();
+  });
+
   it("requires a description before calling the API", () => {
     renderScreen();
 

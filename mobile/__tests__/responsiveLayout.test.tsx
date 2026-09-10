@@ -1,7 +1,7 @@
 import { Dimensions } from "react-native";
-import { render, screen } from "@testing-library/react-native";
+import { render, screen, waitFor } from "@testing-library/react-native";
 
-import { HomeScreen } from "@/screens/HomeScreen";
+import { TodayScreen } from "@/screens/TodayScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { BREAKPOINT } from "@/theme";
 
@@ -10,23 +10,27 @@ jest.mock("@/services/authService", () => ({
   login: jest.fn(async () => undefined),
 }));
 
-// The home screen looks up the inline appointment line. These tests are about
-// layout, so it answers with nothing — the shape of the screen is the same
-// either way, and a real request would be a network call in a unit test.
+// Today reads the user's own three lists. They are empty here on purpose: this
+// suite is about which panels the layout keeps at each width, not about
+// content, and an empty account is the case where the panels have most room.
+jest.mock("@/services/medicationService", () => ({
+  ...jest.requireActual("@/services/medicationService"),
+  listMedications: jest.fn(async () => []),
+}));
+jest.mock("@/services/reminderService", () => ({
+  ...jest.requireActual("@/services/reminderService"),
+  listSchedules: jest.fn(async () => []),
+}));
 jest.mock("@/services/appointmentService", () => ({
+  ...jest.requireActual("@/services/appointmentService"),
   listAppointments: jest.fn(async () => []),
 }));
-
-// `useFocusEffect` needs a navigator, and these screens are rendered on their
-// own. Running the effect as a mount effect is what every other screen suite
-// here does.
-jest.mock("@react-navigation/native", () => ({
-  useFocusEffect: (effect: () => void | (() => void)) => {
-    const { useEffect } = require("react");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(effect, []);
-  },
-}));
+jest.mock("@react-navigation/native", () => {
+  const React = require("react");
+  return {
+    useFocusEffect: (callback: () => void) => React.useEffect(callback, [callback]),
+  };
+});
 
 /**
  * The layout changes shape at a window width, so these tests set one.
@@ -47,9 +51,9 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-function renderHome() {
+function renderToday() {
   const navigation = { navigate: jest.fn(), reset: jest.fn() } as any;
-  render(<HomeScreen navigation={navigation} route={{} as any} />);
+  render(<TodayScreen navigation={navigation} route={{} as any} />);
 }
 
 function renderLogin() {
@@ -57,56 +61,58 @@ function renderLogin() {
   render(<LoginScreen navigation={navigation} route={{ params: undefined } as any} />);
 }
 
-describe("home screen at different window widths", () => {
+describe("today screen at different window widths", () => {
   it.each([
     ["a phone", 390],
     ["a half-width browser window", BREAKPOINT.medium],
     ["a full-size browser window", BREAKPOINT.expanded + 360],
-  ])("shows every destination and the scope note on %s", (_label, width) => {
+  ])("keeps every destination and the scope note reachable on %s", async (_label, width) => {
     setWindowWidth(width);
-    renderHome();
+    renderToday();
 
-    // Not `getByText`: the wide hero repeats this one as a call to action, so
-    // on a desktop window there are legitimately two of them.
-    expect(screen.getAllByText("Not feeling well?").length).toBeGreaterThan(0);
-    expect(screen.getByText("Add medication")).toBeTruthy();
-    expect(screen.getByText("Upcoming appointments")).toBeTruthy();
-    expect(screen.getByText("More")).toBeTruthy();
-    expect(screen.getByText("Emergency card")).toBeTruthy();
+    // The destinations are persistent navigation now rather than four cards on
+    // one screen, so they are present at every width — a bottom tab bar below
+    // `expanded`, a rail above it.
+    await waitFor(() => expect(screen.getByText("Symptoms")).toBeTruthy());
+    expect(screen.getByText("Medications")).toBeTruthy();
+    expect(screen.getByText("Care")).toBeTruthy();
+    expect(screen.getAllByText("Check my symptoms").length).toBeGreaterThan(0);
+    expect(screen.getByText("Sign out")).toBeTruthy();
     expect(screen.getByText(/does not diagnose conditions/i)).toBeTruthy();
   });
 
-  it("fills the width with statements about the app, not about the user", () => {
-    // The panel exists to use the space a browser window has and a phone does
-    // not. What may go in it is fenced: nothing clinical, and no number about
-    // the user's health — MedHelp does not know whether a dose was taken, and
-    // a tile claiming otherwise would invent a clinical fact.
-    //
-    // One panel now rather than three. "How MedHelp works" and "Where your
-    // information goes" moved to `MoreScreen` when the home screen was
-    // consolidated; this one stayed, because it restates App Scope and that
-    // is what is worth saying on the way in.
+  it("fills the width with statements about the app, not about the user", async () => {
+    // The panels exist to use the space a browser window has and a phone does
+    // not. What may go in them is fenced: nothing clinical, and no number
+    // about the user's health — MedHelp does not know whether a dose was
+    // taken, and a tile claiming otherwise would invent a clinical fact.
     setWindowWidth(BREAKPOINT.expanded + 360);
-    renderHome();
+    renderToday();
 
-    expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy());
+    expect(screen.getByText("WHERE YOUR INFORMATION GOES")).toBeTruthy();
     expect(screen.getByText(/It does not diagnose, and never names a condition/i)).toBeTruthy();
-    expect(screen.queryByText("HOW MEDHELP WORKS")).toBeNull();
-    expect(screen.queryByText("WHERE YOUR INFORMATION GOES")).toBeNull();
+    expect(screen.getByText(/has not been reviewed by a clinician/i)).toBeTruthy();
   });
 
-  it("keeps those statements on a phone rather than hiding them with the layout", () => {
+  it("keeps those statements on a phone rather than hiding them with the layout", async () => {
     // A narrower screen is not a reason to stop saying what the app does not
-    // do. The wide layout rearranges this panel; it does not add it.
-    //
-    // Consolidating the home screen moved two panels to `MoreScreen`; it
-    // deliberately did not drop this one below the breakpoint, which would
-    // have quietly made the scope statement a desktop-only feature.
+    // do. The wide layout rearranges these panels; it does not add them.
     setWindowWidth(390);
-    renderHome();
+    renderToday();
 
-    expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy());
     expect(screen.getByText(/does not contact a clinic/i)).toBeTruthy();
+  });
+
+  it("moves sign-out into the rail rather than showing it twice", async () => {
+    // One place at a time: the rail carries it on a wide window and the screen
+    // body carries it on a narrow one. Two would be two things to explain.
+    setWindowWidth(BREAKPOINT.expanded + 360);
+    renderToday();
+
+    await waitFor(() => expect(screen.getByText("Sign out")).toBeTruthy());
+    expect(screen.getAllByText("Sign out")).toHaveLength(1);
   });
 });
 

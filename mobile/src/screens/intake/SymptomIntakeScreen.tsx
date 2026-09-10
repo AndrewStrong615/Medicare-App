@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppButton } from "@/components/AppButton";
 import { EmergencyCallBar } from "@/components/EmergencyCallBar";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { AppNav } from "@/components/AppNav";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
@@ -104,6 +105,7 @@ export function SymptomIntakeScreen({ navigation, route }: Props) {
   };
 
   return (
+    <AppNav current="Symptoms" navigation={navigation}>
     <Screen>
       {/* Reachable before, during, and after assessment — never conditional. */}
       <EmergencyCallBar />
@@ -186,6 +188,7 @@ export function SymptomIntakeScreen({ navigation, route }: Props) {
         loading={submitting}
       />
     </Screen>
+    </AppNav>
   );
 }
 

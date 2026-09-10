@@ -1,8 +1,15 @@
-fastapi==0.115.0
+# 0.115.0 held starlette below 0.39, and every starlette advisory below needs a
+# 1.x release, so the framework had to move first. Nine advisories against
+# starlette 0.38.6 are closed by this pair: Host-header and request-path
+# injection into request.url reconstruction (PYSEC-2026-161, -248), unbounded
+# multipart buffering (-1943, -1941), form() limits being ignored (-249), and
+# the HTTPEndpoint/StaticFiles issues (-2280, -2281).
+fastapi==0.141.1
 # Pinned explicitly, though FastAPI pulls it in: installing an MCP server into
-# the same interpreter dragged starlette to 1.6.0, which FastAPI 0.115 cannot
-# use, and every route stopped importing. Keep agent tooling in its own venv.
-starlette>=0.37.2,<0.39.0
+# the same interpreter dragged starlette to a version FastAPI could not use,
+# and every route stopped importing. Keep agent tooling in its own venv.
+# The floor is 1.3.1 because that is where the last of the nine lands.
+starlette>=1.3.1,<1.7
 # uvicorn >= 0.52 needs websockets >= 13; an older websockets in the same
 # interpreter makes the server fail to start with
 # "cannot import name 'ServerProtocol' from 'websockets.server'". That is not a
@@ -16,15 +23,22 @@ psycopg2-binary==2.9.12
 pydantic==2.9.2
 pydantic-settings==2.5.2
 email-validator==2.2.0
-# >=3.4.0 fixes two advisories against 3.3.0: CVE-2024-33663 (algorithm
-# confusion) and CVE-2024-33664 (a decompression bomb in the JWE path). Neither
-# is reachable the way this app uses the library — it verifies HS256 with a
-# fixed algorithm list and never calls jwe.decrypt — but a JWT library on a
-# known-vulnerable version is not a thing to leave sitting in a health app.
-python-jose[cryptography]>=3.4.0,<4
+# Was python-jose, which is barely maintained and drags in `ecdsa`. `ecdsa` has
+# an unfixed Minerva timing advisory (PYSEC-2026-1325) with no patched release
+# to move to — the only way off it is to stop depending on it. It was never
+# reachable here (tokens are HS256; no EC key is ever loaded), but "unreachable"
+# is an argument you have to re-make every audit, and python-jose's own history
+# in this file is two CVEs in one year. PyJWT has no ECDSA dependency.
+# Ported in app/core/security.py: same HS256, same verified claims.
+PyJWT>=2.10,<3
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-python-multipart==0.0.9
+# Seven advisories against 0.0.9, all in the parser that runs *before* any route
+# is chosen, so they are reachable on any endpoint by anyone who can reach the
+# API: multipart and urlencoded parsing DoS (PYSEC-2026-3038, -3039, -3040,
+# -1851), field-separator confusion (-3036, -3037), and a path traversal in an
+# upload mode this app does not use (-1852).
+python-multipart==0.0.32
 # Also used at runtime for outbound calls to the MedlinePlus health library.
 httpx==0.27.2
 
@@ -34,4 +48,7 @@ httpx==0.27.2
 anthropic==1.2.0
 
 # dev/test
-pytest==8.3.3
+# 9.0.3 closes PYSEC-2026-1845 — a predictable /tmp/pytest-of-{user} path that
+# lets a local user interfere with a test run. Developer machines and CI only;
+# pytest is not installed on the deployed API.
+pytest==9.0.3

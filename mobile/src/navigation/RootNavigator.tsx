@@ -7,9 +7,11 @@ import { AppointmentConfirmationScreen } from "@/screens/appointments/Appointmen
 import { AppointmentListScreen } from "@/screens/appointments/AppointmentListScreen";
 import { AppointmentRequestScreen } from "@/screens/appointments/AppointmentRequestScreen";
 import { BookingIdentityScreen } from "@/screens/appointments/BookingIdentityScreen";
+import { TodayScreen } from "@/screens/TodayScreen";
 import { EmergencyCardEditScreen } from "@/screens/emergency/EmergencyCardEditScreen";
 import { EmergencyCardScreen } from "@/screens/emergency/EmergencyCardScreen";
-import { HomeScreen } from "@/screens/HomeScreen";
+import { GoalCreateScreen } from "@/screens/goals/GoalCreateScreen";
+import { HealthGoalsScreen } from "@/screens/goals/HealthGoalsScreen";
 import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
 import { IntakeResultScreen } from "@/screens/intake/IntakeResultScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
@@ -17,7 +19,6 @@ import { MedicationEditScreen } from "@/screens/medications/MedicationEditScreen
 import { MedicationListScreen } from "@/screens/medications/MedicationListScreen";
 import { MedicationRemindersScreen } from "@/screens/medication-reminders/MedicationRemindersScreen";
 import { MedicationScanScreen } from "@/screens/medications/MedicationScanScreen";
-import { MoreScreen } from "@/screens/MoreScreen";
 import { ReminderEditScreen } from "@/screens/medication-reminders/ReminderEditScreen";
 import { ProviderDetailScreen } from "@/screens/appointments/ProviderDetailScreen";
 import { ProviderSearchScreen } from "@/screens/appointments/ProviderSearchScreen";
@@ -110,12 +111,17 @@ export function RootNavigator() {
         */}
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Signup" component={SignupScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="More" component={MoreScreen} options={{ title: "More" }} />
+        {/*
+          The four tab roots draw no navigation header. `AppNav` is their
+          chrome — it names where you are and offers the other three — and a
+          stack header on top of it would add a back arrow to a screen that
+          is the bottom of its own stack.
+        */}
+        <Stack.Screen name="Home" component={TodayScreen} options={{ headerShown: false }} />
         <Stack.Screen
           name="SymptomIntake"
           component={SymptomIntakeScreen}
-          options={{ title: "Check my symptoms" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="IntakeFollowUp"
@@ -130,7 +136,7 @@ export function RootNavigator() {
         <Stack.Screen
           name="MedicationList"
           component={MedicationListScreen}
-          options={{ title: "My Medications" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="MedicationScan"
@@ -176,22 +182,33 @@ export function RootNavigator() {
         <Stack.Screen
           name="AppointmentList"
           component={AppointmentListScreen}
-          options={{ title: "My Appointments" }}
+          options={{ headerShown: false }}
         />
+        {/* A second view of the Medications tab, not a destination of its own. */}
         <Stack.Screen
           name="MedicationReminders"
           component={MedicationRemindersScreen}
-          options={{ title: "Medication Reminders" }}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ReminderEdit"
           component={ReminderEditScreen}
           options={{ title: "Reminder times" }}
         />
+        <Stack.Screen
+          name="HealthGoals"
+          component={HealthGoalsScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="GoalCreate"
+          component={GoalCreateScreen}
+          options={{ title: "Add a goal" }}
+        />
         {/*
-          The emergency card draws its own red header, which is the whole
-          point of it — a navigation header above that would put a second,
-          calmer title on the loudest screen in the app and blunt it.
+          The emergency card draws its own red header and its own "‹ Back",
+          so the navigator adds none. A screen that hides the header owns its
+          own way out — see the reachability test, which asserts exactly that.
         */}
         <Stack.Screen
           name="EmergencyCard"

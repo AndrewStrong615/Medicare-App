@@ -24,16 +24,6 @@ export type RootStackParamList = {
   Login: { accountCreated?: boolean } | undefined;
   Signup: undefined;
   Home: undefined;
-  /**
-   * Everything the home screen no longer shows at once.
-   *
-   * ⛔ A move, not a removal. Every destination that came off the home screen
-   * is reachable from here in one tap, and every route below still exists —
-   * nothing that worked before the consolidation was renamed or dropped, so
-   * no existing navigation or deep link broke.
-   */
-  More: undefined;
-
   // Symptom intake and its urgency estimate.
   // `reset` clears the form. "Describe something else" on the result screen
   // navigates BACK to the screen instance already sitting in the stack, which
@@ -106,4 +96,16 @@ export type RootStackParamList = {
    */
   EmergencyCard: undefined;
   EmergencyCardEdit: undefined;
+
+  /**
+   * The person's goals and today's ticks.
+   *
+   * `savedFor` is a display name only, carried so the list can confirm what
+   * was just saved — never anything that was not already on the screen the
+   * user came from.
+   */
+  HealthGoals: { savedFor?: string } | undefined;
+
+  /** Writing a goal and confirming the activities read out of it. */
+  GoalCreate: undefined;
 };

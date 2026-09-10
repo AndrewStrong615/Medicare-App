@@ -388,6 +388,16 @@ tier — which is what a clinical review needs.
 credentials exist; skipped silently otherwise. A missing key degrades quality,
 it does not break the feature.
 
+Layer 2 has **two interchangeable implementations**, and `_classify_with_model`
+picks one. Both return the same `ModelVerdict`, both are reconciled by the same
+`max()`, and neither can lower a tier — choosing a source is not choosing an
+answer.
+
+| | When | Shape | Cost |
+|---|---|---|---|
+| `deduction.py` | `LLM_BASE_URL` + `LLM_MODEL` set | agentic loop | free |
+| `triage._classify_with_anthropic` | otherwise, if Anthropic creds exist | one shot | paid |
+
 Five properties hold, each asserted by tests:
 
 1. **SELF_CARE must be positively earned.** It requires a match against a
@@ -411,6 +421,100 @@ in natural word order was missed for exactly that reason; match both orders.
 **Audit trail.** `intake_assessments` records the final tier, the rule tier,
 which named rules fired, whether the rules defaulted, and what the model said
 separately — so a reviewer can measure the rules and the model independently.
+
+### The agentic layer (`deduction.py`), and the free endpoint under it
+
+Setup and provider options: `docs/free-model-setup.md`.
+
+The model layer used to be reachable only through a paid Anthropic key, so a
+deployment without one ran on rules alone. It now also speaks to **any
+OpenAI-compatible chat endpoint** (`app/services/llm.py`) — a hosted free tier
+or a model on your own machine — and when one is configured, the model is
+driven through a **bounded tool-using loop** rather than asked for a tier in
+one call.
+
+✅ **THE FENCE ON `triage.py` IS CLEARED FOR THIS CHANGE.**
+
+The repository owner asked for this directly in conversation on 2026-09-05 —
+use a free AI for symptoms, with agentic deduction in place of the rules-only
+path — and that request is why the work exists. That request alone was **not**
+the sign-off this fence requires, and an earlier draft of this paragraph that
+claimed otherwise was rejected by a compliance review: a sentence an agent
+writes into the same diff that needs authorising is not evidence of
+authorisation.
+
+The actual approval came separately, on 2026-09-06, when the owner was asked
+by name — "Do you approve modifying `backend/app/core/triage.py` and adding
+`backend/app/core/deduction.py` as a second (free, agentic) path to a
+symptom-urgency tier — the fenced change CLAUDE.md requires you to approve by
+name before it's committed?" — and answered, in conversation, in their own
+words: **"Yes, approved as-is."** That is the third instance of this file's
+"explicit human approval obtained outside of this pipeline," alongside the
+`normalize_query` fix and the deployment approval below — a person answering a
+direct question, not a chain of agent sign-offs.
+
+**What was approved, specifically:** modifying `backend/app/core/triage.py`
+(the dispatch in `_classify_with_model`, the `trace` fields, the renamed
+`_classify_with_anthropic`) and adding `backend/app/core/deduction.py` as a
+second, free path to a tier. **What this does not cover:** it is not approval
+to merge to `main`, deploy, or touch anything else this file fences — those
+each need their own answer to their own question, same as this one did.
+
+What the change does *not* touch, verified by byte-diff against HEAD: any
+disclaimer, any escalation copy, the emergency phrase lists, the rule lists,
+`SYSTEM_PROMPT` and its tier definitions (4406 bytes, identical), and the
+Anthropic layer's body (identical; only its name and docstring changed).
+
+Per assessment the model calls `screen_red_flags`, then `apply_rules` — the
+app's own deterministic screens — then records its reasoning a step at a time,
+then concludes.
+
+- **`conclude` is refused until both screens have been read.** A conclusion is
+  therefore grounded in the reviewed phrase lists rather than in the model's
+  recollection of them.
+- **The screens take no arguments.** They always run over the description
+  exactly as submitted. A tool that let the model choose the text would let it
+  screen a rephrasing and talk itself out of a red flag.
+- **The loop is bounded** (`MAX_STEPS`). Not concluding is an outage, not a
+  tier, and the rule tier stands.
+- **There is one copy of the instrument.** The tier definitions stay in
+  `SYSTEM_PROMPT` in `triage.py` and are passed in, so a reviewer reads one
+  prompt. `deduction.py` is machinery, not judgement.
+- **The derivation is recorded** and goes to the dev-only classification log —
+  never to the user, who gets the written reasoning instead. It is not written
+  to `intake_assessments`: that needs a new column and this project has no
+  migration tooling (see "Known Gaps"). Persisting it is a follow-up, and it
+  is the thing that would make a wrong call diagnosable rather than merely
+  visible.
+
+⛔ **This does not lift any release blocker.** Driving the same unreviewed tier
+definitions in more steps does not review them, and the classifier still has no
+validated error profile. What changed is that a reviewer can now read a
+derivation instead of a verdict, and that the layer no longer requires a paid
+account.
+
+### Third-party vendor: the model endpoint — BAA status
+
+**Which base URL is configured is a data-handling decision, not a preference.**
+Symptom descriptions are the most sensitive free text in this app.
+
+- **A local endpoint** (`http://localhost:11434/v1`, Ollama or llama.cpp)
+  transmits nothing. No image, no description and no derivation leaves the
+  machine, so **no BAA question arises at all** — the same reasoning that put
+  label OCR on the device.
+- **A hosted free tier** (Groq, Google AI Studio, OpenRouter) transmits the
+  full description to a third party, and **this project has a BAA with
+  nobody**. Google's free tier may additionally use input for training. That
+  is a privacy/legal decision, not an engineering one, exactly as with NLM.
+- `llm.endpoint_is_local()` exists so the distinction is visible rather than
+  assumed, and a non-local endpoint **logs a warning naming the exposure**, as
+  this file requires of any new third-party processor. That does not make it
+  safe; it stops it being silent.
+- **Nothing from the request body reaches the application log.** Failures
+  report a type and an HTTP status code only — a provider error body can quote
+  the request, which is the user's description. A test asserts it.
+- Defaults are empty, so out of the box there is no model layer and no
+  transmission.
 
 ## Emergency routing (implemented)
 
@@ -1184,6 +1288,54 @@ can collect anything now.
   assigned at birth and address. It holds none of those today, and acquiring
   them is a decision for the user, not an implementation detail.
 
+### Natural phrasing missed by literal phrase matching (FIXED 2026-09-06/07)
+
+Found by testing the rule layer against ~50 lay descriptions of common
+American illnesses (an ad-hoc exercise, not a permanent test corpus). Two
+gaps, both the same root cause as the glued-list bug below: the phrase lists
+in `emergency.py` and `rules_triage.py` require an exact literal substring, so
+an ordinary insertion a real person types defeats a match that a slightly
+different sentence would have hit.
+
+- **Emergency screening missed common phrasings of anaphylaxis, breathing
+  difficulty, sudden vision loss, and cardiac chest tightness.** `"my throat
+  is closing and my tongue is swelling"` (anaphylaxis), `"hard time
+  breathing"` / `"can't catch my breath"` (breathing), `"suddenly lost vision
+  in my left eye"` (vision_loss), and `"chest feels tight"` (cardiac) all
+  matched **nothing** and fell to the URGENT default instead of EMERGENT —
+  the exact "not recognised is not the same as harmless" failure mode this
+  file warns about, but on genuinely life-threatening presentations.
+  **Fixed** by adding the missing phrasings to the existing lists in
+  `_EMERGENCY_RULES`. `sepsis_meningitis` got a partial fix only (`"stiff neck
+  with/and a fever"` variants); `"my neck is stiff and I have a fever"` — the
+  two concepts named separately, in reverse order — is a **known limit**,
+  same class as the all-caps glued-list limit below: catching it needs a
+  two-term combinator, which is a structural change beyond a phrase-list
+  addition and needs its own review.
+- **A duration-escalation rule silently broke on the word "over."**
+  `"sore throat for a week"` correctly returned URGENT, but `"sore throat for
+  over a week"` — or `"sore throat for over two weeks, swollen glands,
+  extremely tired"`, a plausible mono description — returned **SELF_CARE**,
+  because `"for a week"` requires that exact substring and `"for over a
+  week"` does not contain it. This directly undercut the module's own central
+  invariant ("SELF_CARE must be positively earned... absence of alarming
+  words is not evidence of safety"). **Fixed** by adding `"for over a
+  week"`/`"for over two weeks"`/`"for over a month"` and `"for more than
+  ..."` variants to `_URGENT_RULES`' `persistent_or_worsening` phrases, and
+  bringing `_ESCALATING_MODIFIERS` back in sync with it (it was also missing
+  `"for two weeks"` and `"for several days"`, which were already in the
+  urgent list).
+- ⛔ **Both edits were made to fenced modules** (`rules_triage.py`,
+  `emergency.py`). They landed only after the user was told the specific
+  bugs and specific proposed phrase additions in conversation and replied
+  "fix it" — the same "explicit human approval obtained outside of this
+  pipeline" basis the glued-list fix below records. Neither change lowers a
+  tier, reorders evaluation, or touches a disclaimer, an emergency number, or
+  escalation copy; both only add recognised phrases, which can make screening
+  more sensitive and cannot make it less. `tests/test_emergency.py` and
+  `tests/test_rules_triage.py` guard the new phrasings; full suite (598
+  tests) passes.
+
 ### Glued list items used to defeat red-flag screening (FIXED 2026-09-01)
 
 Found from a real dev submission. A pasted list whose items arrive with no
@@ -1231,6 +1383,232 @@ the tier is already URGENT by default, so "Suddenly" usually changes nothing.
 It bites only where round-one answers bring a self-care phrase into a
 description that had none, and round two then takes it back out.
 
+## Health goals (implemented)
+
+A person writes down what they intend to do, confirms the activities MedHelp
+read out of it, and ticks them off. Reasoning and the reviewer's open
+questions: `docs/health-goals-prompt.md`.
+
+### Two paths, and the person can always tell them apart
+
+**If the person names activities, MedHelp invents nothing.** Their text is
+split into trackable rows and every row must quote them — the check below.
+This is the main path and the safest one.
+
+**If they name none** — "I want to be healthier" — MedHelp proposes a few
+ordinary starting points rather than giving them a dead end
+(`suggest_plan`). The repository owner asked for this directly on 2026-09-07.
+
+⛔ **This is the one place in the app that proposes health content nobody
+wrote.** Three things keep it inside what this app may do, and none may be
+removed:
+
+1. **It only runs when the person named nothing.** A draft that structured
+   successfully is never replaced by suggestions, and a `MEDICAL_GOAL`
+   refusal — "stop my headaches", "lose weight" — is **never** answered with a
+   plan. Only the `NO_ACTIVITY_NAMED` refusal opens that path. Both tested.
+2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
+   the screen, the row reads "Suggested by MedHelp — edit it or remove it",
+   and editing a row clears the label because it has become the person's own.
+   Nothing is saved until they press save. ⛔ Never render a suggested row
+   without that label.
+3. **A deterministic veto, not a model gate.** `_FORBIDDEN` in
+   `core/goal_structuring.py` is a phrase list a clinician can read line by
+   line — food quantity and restriction, weight and body, medicines and
+   clinical measurements, exercise intensity — and one match discards the
+   *whole* plan. A second model asked "is this safe?" fails silently open; a
+   phrase list fails closed. ⛔ Do not replace it with a model, and do not
+   remove entries without the clinical review. Adding to it is free.
+
+The generation prompt also forbids explaining what an activity will do for the
+person — propose the activity and stop. A benefit claim is the app authoring a
+health claim, which is the line this whole feature is built around.
+
+⛔ **Suggestions are not clinically reviewed.** They are general wellbeing
+prompts written by a software engineer, and no clinician has read the prompt
+or the veto list.
+
+### The structuring rule is checked, not trusted
+
+Every activity read out of the person's own words must carry a `source_phrase`
+that occurs in the submitted text, and `core/goal_structuring.py` discards the
+*whole draft* if any does not. A model that wants to add stretching to a
+walking goal has to quote "stretch" out of text that never contained it.
+
+Four further checks follow the same principle, most importantly that **no digit
+may appear in an activity unless the person wrote it** — an invented number is
+the likely shape of an invented duration, distance or dose. Suggested rows are
+exempt from the quoting and digit rules by construction, since nothing was
+written to quote; the veto list is what guards them instead.
+
+Rules for anyone extending this:
+
+- **Never add a progression engine.** Nothing may increase a target because a
+  week went well; that is authoring, one week at a time, and it is exactly
+  what the substring check exists to prevent.
+- **Never add a second model to review the first.** A gate whose failure mode
+  is a silent pass is not a safety layer. The checks here are deterministic
+  for the same reason the triage rule layer is a phrase list a person can read.
+- **A refusal returns a code, never a sentence.** The four strings a person
+  reads live in `_REFUSAL_NOTICES` in `api/goals.py`, because user-facing text
+  in a health app is reviewed text. `core/goal_structuring.py` must never
+  return prose.
+- **Failure is never a plan.** No endpoint, an outage, or a failed check all
+  yield an empty editor plus the server's own sentence. There is no generated
+  fallback, for the same reason a model outage in triage is never SELF_CARE.
+  Those three are one sentence to the person and three different repairs to an
+  operator, so `_discard()` logs **which check** caught a draft — the check's
+  name only, never the value that failed it, which is the person's own health
+  text. A `source_phrase is not in the submitted text` line means the model
+  paraphrased instead of quoting: the check working as designed, and worth
+  looking at the prompt only if it fires for everybody.
+- **Emergency screening runs first**, in `api/goals.py`, before the model is
+  called. A goal box takes "stop feeling dizzy on the stairs" as readily as
+  intake does, and guidance is returned alongside a refusal or an outage
+  rather than instead of it.
+- ⛔ **This is not an adherence record.** A tick is a note the person made for
+  themselves. An unticked activity means nothing was ticked — not that
+  anything was missed, skipped or failed. **No streaks, no percentages, no "3
+  of 4 done" tiles**, the same mistake CLAUDE.md warns about for the home
+  screen's panels. `mobile/__tests__/GoalScreens.test.tsx` asserts the words
+  never appear.
+- A completion is a **local calendar day** sent by the client, never a UTC
+  instant — the same rule as a reminder being a wall-clock "HH:MM".
+- Deleting a goal deletes its activities and every tick, in the endpoint as
+  well as by foreign key. SQLite does not enforce the cascade, so the test
+  asserts against the table.
+
+**Not built, deliberately:** reminders for a goal, and any weekly review.
+Neither is hard — a reminder would reuse the local-only `notificationService`
+— but both add surface to an instrument no clinician has read.
+
+### Approval, and what it does not cover
+
+The repository owner asked for this feature in conversation on 2026-09-07,
+having been shown that the originally proposed design (a model authoring
+weekly plans, with a second model checking them for safety) could not be
+built here. That is approval to **build it on a branch**.
+
+⛔ It is not clinical sign-off. `SYSTEM_PROMPT`, the refusal list and the
+cadence copy in `core/goal_structuring.py` are a software engineer's
+construction and belong in the same review as `followup.py` and
+`dose_schedule.py`. It is **not** approval to merge to `main` or to deploy —
+this file fences those separately and they need their own answer.
+
+The goals screens deliberately do **not** use `DisclaimerBanner`. Which
+screens show it is fenced by this file, and adding it to a new screen is a
+reviewer's call, not a layout one. They carry a plain statement about the
+software instead — MedHelp tracks what you decide to do, does not decide what
+your goals should be, and cannot tell you whether one is right for you.
+
+### Goals may use a different model endpoint from triage
+
+`GOALS_LLM_BASE_URL` / `GOALS_LLM_MODEL` / `GOALS_LLM_API_KEY`, each falling
+back to its `LLM_*` counterpart when empty.
+
+**Why this is not gratuitous config.** One set of settings used to serve every
+model caller, so pointing them at a hosted provider to get goal suggestions
+also started sending *symptom descriptions* there — the most sensitive free
+text in the app, belonging to the feature with the standing release blocker.
+A data-handling decision must not happen as a side effect of switching on a
+different feature.
+
+- **Unset, the overrides change nothing.** A deployment that never sets them
+  behaves exactly as it did before the split. Asserted by a test, because that
+  property is the whole reason this was safe to add.
+- `llm.Endpoint` carries a `label`, so the transmission warning names *which*
+  data is leaving — "Health goal descriptions" or "Symptom descriptions".
+- The warning fires **once per host**, not once per process. Two endpoints
+  mean a warning about one is not a warning about the other.
+- ⛔ **`tests/conftest.py` must blank these too.** The autouse `_no_live_model`
+  guard exists because the suite once made real calls from a developer's
+  `.env`; a second set of settings is a second hole in it, and
+  `tests/test_llm_endpoints.py` asserts the guard covers them.
+
+#### A Groq key on its own is enough, wherever it is set
+
+Setting the three `GOALS_LLM_*` variables is the general form — any provider,
+stated in full. A Groq key is the one-setting form of the same thing:
+`llm.groq_endpoint_or_none()` pairs it with `GROQ_BASE_URL` and
+`GROQ_DEFAULT_MODEL`, both constants of that vendor, so goal drafting works
+from a pasted key.
+
+This exists because of a reported failure with a silent symptom. The
+`GOALS_LLM_*` fallback is all-or-nothing on purpose — see above — so a key set
+without a base URL beside it was ignored *entirely*, and goals fell through to
+`LLM_*`. Where that names an Ollama that is not running — a dev machine with
+nothing started, or a hosted instance where nothing listens on localhost — the
+result is an outage, and an outage here is the sentence "MedHelp has no
+suggestions right now" with a working key set three inches away.
+
+`llm.groq_key_source()` therefore reads a Groq key from three places, in
+order: `GROQ_API_KEY`; `GOALS_LLM_API_KEY` with no `GOALS_LLM_BASE_URL` beside
+it; `LLM_API_KEY` with no `LLM_BASE_URL` beside it. The last two are read
+**only** when the key carries Groq's own `gsk_` prefix, so the vendor is read
+off the key rather than assumed, and an OpenRouter or Google key parked in the
+same slot is never posted to Groq. A key that is already beside a base URL is
+doing a job and is never reassigned.
+
+- **Precedence: an explicit `GOALS_LLM_BASE_URL` wins, then `GROQ_API_KEY`,
+  then `LLM_*`.** Naming a provider in full is the more specific instruction,
+  so a leftover key cannot redirect goals away from an endpoint someone chose
+  deliberately — including a local one, the only choice that transmits nothing.
+- **`GOALS_LLM_MODEL` still names the model** when it is set, so a different
+  Groq model is one setting rather than a second code path.
+- ⛔ **The key is read in `goals_endpoint()` and nowhere else, and must stay
+  that way.** The reason this shortcut is safe is that it cannot move symptom
+  descriptions: those go wherever `LLM_*` says, which is nowhere by default.
+  A key that switched on both features at once would make the most sensitive
+  free text in the app a side effect of switching on goal suggestions, which
+  is precisely what the endpoint split exists to prevent. Tested.
+- The shortcut is through the configuration, never through the disclosure:
+  the endpoint is not local, so the transmission warning names Groq and the
+  goal text exactly as any other hosted endpoint does. Also tested.
+- ⛔ `tests/conftest.py` blanks this too, for the same reason it blanks the
+  others — it is a third way to reach a live endpoint from a developer's
+  `.env`.
+
+**A wrong value fails as loudly as a missing one.** Both of these reach the
+person as the same sentence — "MedHelp has no suggestions right now" — and used
+to reach an operator as an indistinguishable `HTTP 404`:
+
+- `llm.completions_url()` corrects the two base URLs people actually mistype:
+  one that already ends in `/chat/completions` (copied from a provider's curl
+  example, and otherwise doubled), and `https://api.groq.com` with no path,
+  which is the vendor's name for itself rather than its OpenAI-compatible base.
+  ⛔ Nothing else is guessed — an unknown host with an unexpected path is sent
+  exactly as configured, because rewriting it would hide the real mistake.
+- `llm.chat` names the provider's own error **code** when it is one of the
+  handful in `_KNOWN_ERROR_CODES`, so a retired model name and a revoked key
+  stop looking alike. ⛔ It is an allowlist, not "log whatever we were given":
+  the rule that nothing from a response body is read unless it is known to be
+  safe still holds, because a provider error message can quote the request —
+  which is the person's own health text. A test asserts an unfamiliar body
+  contributes nothing but its status code.
+
+**A misconfiguration here is no longer invisible.** `report_goals_endpoint()`
+in `app/main.py` logs at boot which model goals resolved to and which setting
+the key came from — never the key itself — or says plainly that there is none.
+`GET /health` reports `health_goals_model_configured`, a boolean beside
+`symptom_intake_configured` and held to the same rule: it says a credential
+source exists and never which vendor or which key. Both exist because drafting
+answers with an empty editor for a missing key, an unreachable endpoint and a
+refusal alike, so "is a model even configured?" could not be answered from a
+deployment nobody can attach a debugger to.
+
+### PHI status
+
+`health_goals`, `goal_activities` and `goal_completions` say that a named
+person intends to do a named thing and did or did not tick it on a named day.
+**Not encrypted at rest** — the same open finding as `medications`,
+`intake_assessments` and `appointments.reason_for_visit`.
+
+Goal text is health free text about an identified user, so a non-local
+`LLM_BASE_URL` transmits it to a third party this project has no BAA with.
+`llm.endpoint_is_local()` makes the distinction visible; it does not make it
+safe. With no endpoint configured the feature still works — the person types
+their own activities and nothing leaves the machine.
+
 ## Application security posture (implemented)
 
 What actually protects the data, and what each control does not cover. Read
@@ -1272,6 +1650,24 @@ that person's health data.
 - ⛔ **There is still no revocation.** `logout()` forgets the token on the
   device; a stolen one stays valid at the server until it expires (60 minutes
   by default). Session invalidation remains a Known Gap.
+- **The library is PyJWT, and it was python-jose.** python-jose drags in
+  `ecdsa`, which carries an unfixed Minerva timing advisory with no patched
+  release to move to — the only way off it was to stop depending on it. It was
+  never reachable here (HS256 only; no EC key is ever loaded), but the same
+  library had already cost this file two CVE notes in a year, and "unreachable"
+  is an argument you have to re-make at every audit. Same algorithm, same
+  verified claims.
+  - ⛔ **The two libraries spell claim requirements differently, and PyJWT
+    ignores option keys it does not recognise.** jose's `require_exp` /
+    `require_iat` / `require_sub` are one `"require": [...]` list in PyJWT.
+    Carried over verbatim they would have read like they demanded those claims
+    while demanding nothing — and a token with no `exp` and no expiry check is
+    a token that never expires. It fails silently, so
+    `test_a_token_missing_a_required_claim_is_rejected` pins each claim.
+  - `strict_aud` is now on. Without it PyJWT accepts an `aud` **list** that
+    merely contains ours, so a token minted for another service that also
+    listed this one would authenticate here. Every token minted here has a
+    string `aud`.
 
 ### The session survives a reload, and dies with the tab
 
@@ -1769,6 +2165,23 @@ this card".
    unhandled failure, so nothing crosses the wire either.
 6. ~~**The signing key is the published placeholder.**~~ See "The signing key
    is the whole of authentication" above.
+7. ~~**The deployed API ran on dependencies with 18 known advisories.**~~
+   `pip-audit` now reports none. The reachable ones were in code that runs
+   *before* a route is chosen, so they were exposed to anyone who could reach
+   the API: nine against `starlette` 0.38.6 (Host-header and request-path
+   injection into `request.url` reconstruction, unbounded multipart buffering,
+   `form()` limits being ignored) and seven against `python-multipart` 0.0.9
+   (parsing denial of service, field-separator confusion). Closing the
+   starlette ones needed `fastapi` to move first — 0.115.0 held starlette below
+   0.39, and every fix lands in 1.x — so the pinned pair is now
+   `fastapi==0.141.1` with `starlette>=1.3.1,<1.7`, verified against the whole
+   backend suite. `pytest` moved to 9.0.3 for a predictable-tmpdir advisory
+   that only ever affected developer machines. The last one, `ecdsa`, had no
+   fix to move to and was removed with the library that pulled it in — see
+   "Tokens".
+
+   **Re-run `pip-audit` rather than trusting this paragraph.** Advisory counts
+   are a snapshot; this one is from 2026-09-06.
 
 ### Still open — each needs a call before the app holds real user data
 
@@ -1801,11 +2214,41 @@ this card".
 7. **Nothing writes an access log or an audit trail of reads.** There is no
    record of who read which record, which is normally a requirement wherever
    the BAA question above is being asked.
-8. **The mobile build tree has known-vulnerable dev dependencies** (`tar`,
-   `postcss`, `image-size`, `@xmldom/xmldom`, `ajv` and others, via Expo 51's
-   CLI). None ships in the app bundle — they are build tooling — so the risk is
-   to the machine that builds, not to a user's data. The fix is an Expo major
-   upgrade and should be scheduled rather than forced.
+8. **The mobile build tree has known-vulnerable dev dependencies**, via Expo
+   51's CLI and React Native 0.74's. `npm audit` reported 43; it now reports 6,
+   after `overrides` in `mobile/package.json` pinned the patched transitive
+   versions of `tar`, `postcss`, `ajv`, `send`, `uuid`, `fast-xml-parser`,
+   `@xmldom/xmldom` and `decode-uri-component`.
+
+   ⛔ **This finding used to say "none ships in the app bundle". That was
+   wrong**, and the correction is the reason the overrides exist rather than
+   being deferred with the rest. `decode-uri-component` is reached at runtime
+   through `query-string` ← `@react-navigation/core`, and its code was verified
+   present in the exported web bundle by grepping for the library's own
+   regexes. Its advisory is a denial of service via exponential decoding of
+   malformed percent-encoded input — reachable from a crafted URL, so it was a
+   real property of the deployed site, not of the build machine. The patched
+   0.5.0 replaces that with a single left-to-right scan; the old matcher is
+   gone from the bundle and the new one is in, both checked by grep.
+
+   The remaining 6 are one chain: `image-size` ← `metro` ← `metro-config` /
+   `metro-transform-worker` ← `@react-native/community-cli-plugin` ←
+   `react-native`. **`image-size` has no fixed release at all** — every
+   published version including the latest (2.0.2) sits inside the advisory's
+   vulnerable range, so there is nothing to pin. It is Metro's, used at build
+   time, and clears only with the React Native upgrade.
+
+   Everything still deferred here is genuinely build tooling — Expo CLI, Metro,
+   the native-prebuild tooling, the dev static server — so the risk is to the
+   machine that builds, not to a user's data. The real fix remains an Expo
+   major upgrade, still to be scheduled rather than forced; the overrides are a
+   stopgap and are commented as one.
+
+   ⛔ **The overrides are verified against `npm test` and
+   `expo export --platform web` only.** Neither exercises `expo prebuild` or an
+   EAS native build, which is where forcing majors into `@expo/plist`, `xcode`
+   and the RN CLI would surface first. Anyone doing a native build should
+   expect to re-check them there.
 9. **A dev-only classification log exists** (`backend/app/core/triage_log.py`,
    flag `TRIAGE_LOG_CLASSIFICATIONS`). It writes the description and the
    follow-up answers to the application log, which CLAUDE.md otherwise

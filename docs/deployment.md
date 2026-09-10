@@ -121,20 +121,36 @@ build time, though, so if you rename the API service later you have to
 
 ## The symptom check without a key
 
-`ANTHROPIC_API_KEY` is optional, and what it changes is quality rather than
-availability:
+The model layer is optional either way, and what it changes is quality rather
+than availability. There are now two ways to provide one:
+
+- **`ANTHROPIC_API_KEY`** — the original one-shot layer. Paid; there is no free
+  tier for that API.
+- **`LLM_BASE_URL` + `LLM_MODEL` (+ `LLM_API_KEY`)** — any OpenAI-compatible
+  endpoint, which runs the agentic deduction loop instead and can be free.
+  Setup and providers: `free-model-setup.md`.
+
+⛔ **On a deployment the free option is not a way around the BAA question.**
+The local endpoint that transmits nothing cannot run on a free instance, so
+here this can only be a hosted provider — which makes Groq, Google or
+OpenRouter a processor of symptom descriptions typed into a public URL, exactly
+as setting the Anthropic key makes Anthropic one. Free of charge is not free of
+consequence.
+
+What either one changes:
 
 - **Without it** the deterministic rule layer runs on its own. Every
   description still gets a tier, red-flag screening is unaffected, and the
   safety properties in CLAUDE.md all still hold. The explanation shown to the
   user is one of a few fixed sentences, and the classifier can never ask a
   clarifying question.
-- **With it** the model layer is consulted as well, and can only ever escalate
+- **With one** the model layer is consulted as well, and can only ever escalate
   a tier, never lower one.
 
-⛔ Setting it makes Anthropic a processor of the symptom descriptions people
-type into a public URL, and this project has a BAA with nobody. It also costs
-money per assessment, on a URL anyone can sign up to. Decide deliberately.
+⛔ Either choice makes a vendor a processor of the symptom descriptions people
+type into a public URL, and this project has a BAA with nobody. The Anthropic
+key also costs money per assessment, on a URL anyone can sign up to. Decide
+deliberately.
 
 ---
 

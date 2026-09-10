@@ -77,6 +77,7 @@ def record(
     model_requested_followup: bool,
     exhausted_followup: bool,
     asked_followup: bool,
+    deduction_trace: list[str] | None = None,
 ) -> None:
     """
     Write one classification to the log, if logging is enabled.
@@ -104,6 +105,17 @@ def record(
             "escalated_by_safety_net": escalated_by_safety_net,
             "model_requested_followup": model_requested_followup,
             "exhausted_followup": exhausted_followup,
+            # How the agentic layer got there, step by step. This is the part
+            # that makes a wrong call diagnosable rather than merely visible:
+            # a reviewer can see which deterministic screen the model read and
+            # what it inferred, instead of only what it concluded.
+            #
+            # It quotes the model's reasoning about the description, so it is
+            # exactly as sensitive as the description and is gated by the same
+            # flag. It is deliberately NOT written to `intake_assessments` —
+            # that would need a new column and the hand-written migration this
+            # project does not yet have. See CLAUDE.md.
+            "deduction_trace": deduction_trace or [],
         }
         logger.info("triage.classification %s", json.dumps(entry, ensure_ascii=False))
     except Exception:  # noqa: BLE001

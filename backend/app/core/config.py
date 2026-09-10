@@ -101,6 +101,64 @@ class Settings(BaseSettings):
     # feature reports itself unavailable — it never falls back to guessing.
     anthropic_api_key: str = ""
 
+    # The free model layer: any OpenAI-compatible chat endpoint. Naming a base
+    # URL and a model switches symptom intake to the agentic deduction loop in
+    # app/core/deduction.py, which drives the model through this app's own
+    # deterministic screens instead of asking it for a tier in one shot.
+    #
+    # ⛔ THE BASE URL IS A DATA-HANDLING DECISION. A symptom description is
+    # the most sensitive free text in this app, and this project has a signed
+    # BAA with nobody. A local endpoint (http://localhost:11434/v1 for Ollama)
+    # transmits nothing and raises no BAA question; a hosted free tier
+    # transmits health data to a third party and does. app/services/llm.py
+    # logs a warning naming the exposure when the endpoint is not local.
+    #
+    # Both empty (the default) means no model layer at all — the deterministic
+    # rule layer still runs, which is the product. See CLAUDE.md.
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    # A local model on modest hardware is slower than a hosted one, and this
+    # call blocks the assessment, so the ceiling is generous rather than tight.
+    llm_timeout_seconds: float = 60.0
+
+    # Health goals may use a different endpoint from symptom triage.
+    #
+    # WHY THIS EXISTS: the settings above are shared by every model caller, so
+    # pointing them at a hosted provider to get goal suggestions also starts
+    # sending symptom descriptions there — the most sensitive text in the app,
+    # belonging to the feature with the standing clinical and legal release
+    # blocker. That is a data-handling decision nobody should make as a side
+    # effect of switching on a different feature.
+    #
+    # Each of these falls back to its `llm_*` counterpart when empty, so
+    # leaving all three unset is exactly the behaviour of not having them.
+    # Setting them moves *only* goals; triage keeps whatever `llm_*` says.
+    #
+    # ⛔ Same data-handling rule as above, and it is worth stating in the
+    # direction people actually get wrong: a hosted goals endpoint transmits
+    # goal text, which is health free text about an identified user.
+    goals_llm_base_url: str = ""
+    goals_llm_model: str = ""
+    goals_llm_api_key: str = ""
+
+    # Groq, from a key alone. Setting GROQ_API_KEY is enough to give health
+    # goals a model: app/services/llm.py pairs it with Groq's base URL and a
+    # listed model, so goal drafting works from one pasted key rather than
+    # three settings that must agree. GOALS_LLM_MODEL names a different Groq
+    # model if you want one; an explicit GOALS_LLM_BASE_URL wins outright.
+    #
+    # ⛔ THIS MOVES GOALS AND ONLY GOALS. It is read in goals_endpoint() and
+    # nowhere else, so a key pasted here cannot start transmitting symptom
+    # descriptions — those go wherever LLM_* says, which is nowhere by
+    # default. That separation is the whole reason a goals endpoint exists.
+    #
+    # ⛔ Same data-handling rule as every hosted endpoint above: goal text is
+    # health free text about an identified user, Groq is a third party, and
+    # this project has a signed BAA with nobody. Synthetic data only until
+    # that question has an answer.
+    groq_api_key: str = ""
+
     # ⛔ OFF pending clinician review. Do not flip this without reading the
     # note in CLAUDE.md under "Related reading is gated off".
     #

@@ -25,7 +25,7 @@ published placeholder outside development).
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.core.config import (
@@ -111,17 +111,22 @@ def decode_access_token(token: str) -> str | None:
             issuer=JWT_ISSUER,
             audience=JWT_AUDIENCE,
             options={
-                "require_exp": True,
-                "require_iat": True,
-                "require_sub": True,
+                # PyJWT spells "this claim must be present" as one list, not as
+                # require_* flags. It ignores option keys it does not know, so a
+                # flag named wrongly here would silently verify nothing —
+                # test_a_token_missing_a_required_claim_is_rejected pins each one.
+                "require": ["exp", "iat", "sub"],
                 "verify_exp": True,
                 "verify_iat": True,
                 "verify_aud": True,
                 "verify_iss": True,
                 "verify_signature": True,
+                # Without this a token whose `aud` is a *list* containing ours
+                # is accepted. Every token minted here has a string `aud`.
+                "strict_aud": True,
             },
         )
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
     if payload.get("typ") != ACCESS_TOKEN_TYPE:

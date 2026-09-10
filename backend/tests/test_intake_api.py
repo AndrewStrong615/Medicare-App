@@ -708,3 +708,49 @@ class TestValidation:
 
         assert response.status_code == 422
         assert sensitive not in response.text
+
+
+class TestTheEventLoopIsNotBlocked:
+    """
+    `assess` is synchronous and, with a model layer configured, spends nearly
+    all of its time blocked on a network call. This endpoint is `async def`,
+    so running it inline ran it on the event loop — and a blocked event loop
+    serves nobody: every other request in the process queues behind it,
+    including the routes that load medications, appointments and reminders.
+
+    Reported as "it is taking a long time to load user data", which is what
+    that looks like from the app: one person submitting a description stalls
+    everyone's screens. Latent while the model call took seconds; the app's
+    dominant failure mode once a local model made it minutes.
+    """
+
+    def test_assess_runs_off_the_event_loop(
+        self, client, auth_headers, stub_topics, monkeypatch
+    ):
+        import asyncio
+
+        on_event_loop: list[bool] = []
+
+        def _record_thread(description: str, *, followup_already_asked: bool = False):
+            try:
+                asyncio.get_running_loop()
+                on_event_loop.append(True)
+            except RuntimeError:
+                # No loop in this thread — which is the whole point: it is a
+                # worker thread, so the loop is free to serve other requests.
+                on_event_loop.append(False)
+            return _result(tier=Tier.URGENT)
+
+        monkeypatch.setattr("app.api.intake.assess", _record_thread)
+
+        response = client.post(
+            "/intake/assess",
+            json={"description": "my ankle is swollen and I cannot put weight on it"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 201
+        assert on_event_loop == [False], (
+            "assess ran on the event loop; a slow model call will stall every "
+            "other request in the process"
+        )

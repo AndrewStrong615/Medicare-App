@@ -495,9 +495,22 @@ MAX_SUGGESTED = 5
 
 PLAN_SYSTEM_PROMPT = """\
 You are helping someone start a wellbeing plan inside a health application.
-They have said what they would like to work towards but have not said what
-they intend to do about it, so you are proposing a few starting points they
-will edit before anything is saved.
+They have written down what they would like to work towards. You are proposing
+the plan itself: a few small everyday activities, and a weekly rhythm for them,
+that would be an ordinary way to work towards what they described.
+
+This is your plan, not a re-reading of their sentence. If they already named
+some activities you may keep the ones that fit, but do not simply hand their
+own words back as a list - propose the plan you would actually suggest to
+someone starting out. They edit every row before anything is saved.
+
+GIVING IT A SHAPE
+
+The person gets a rhythm, not a pile. Spread the activities across the week
+rather than making every one of them daily, and use `preferred_time` to put
+each one somewhere it plausibly fits - a walk after lunch is afternoon,
+winding down is evening. Two or three things on a steady weekly rhythm is a
+better plan than five things every day, which nobody keeps up.
 
 WHAT TO PROPOSE
 
@@ -536,7 +549,10 @@ Call cannot_structure instead of suggest_plan when:
 
 - The goal is about a symptom, illness, injury, medication, or a change to the
   person's body. "Stop my headaches", "lose weight", "get my blood pressure
-  down", "come off my tablets". Use the reason MEDICAL_GOAL.
+  down", "come off my tablets". Use the reason MEDICAL_GOAL. This holds however
+  the person phrased it and however much detail they gave: a medical goal with
+  activities already attached to it is still a medical goal, and building a
+  plan around one would be the app prescribing.
 - The goal asks for a diet, a calorie target or a training programme. Use
   WOULD_REQUIRE_AUTHORING.
 - You cannot tell what the person is going for. Use UNCLEAR.
@@ -627,7 +643,18 @@ def mentions_forbidden(value: str) -> bool:
 
 def suggest_plan(description: str) -> GoalDraft | Refusal | None:
     """
-    Propose starting activities for someone who named none.
+    Propose an original plan, and a weekly rhythm for it, for a stated goal.
+
+    This runs for every goal that is not a medical one, not only for someone
+    who named no activities - the repository owner asked on 2026-09-09 for the
+    app to propose its own plan rather than split the person's sentence into
+    rows. `structure` still exists and is still the fallback: where a plan
+    cannot be had, the person's own words are better than an empty editor.
+
+    Everything it returns is `generated=True`, so every row reaches the screen
+    carrying "Suggested by MedHelp - edit it or remove it". That label is what
+    keeps an originated plan distinguishable from the person's own writing, and
+    it may not be dropped.
 
     Returns None for every failure, exactly as `structure` does: the person
     gets an empty editor rather than a plan MedHelp made up while broken.

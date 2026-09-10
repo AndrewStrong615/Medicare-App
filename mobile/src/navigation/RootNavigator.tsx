@@ -8,6 +8,8 @@ import { AppointmentListScreen } from "@/screens/appointments/AppointmentListScr
 import { AppointmentRequestScreen } from "@/screens/appointments/AppointmentRequestScreen";
 import { BookingIdentityScreen } from "@/screens/appointments/BookingIdentityScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
+import { EmergencyCardEditScreen } from "@/screens/emergency/EmergencyCardEditScreen";
+import { EmergencyCardScreen } from "@/screens/emergency/EmergencyCardScreen";
 import { GoalCreateScreen } from "@/screens/goals/GoalCreateScreen";
 import { HealthGoalsScreen } from "@/screens/goals/HealthGoalsScreen";
 import { IntakeFollowUpScreen } from "@/screens/intake/IntakeFollowUpScreen";
@@ -202,6 +204,21 @@ export function RootNavigator() {
           name="GoalCreate"
           component={GoalCreateScreen}
           options={{ title: "Add a goal" }}
+        />
+        {/*
+          The emergency card draws its own red header and its own "‹ Back",
+          so the navigator adds none. A screen that hides the header owns its
+          own way out — see the reachability test, which asserts exactly that.
+        */}
+        <Stack.Screen
+          name="EmergencyCard"
+          component={EmergencyCardScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="EmergencyCardEdit"
+          component={EmergencyCardEditScreen}
+          options={{ title: "Emergency card" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

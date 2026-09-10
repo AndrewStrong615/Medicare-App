@@ -25,10 +25,27 @@
  * anywhere. A test asserts it.
  */
 
+import type { RefillAlert } from "@/services/refillAlerts";
 import type { DueReminder } from "@/services/reminderTiming";
 import { nextOccurrence } from "@/services/reminderTiming";
 
 export type ReminderPermission = "granted" | "denied" | "prompt" | "unsupported";
+
+/**
+ * Everything armed in one call.
+ *
+ * ⛔ Dose reminders and refill alerts have to be scheduled together, because
+ * `cancelAll` clears the lot — on native it calls
+ * `cancelAllScheduledNotificationsAsync`, which does not distinguish between
+ * them. Two separate arming functions would take turns cancelling each
+ * other's work, and the symptom would be a notification type that silently
+ * stopped firing depending on which screen was opened last.
+ */
+export interface ScheduleOptions {
+  refillAlerts?: RefillAlert[];
+  /** Test seam and clock source. Defaults to now. */
+  now?: Date;
+}
 
 /**
  * setTimeout's delay is a signed 32-bit int; anything larger fires
@@ -108,8 +125,10 @@ function show(reminder: DueReminder): void {
  */
 export async function scheduleAll(
   reminders: DueReminder[],
-  now: Date = new Date()
+  options: ScheduleOptions = {}
 ): Promise<void> {
+  const now = options.now ?? new Date();
+
   await cancelAll();
   if (getPermission() !== "granted") return;
 
@@ -125,6 +144,37 @@ export async function scheduleAll(
         scheduleOne(reminder);
       }, delay)
     );
+  }
+
+  for (const alert of options.refillAlerts ?? []) {
+    const delay = alert.fireAt.getTime() - now.getTime();
+    // A refill alert is days out, so it falls outside setTimeout's 24-day
+    // ceiling far more often than a dose reminder does — and the tab will
+    // almost certainly be closed before then either way. The badge on the
+    // medication list is the part that is always correct; this is the bonus.
+    if (delay < 0 || delay > MAX_TIMEOUT_MS) continue;
+
+    timers.push(
+      setTimeout(() => {
+        showRefillAlert(alert);
+        // Deliberately not re-armed. A dose reminder repeats every day; a
+        // refill alert is about one estimated date, and repeating it would
+        // nag about a supply the user may already have replaced.
+      }, delay)
+    );
+  }
+}
+
+function showRefillAlert(alert: RefillAlert): void {
+  try {
+    new window.Notification(alert.title, {
+      body: alert.body,
+      tag: `refill-${alert.medicationId}`,
+      requireInteraction: false,
+    });
+  } catch {
+    // Permission revoked mid-session. The medication list still shows the
+    // badge.
   }
 }
 

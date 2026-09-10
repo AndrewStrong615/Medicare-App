@@ -11,7 +11,7 @@ import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { IntakeError, submitIntake } from "@/services/intakeService";
-import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SymptomIntake">;
@@ -141,6 +141,7 @@ export function SymptomIntakeScreen({ navigation, route }: Props) {
         value={description}
         onChangeText={setDescription}
         error={descriptionError}
+        hint="Your own words. Nothing here is rewritten before it is assessed."
         multiline
         autoCapitalize="sentences"
         editable={!submitting}
@@ -150,6 +151,7 @@ export function SymptomIntakeScreen({ navigation, route }: Props) {
         <AppButton
           label={speech.listening ? "Stop dictating" : "Dictate instead"}
           variant="secondary"
+          style={styles.dictationButton}
           onPress={speech.listening ? speech.stop : speech.start}
           disabled={submitting}
           accessibilityHint="Uses your device's speech recognition to fill in the description"
@@ -201,7 +203,10 @@ const styles = StyleSheet.create({
   },
   disclaimerHeading: { ...typography.bodyStrong, color: colors.noticeText },
   disclaimerBody: { ...typography.caption, color: colors.noticeText },
-  dictationRow: { gap: spacing.xs },
+  dictationRow: { gap: spacing.xs, alignItems: "flex-start" },
+  // L3: a tinted fill rather than a bare label, so it is obviously pressable
+  // without competing with the one filled action at the foot of the screen.
+  dictationButton: { backgroundColor: colors.surfaceMuted },
   dictationNote: { ...typography.caption, color: colors.textSecondary },
   dictationError: { ...typography.caption, color: colors.errorText },
   consentRow: {
@@ -212,11 +217,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
+    width: 28,
+    height: 28,
+    borderRadius: radius.sm,
     borderWidth: 2,
-    borderColor: colors.borderStrong,
+    borderColor: colors.textPrimary,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surface,
@@ -225,6 +230,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderColor: colors.accent,
   },
-  checkboxMark: { color: colors.textOnAccent, fontSize: 15, fontWeight: "700" },
-  consentText: { ...typography.caption, color: colors.textSecondary, flex: 1 },
+  checkboxMark: { color: colors.textOnAccent, fontSize: 16, fontFamily: fonts.sansBold },
+  consentText: { ...typography.caption, color: colors.textPrimary, flex: 1 },
 });

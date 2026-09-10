@@ -73,10 +73,47 @@ describe("medicationService", () => {
       prescribingDoctor: "Dr. Imaginary",
       refillDate: "2026-09-10",
       notes: null,
+      quantityRemaining: null,
+      quantityCountedOn: null,
+      dosesPerDay: null,
       refillDueSoon: true,
       refillOverdue: false,
       daysUntilRefill: 3,
+      refillEstimate: {
+        runOutOn: null,
+        daysRemaining: null,
+        alert: false,
+        isEstimate: false,
+        dosesPerDay: null,
+        dosesPerDaySource: null,
+        reason: null,
+        leadDays: 0,
+      },
     });
+  });
+
+  it("offers no estimate rather than crashing when the server has not got one", async () => {
+    // The web build is deployed separately from the API, so a client can
+    // outrun its backend by one restart. A medication list that threw on a
+    // missing field would be a blank screen for whoever hit that window.
+    respond(200, [API_MEDICATION]);
+
+    const [medication] = await listMedications();
+
+    expect(medication.refillEstimate.isEstimate).toBe(false);
+    expect(medication.refillEstimate.alert).toBe(false);
+  });
+
+  it("asks the server to compute the estimate against the device's lead time", async () => {
+    // The lead time is a device setting (`appSettings.ts`), and the server
+    // owns the arithmetic — so it travels on the request rather than being
+    // applied on either side alone.
+    respond(200, []);
+
+    await listMedications(7);
+
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain("refill_lead_days=7");
   });
 
   it("sends snake_case field names when creating", async () => {
@@ -99,6 +136,9 @@ describe("medicationService", () => {
       prescribing_doctor: "Dr. Imaginary",
       refill_date: "2026-09-10",
       notes: null,
+      quantity_remaining: null,
+      quantity_counted_on: null,
+      doses_per_day: null,
     });
   });
 

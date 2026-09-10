@@ -15,6 +15,8 @@ import { Screen } from "@/components/Screen";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { getRefillLeadDays } from "@/services/appSettings";
+import { mirrorMedications } from "@/services/emergencyCard";
 import {
   MedicationError,
   listMedications,
@@ -39,7 +41,16 @@ export function MedicationListScreen({ navigation }: Props) {
     setError(null);
     setIsOffline(false);
     try {
-      setMedications(await listMedications());
+      // The refill lead time is a device setting, so it is read here and
+      // passed on — the server does the arithmetic, and doing it there is what
+      // keeps every client flagging the same medications.
+      const loaded = await listMedications(await getRefillLeadDays());
+      setMedications(loaded);
+      // Keep the emergency card's offline copy in step with what was just
+      // fetched. The card cannot make this call itself — it has to work with
+      // no signal — so this screen is where the copy gets refreshed. It never
+      // throws, so a storage failure cannot cost the user their list.
+      void mirrorMedications(loaded);
     } catch (caught) {
       if (caught instanceof MedicationError) {
         setError(caught.message);
@@ -62,6 +73,12 @@ export function MedicationListScreen({ navigation }: Props) {
 
   const needingRefill = (medications ?? []).filter(
     (medication) => medication.refillOverdue || medication.refillDueSoon
+  );
+  // Counted separately from the refill dates above, and worded differently.
+  // One is a date the user wrote down; this is arithmetic MedHelp did, and
+  // saying so is the difference between a record and a guess.
+  const runningLow = (medications ?? []).filter(
+    (medication) => medication.refillEstimate.alert
   );
 
   return (
@@ -136,6 +153,18 @@ export function MedicationListScreen({ navigation }: Props) {
               {needingRefill.length === 1
                 ? "1 medication needs a refill soon."
                 : `${needingRefill.length} medications need a refill soon.`}
+            </Text>
+          </View>
+        )}
+
+        {runningLow.length > 0 && (
+          <View style={styles.refillSummary} accessibilityRole="summary">
+            <Glyph name="alert" size={18} color={colors.noticeText} />
+            <Text style={styles.refillSummaryText}>
+              {runningLow.length === 1
+                ? "1 medication is estimated to be running low."
+                : `${runningLow.length} medications are estimated to be running low.`}{" "}
+              This is worked out from what you entered, not from doses taken.
             </Text>
           </View>
         )}

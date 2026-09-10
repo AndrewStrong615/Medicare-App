@@ -77,37 +77,36 @@ code is built on top of this — it's much cheaper to change now.
 
 ## Subagents
 
-Configured in `.claude/agents/`:
+Configured in `.claude/agents/`. There are three, and they run in this order:
 
-- **compliance-reviewer** — invoke on any change to UI copy or logic that
-  touches symptoms, conditions, or health recommendations. Checks for missing
-  disclaimers, unsupported/implied medical claims, and PHI handling issues.
-- **tester** — writes and runs tests for new features as they're built, and
-  reports pass/fail.
+- **researcher** — finds new feature ideas, competitor health-app patterns,
+  relevant APIs and best practices. Writes one or two short proposals per
+  cycle: what it is, why it helps, rough effort, and a regulatory/privacy flag
+  on every one. **Writes no code** (tools: WebSearch, Read, Grep, Glob).
+- **debugger** — runs the app and the test suite, finds *actual* failures
+  rather than stylistic nitpicks, and fixes them. Every fix must be covered by
+  a passing test before it counts as done. Works only on a dedicated branch,
+  never on `main` (tools: Read, Write, Edit, Bash).
+- **overseer** — reviews everything the other two proposed or changed before
+  it is final: does it match this file's scope and safety rules, is it
+  proportionate to what it claims to fix, and did the debugger touch anything
+  on its forbidden list. Writes the cycle summary. **Writes no code** — its
+  Bash tool is for git inspection, rollback, and that one summary file (tools:
+  Read, Grep, Bash).
 
-And an improvement pipeline, run in this order:
+One full cycle is `run_cycle.sh`: branch → researcher → debugger → overseer →
+push the branch. It never merges.
 
-- **researcher** — proposes small, low-risk improvements. Writes no code.
-- **architect** — turns a proposal into a technical plan. Writes no code.
-- **manager** — approves or rejects the plan against this file. Nothing is
-  built without passing this gate.
-- **implementer** — builds approved plans only, on a branch, never main.
-- **tester** — tests what was built.
+### ⛔ What these agents may not do without explicit human approval
 
-Use `compliance-reviewer` before merging anything under `mobile/src/screens/symptom-lookup/`,
-`backend/app/api/symptoms.py`, or similar, and any time new user-facing copy
-mentions a condition, symptom, drug, or dosage.
+**None of the three may merge to `main`, deploy, or modify the symptom-triage
+classification logic, the disclaimers, or the emergency-routing behaviour
+without explicit human approval obtained outside of this pipeline.**
 
-### ⛔ What no subagent may do without explicit human approval
-
-**No subagent may merge to main, deploy, or modify the symptom-triage
-classifier, the disclaimers, or the emergency-routing logic without explicit
-human approval obtained outside of this pipeline.**
-
-An approval from the `manager` agent is not human approval. No chain of
-agent approvals substitutes for a person, and no amount of apparent
-triviality — a typo, a rename, a comment, a reformat — exempts a change in
-these areas:
+No chain of agent approvals substitutes for a person. An APPROVED from the
+`overseer` is not human approval — it is permission for a change to stay on a
+branch, nothing more. No amount of apparent triviality — a typo, a rename, a
+comment, a reformat — exempts a change in these areas:
 
 - `backend/app/core/triage.py`, `backend/app/core/rules_triage.py`
 - `backend/app/core/emergency.py`
@@ -116,8 +115,30 @@ these areas:
   `mobile/src/components/DisclaimerBanner.tsx`, and which screens show them
 - Merging to `main`, releasing, or deploying anywhere
 
-Adding *tests* for those modules is permitted; changing the modules is not.
-An agent that believes one of these needs to change should stop and say so.
+Adding *tests* for those modules is permitted; changing the modules is not. An
+agent that believes one of these needs to change must **stop and report it**,
+leaving the code untouched. The debugger reports such bugs under "REPORTED,
+NOT FIXED" rather than fixing them.
+
+### ⛔ The overseer's rejection is final
+
+A rejection from the `overseer` stands unless the repository owner personally
+overrides it. No other agent may overturn one, and neither may rerunning the
+cycle. A rejection must carry a written reason naming the rule or concern it
+fails; one without a reason is not a rejection.
+
+Where the overseer is uncertain, it does not approve — it escalates to the
+owner and leaves the change on the branch.
+
+### Health-copy review is now a human job
+
+The `compliance-reviewer` agent was removed along with the rest of the
+previous pipeline (`architect`, `manager`, `implementer`, `tester`). Nothing
+in `.claude/agents/` now reviews new user-facing copy that mentions a
+condition, symptom, drug, or dosage. **That review still has to happen** — it
+is a person's job until an agent is configured for it again. The `overseer`
+checks changes against this file's rules, which is a narrower thing than a
+compliance read of clinical copy.
 
 ## Known Gaps (intentional, for this scaffolding pass)
 
@@ -519,6 +540,133 @@ The general "When to see a doctor" copy is intentionally non-specific.
 Condition-specific criteria ("seek care if your fever exceeds X") would be
 clinical content this app is not permitted to author.
 
+## Emergency card (implemented)
+
+A screen the user fills in once — allergies, known conditions, blood type, and
+who to call — that is readable in one tap from the home screen and works with
+no connection. `mobile/src/screens/emergency/`, backed by
+`mobile/src/services/emergencyCard.ts`.
+
+**This is not the emergency routing feature.** `app/core/emergency.py` screens
+symptom text for red flags and is fenced; nothing here touches it, reads it,
+or feeds it. The card is a place to write something down.
+
+### ⛔ It is stored on the device and nowhere else
+
+There is no endpoint, no table, and no `fetch` on this path — a test asserts
+it. Two separate reasons, and both have to hold:
+
+- **It has to work when nothing else does.** It is read by someone holding an
+  unlocked phone in an emergency, who may have no signal and a backend that is
+  down. Anything that needed a request would fail at the only moment it
+  mattered.
+- **The backend has no encryption at rest** (open finding 2). Allergies and
+  conditions are among the most sensitive things this app could hold, so the
+  safest place for new health data is a store the server never sees.
+
+The cost is stated on the editor rather than hidden: the card does not follow
+the user to another phone or browser, and there is no backup of it.
+
+| | Store | Survives a reload | Survives the app or tab closing |
+|---|---|---|---|
+| `emergencyCardStorage.ts` (iOS/Android) | Keychain / Keystore, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` | yes | yes |
+| `emergencyCardStorage.web.ts` (browser) | `localStorage` | yes | **yes** |
+
+⛔ **`localStorage` here is deliberate, and is not the rule `tokenStorage.web.ts`
+sets.** That file forbids moving the *session token* to `localStorage`, and
+that stands. The trade runs the other way for the card: a token is a bearer
+credential whose right lifetime is the shortest one that survives a refresh,
+while a card that vanishes when the tab closes is a card that is not there
+when it is needed, and it grants nobody access to anything. Both halves are
+asserted by tests so that "fixing the inconsistency" in either direction
+fails the suite.
+
+The exposure that buys is real and is written on the editor screen: **on a
+shared or borrowed computer the card stays behind after sign-out**, and no
+sign-out removes it. "Erase this card" is offered for exactly that.
+
+### ⛔ Nothing on the card is authored, checked or interpreted by MedHelp
+
+Every field is free text, stored verbatim and rendered verbatim. There is no
+picker of conditions, no list of common allergies, and no validation of a
+blood type — offering a menu of conditions would make MedHelp the author of a
+clinical vocabulary, and checking a blood group would imply a verification
+that has not happened.
+
+Nothing reads the card either. It is not an input to triage, to the emergency
+screening, or to anything else.
+
+The header is loud enough to carry an authority the content has not earned, so
+the screen disowns it in as many words: "MedHelp did not check them and cannot
+confirm they are current."
+
+### ⛔ An empty field renders as "Not provided", never as a missing row
+
+The single most important rule on the screen. A card with no allergies row
+reads as *no allergies* to whoever is holding the phone; the gap is
+information and has to be visible. Asserted by a test.
+
+### The medication list is mirrored to the device, and that is a second copy
+
+Medications are what a responder would most want from this app and are already
+collected — but behind an authenticated call, which is the one thing the card
+cannot depend on. So `MedicationListScreen` writes an offline copy whenever it
+loads, and the card reads that.
+
+- **Name and dosage only**, of at most 25 medications, each field capped at 300
+  characters. Not the prescribing doctor, not the notes, not the refill dates:
+  none of that helps a responder, and every field left out cannot leak from
+  here. The cap is also what keeps the record inside Android's SecureStore
+  size limit (~2048 bytes), above which a write can be lost silently.
+- It is a **real widening of where health data rests**, stated on the card and
+  in the editor. `clearCard()` removes it along with everything else — a clear
+  that left a medication list behind would not be a clear.
+- The card says it may be out of date rather than presenting it as live.
+
+### Why the palette breaks the house style
+
+The rest of MedHelp is deliberately calm and this screen deliberately is not:
+it is found under stress, possibly by someone who has never used the app, so
+it is built to be identifiable at a glance. The header ground is
+`colors.emergencyText` — an existing reviewed value from the emergency family,
+used as a fill, which gives white text 10.8:1 where the lighter border colour
+would give 5.3:1. **No token value was changed**, which is what the theme note
+asks of anyone touching the safety-meaning families.
+
+`EmergencyCardLink` (the home-screen entry) and `EmergencyCallBar` are
+different components on purpose. The link opens a screen; the bar routes to
+emergency services. Merging them would blur the one instruction that has to be
+unambiguous.
+
+### A lock-screen widget was considered and not built
+
+Asked for as a "flag whether that's feasible, don't force it". It is not, here:
+
+- iOS needs a **WidgetKit app extension in Swift**, an Expo config plugin, and
+  a development build — and for distribution an Apple Developer account. This
+  project deliberately went the other way (see the browser scanner: "so an
+  iPhone needs no $99 account"), and there is no device or dev build in this
+  environment to test one on.
+- Android needs an App Widget or Quick Settings tile, likewise native and
+  likewise a dev build.
+- **Both platforms already ship a better version of this.** iOS Medical ID
+  (Health app) is reachable from the lock screen's emergency dialler, and
+  Android has Emergency information under Settings. A responder is trained to
+  look there, not in a third-party app. Duplicating that badly is worse than
+  not duplicating it.
+
+If a widget is ever wanted, it should be scoped as native work alongside the
+development build `expo-mlkit-ocr` already requires — not bolted on.
+
+### Not reviewed, and PHI status
+
+- **Not reviewed by a clinician.** Nothing here is clinical content, but which
+  fields an emergency card should carry is a question a reviewer should answer.
+- The card is health data about an identifiable person at rest on a device. On
+  native it is in the platform keystore; **in a browser it is unencrypted
+  `localStorage`**. That is a new instance of open finding 2 rather than an
+  exception to it.
+
 ## Medication label scanning (implemented)
 
 A user can photograph a prescription label instead of typing the medication in.
@@ -718,6 +866,132 @@ standing notice rather than letting someone assume an alarm clock.
   what to take is no use. **That makes it visible on a lock screen** to anyone
   nearby. Accepted for now; if that becomes unacceptable the body can be made
   generic, which is a copy change in one place per platform.
+
+### Refill alerts: when a supply is estimated to run out
+
+Built on the existing `medications` record rather than beside it. Three
+nullable columns were added — `quantity_remaining`, `quantity_counted_on`,
+`doses_per_day` — and the estimate is derived server-side in
+`backend/app/services/refill_forecast.py`.
+
+**`refill_date` and `refill_estimate` are two different claims and must stay
+apart.** `refill_date` is a date the user wrote down; the estimate is
+arithmetic MedHelp did. They have separate fields, separate badges, separate
+wording, and separate lead times. ⛔ Do not collapse them — a guess that
+inherits a record's authority is exactly the failure this app is built to
+avoid elsewhere.
+
+#### ⛔ The directions line is never read
+
+`forecast()` **does not take a `frequency` argument at all**, and
+`refill_forecast.py` does not import `dose_schedule`. Both are asserted by
+tests, against the function signature and the module's import statements,
+so adding one is a failing suite rather than a quiet change of policy.
+
+Reading a dose count out of "TAKE 1 TABLET BY MOUTH TWICE DAILY" is the decode
+the verbatim rule forbids, for the same reason it forbids expanding BID into
+two alarms: a wrong expansion changes when someone takes a medicine.
+
+So `doses_per_day` comes from one of two places, in this order:
+
+1. **A number the user typed** on the medication form (`"entered"`).
+2. **The count of their enabled reminder times** (`"reminders"`). Those rows
+   exist only because someone reviewed a draft and pressed save, so counting
+   them adds no guess of MedHelp's own.
+
+With neither, there is no estimate and the user is told which half is missing.
+`doses_per_day_source` is returned so the screen can show what the estimate
+rests on rather than handing over a date with no provenance.
+
+#### ⛔ It is an estimate, and every surface says so
+
+`is_estimate` is a property that cannot be constructed false, and it is true
+whenever there is a date at all. The projection assumes **every dose is taken
+exactly on schedule**, which MedHelp has no way to check — CLAUDE.md is
+explicit that this is not an adherence record, and `reminderTiming.dueState`
+already says "earlier today" rather than "missed" for the same reason.
+
+Tests assert the wording on the card badge and in the notification body, and
+assert that neither says "missed", "skipped" or "forgot".
+
+#### Declining is a normal outcome
+
+No quantity, no confirmed doses-per-day, a count dated in the future, or more
+than a year's supply: each returns no date and a reason meant for the user.
+A confident wrong run-out date is worse than none for someone deciding whether
+to chase a prescription.
+
+`quantity_counted_on` is what stops a count going stale silently — "30 left"
+means nothing without the day it was true, and a projection with no origin
+would report the same answer forever. The API fills it with today when a
+quantity arrives without one.
+
+Nothing rounds up: seven tablets at two a day is three whole days, not four.
+
+#### The lead time is a device setting, not an account one
+
+Default 3 days, choosable from the reminders screen (1/3/5/7/14).
+`appSettings.ts` keeps it in `deviceStorage`, and it travels to the API as
+`GET /medications?refill_lead_days=N`.
+
+There is no user-settings table, and adding one for this would put a row about
+a named person's medication habits into a database with no encryption at rest
+— for a number that only ever changes when a notification fires on that
+device. The consequence is that each device keeps its own.
+
+The **arithmetic still happens server-side**, which is what keeps the
+medication list and the reminders screen flagging the same medications.
+
+#### Both kinds of notification are armed in one call
+
+`scheduleAll(reminders, { refillAlerts })`, from `MedicationRemindersScreen`
+and nowhere else.
+
+⛔ They cannot be armed separately. `cancelAll()` clears everything — on native
+it calls `cancelAllScheduledNotificationsAsync`, which does not distinguish
+between them — so two arming functions would take turns cancelling each
+other's work. The symptom would be a notification type that silently stopped
+firing depending on which screen was opened last. A test asserts both survive
+one call.
+
+| | Trigger | Repeats |
+|---|---|---|
+| Dose reminder | daily, at a wall-clock time | yes, every day |
+| Refill alert | a one-off calendar date at 09:00 local | **no** |
+
+A refill alert is about one estimated date; repeating it would nag about a
+supply the user may already have replaced.
+
+The run-out date is parsed as **local midnight, not UTC**.
+`new Date("2026-09-18")` is UTC by specification, which is the previous
+evening anywhere west of Greenwich and would move the alert a day for most of
+the Americas. Tested.
+
+An alert whose moment has passed is not scheduled at all — a notification
+cannot fire into the past, and re-firing one on every screen load would be
+worse than not firing it. The **badge on the medication list is the part that
+is always correct**, the same division of labour the reminders screen already
+relies on. On the web the setTimeout ceiling (~24 days) also applies, and a
+refill alert is days out, so it misses far more often than a dose reminder
+does.
+
+#### ⛔ Deploying this needs a hand-run script
+
+The three columns went onto a table that already exists, and the start command
+runs `create_missing_tables.py`, which creates missing tables and never alters
+existing ones. Run `scripts/add_medication_supply_columns.py` once against any
+database created before this change, or `/medications` returns 500s. It is
+idempotent. This is the "a column added to an existing model still needs a
+hand-written script" case the deployment section already warns about.
+
+#### Not reviewed, and PHI status
+
+- **Not reviewed by a clinician.** Whether a three-day default is the right
+  lead time, and whether a supply projection should be shown at all, belong in
+  the same review as the `dose_schedule.py` phrase lists.
+- `quantity_remaining` and `doses_per_day` say how much of a named medicine a
+  named person has and how often they take it. **Not encrypted at rest** — the
+  same open finding as the rest of `medications`.
 
 ### Not reviewed, and PHI status
 
@@ -1117,22 +1391,33 @@ questions: `docs/health-goals-prompt.md`.
 
 ### Two paths, and the person can always tell them apart
 
-**If the person names activities, MedHelp invents nothing.** Their text is
-split into trackable rows and every row must quote them — the check below.
-This is the main path and the safest one.
+**MedHelp proposes its own plan** — a few small everyday activities and a
+weekly rhythm for them — for any goal that is not a medical one
+(`suggest_plan`). The repository owner asked for this on **2026-09-09**: the
+app should work out how to get to the goal, not hand the person's own sentence
+back split into rows.
 
-**If they name none** — "I want to be healthier" — MedHelp proposes a few
-ordinary starting points rather than giving them a dead end
-(`suggest_plan`). The repository owner asked for this directly on 2026-09-07.
+**Their own words are the fallback, not the main path.** `structure` still
+reads quotable activities out of the text and every row it produces must quote
+them — the check below — and that is what the person gets when the planner is
+unavailable, vetoed, or refuses in a way that is not a flat MEDICAL_GOAL. An
+outage must never empty the editor, the same rule as a model outage in triage
+never being SELF_CARE.
 
-⛔ **This is the one place in the app that proposes health content nobody
-wrote.** Three things keep it inside what this app may do, and none may be
-removed:
+⛔ **This inverted on 2026-09-09, and the direction matters.** Origination used
+to be the narrow fallback and is now the main path, so this is the one place in
+the app that routinely proposes health content nobody wrote. Three things keep
+it inside what this app may do, and none may be removed:
 
-1. **It only runs when the person named nothing.** A draft that structured
-   successfully is never replaced by suggestions, and a `MEDICAL_GOAL`
-   refusal — "stop my headaches", "lose weight" — is **never** answered with a
-   plan. Only the `NO_ACTIVITY_NAMED` refusal opens that path. Both tested.
+1. **A medical goal is never answered with a plan.** `structure` screens first
+   and a `MEDICAL_GOAL` refusal — "stop my headaches", "lose weight", "get my
+   blood pressure down" — short-circuits before the planner is asked at all, so
+   the planner cannot propose walks for a blood-pressure goal. Where the
+   planner reads a goal as medical and `structure` did not, the refusal still
+   wins; ⛔ **the reverse is not symmetrical and must never be added.** A
+   planner willing to propose something does not clear a goal `structure`
+   already refused. Three tests hold this, including that the planner is not
+   even called.
 2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
    the screen, the row reads "Suggested by MedHelp — edit it or remove it",
    and editing a row clears the label because it has become the person's own.
@@ -1150,9 +1435,22 @@ The generation prompt also forbids explaining what an activity will do for the
 person — propose the activity and stop. A benefit claim is the app authoring a
 health claim, which is the line this whole feature is built around.
 
-⛔ **Suggestions are not clinically reviewed.** They are general wellbeing
-prompts written by a software engineer, and no clinician has read the prompt
-or the veto list.
+⛔ **Suggestions are not clinically reviewed, and since 2026-09-09 they are
+what most people will see.** They are general wellbeing prompts written by a
+software engineer; no clinician has read `PLAN_SYSTEM_PROMPT` or the veto list.
+This was a narrow fallback when that was written and is now the main path, so
+the exposure is materially larger than the sentence used to describe — every
+person who writes a goal now gets an app-authored plan rather than their own
+words back. It belongs in the same review as `followup.py` and
+`dose_schedule.py`, and it is now the more urgent of the three.
+
+⛔ **The safety checks are asymmetric, and origination is on the weaker side.**
+The quoting and digit checks below cannot apply to a plan nobody wrote, so an
+originated row is guarded by `_FORBIDDEN` alone where a structured row is
+guarded by `_FORBIDDEN` *and* the requirement that it quote the person. Moving
+the main path to origination therefore moved most rows onto the weaker guard.
+That is the trade the owner asked for, made deliberately; it is also the reason
+adding to `_FORBIDDEN` is the cheapest safety win available in this feature.
 
 ### The structuring rule is checked, not trusted
 
@@ -1599,6 +1897,97 @@ previously bounded by the LAN:
   altering what exists. That is a demo's answer, not a release process: a
   column added to an existing model still needs a hand-written script.
 
+## Visual direction: paper ground, prominence ladder (implemented)
+
+The 2026 visual pass. Two halves, and they are separable — the surface came
+from one explored direction and the structure from another.
+
+**The surface.** The ground moved from a cool blue-grey to a warm paper
+(`background` `#F6F2EA`), the type to **Literata** over **Public Sans**, and
+depth from drop shadows to hairline rules — `elevation.sm`, which every
+resting card used, is now flat. The reasoning is specific to this app rather
+than fashionable: every claim MedHelp makes is hedged, so a document that
+reads as *written down and attributable* fits it better than a card floating
+on a shadow, which reads as a product asserting something.
+
+**The structure.** Every block sits at one of four prominence levels and a
+screen gets **exactly one filled action** (`PROMINENCE_LEVELS` in `theme.ts`).
+The home screen's four destination cards used to be drawn identically, so
+nothing was primary and a reader had to read all four before choosing; it is
+now one filled `NavCard variant="primary"` above a `NavGroup` of three rows.
+
+### ⛔ The reviewed safety colours did not move
+
+`emergencyText`, `emergencySurface`, `emergencyBorder`, the `notice*`,
+`error*` and `success*` families are byte-for-byte what they were. Only the
+neutrals, the type and the depth changed. **Do not restyle a safety family to
+match a future direction** — a direction is a preference and those are a
+decision someone signed off on.
+
+Also untouched: `DisclaimerBanner.tsx`, the intake disclaimer's copy, palette
+and position above the input, `INTAKE_DISCLAIMER`/`ESCALATION_GUIDANCE`, and
+every triage and emergency module. Which screens show a disclaimer is
+unchanged.
+
+### ⛔ The emergency palette is exempt from the one-filled-action rule
+
+`EmergencyCallBar`'s "Call 911" and the emergency card's contact call stay
+filled wherever they appear, however many other filled controls share the
+screen. The ladder exists to stop the app shouting; the one thing it may
+always shout about is how to get help. On the emergency card that is why
+"Edit these details" is `variant="outline"` — it is the third button on a
+screen whose other two must not be made ordinary.
+
+### ⛔ Set `fontFamily`, never `fontWeight` or `fontStyle`
+
+Each weight is a separate font file. Asking Android for a bold weight of a
+face that is already bold gets a synthetically smeared double-bold, and
+`fontStyle: "italic"` shears an upright face rather than using the italic. The
+type tokens name families for this reason, and `fonts.serifItalic` exists so
+the emergency card's "Not provided" is a real italic.
+
+### ⛔ Import font faces by their per-weight subpath
+
+`@expo-google-fonts/*` package roots `require()` every weight they ship — 16
+faces each, italics included — so importing four names from the root bundles
+all 32. The first web export after this change carried ~2 MB of fonts nobody
+asks for. `App.tsx` imports
+`@expo-google-fonts/literata/600SemiBold` and friends instead; the export now
+carries exactly the eight faces `theme.ts` names.
+
+`expo-font` is pinned to `~12.0.10`. npm will happily resolve it to 57.x,
+which does not work on Expo 51.
+
+### Nothing renders until the faces load, but a font failure never blocks
+
+`App.tsx` gates on `useFonts`. Every type token names a family, so a screen
+painted before the faces land is painted at the wrong metrics and reflows
+under the reader. A *failure* is different from a wait: if the faces cannot
+load at all the app opens anyway on the system font, because blocking the
+emergency card behind a font download would be indefensible.
+
+### The serif is the app quoting; the sans is the app speaking
+
+Literata is used only for text a person wrote or a source published — what
+the user typed into the symptom field (`typography.bodyQuoted`, applied to
+any `multiline` `TextField`), the values on their emergency card, a
+destination's name. Single-line fields stay in the sans: an email or a ZIP is
+data, not prose.
+
+### Two things a reviewer should be told
+
+- **`typography.overline` stayed at 13px.** The direction drew section labels
+  at 11px; that was not adopted, because the 13px floor is an accessibility
+  decision — small uppercase type is the first thing to fail for anyone with
+  low vision — and it outranks a mockup.
+- **One line of new user-facing copy** was added under the symptom field:
+  "Your own words. Nothing here is rewritten before it is assessed." It
+  describes existing behaviour (keyword extraction only chooses which article
+  to look up), and it is asserted by a test so that anything which later
+  paraphrases a description on the way in has to remove the claim too. It is
+  not clinical content, but it is a statement about the instrument and
+  belongs in the same reviewer's read as the intake screen.
+
 ## The web layout fills the window it is given (implemented)
 
 Every screen used to be one column capped at 620pt, on a phone and on a
@@ -1647,6 +2036,134 @@ The intake screens were deliberately left alone. Their disclaimer placement is
 part of what this file fences ("which screens show them"), and moving a
 required disclaimer into a side column changes its prominence, which is a
 reviewer's call and not a layout one.
+
+## The home screen is four things you can press (implemented)
+
+The home screen used to be a dashboard: four destination cards, three
+explanatory panels, a hero and a sign-out button, all visible at once. It is
+now a small set of primary actions, with everything else one tap deeper on
+`MoreScreen`.
+
+| Home | More |
+|---|---|
+| Not feeling well? → `SymptomIntake` | My medications → `MedicationList` |
+| Add medication → `MedicationEdit` | Medication reminders → `MedicationReminders` |
+| Upcoming appointments → `AppointmentList` | All appointments → `AppointmentList` |
+| More → `MoreScreen` | Find a provider → `ProviderSearch` |
+| Emergency card → `EmergencyCard` | Emergency card, and editing it |
+| | Sign out, and the two scope panels |
+
+### ⛔ This is a move, not a removal
+
+Every destination that came off the home screen is on `MoreScreen`, named in
+full, one tap away. **No route was renamed, removed, or re-parameterised**, so
+nothing that navigated anywhere before the reshuffle navigates anywhere
+different now — the intake-to-booking flow in particular is untouched.
+
+`__tests__/navigationReachability.test.ts` holds this mechanically. It reads
+the navigator's registrations and every `navigate` / `replace` / `reset`
+target across `src`, and fails when a registered route has no way in, or when
+something navigates to a route that is not registered. The failure mode of a
+reshuffle is not a crash — it is a screen that is still registered, still
+tested, still perfect, and that nothing reaches any more, so everything passes
+and nobody notices.
+
+`ROOTS` in that file names the routes entered without anyone navigating to
+them (`Login` and `Home`, which is what `initialRouteName` chooses between).
+Adding to that list is how a route is declared intentionally unreachable by
+`navigate`; it should stay short.
+
+Nothing is nested deeper than More. A flat list of named destinations is
+findable; a menu of menus is not.
+
+### ⛔ A screen that hides the navigator header owns its own way back
+
+Reachability has two directions, and the first version of that test only
+checked one. It asked whether every route could be navigated *to*; it never
+asked whether you could get *out*.
+
+`EmergencyCard` sets `headerShown: false`, so its red header is not doubled by
+the navigator's — which also removes the back button. **A browser has no
+back gesture to fall back on, so the screen had no way out at all**: every
+control on it went deeper. Nothing failed, no test caught it, and the whole
+suite was green. It was found by opening the screen in a browser.
+
+The screen now draws its own "‹ Back" inside the red header, above the title
+so it is reachable without scrolling however long the card grows.
+`navigationReachability.test.ts` reads the navigator for screens that set
+`headerShown: false` and asserts each one calls `goBack` itself, and
+`EmergencyCardScreen.test.tsx` presses it.
+
+**Anything that turns the header off inherits this obligation.** The three
+other headerless screens are exempt for a real reason rather than by
+oversight: `Login` and `Home` are what `initialRouteName` chooses between, so
+there is nothing behind either of them, and `Login` and `Signup` each carry an
+explicit link to the other in the body of the screen. `EmergencyCard` had
+neither property, which is what made it a dead end.
+
+### ⛔ "Add medication" opens the form, not the list
+
+The card names an action, so it performs it: `MedicationEdit` with no
+parameters, which is the add form. Routing it through the list would make it
+two taps for the thing the card says. The list is on More.
+
+### ⛔ The inline appointment is not "the next one"
+
+`IntakeResultScreen`'s URGENT hand-off and the appointment list both rest on
+the fact that **MedHelp does not know when an appointment is**.
+`preferred_time` is free text by design ("Thursday morning", "as soon as
+possible"), and there is no scheduled datetime on the record — the appointment
+rules fence adding one ("Do not add a slot picker, a 'Book now' button, or a
+time, until a real scheduling integration exists behind it") precisely because
+a time this app invents is a time someone turns up for.
+
+So the home screen shows the most recently *recorded* open appointment, under
+the label **MOST RECENTLY RECORDED**, with the provider name and the preferred
+time rendered verbatim. It does not say "Next", and a test asserts it does not.
+This is the one part of the requested design that could not be built as
+described, and the reason is a fence rather than an oversight.
+
+It also repeats "MedHelp has not contacted anyone" for a REQUESTED
+appointment, which is the same line the list carries on every card and for the
+same reason: a list is skimmed, and whether the clinic knows is the one thing
+a user must not misread.
+
+The lookup **fails silently**. The home screen's job is to be four things you
+can press; an error notice there would put a red box on the first screen of
+the app over a line of supporting detail, and `AppointmentListScreen` reports
+its own failures properly when opened.
+
+### What filled the space, and what moved
+
+The panels are unchanged in content — see "⛔ What may fill the space" above,
+which still governs them. What changed is where they are:
+
+- **"What MedHelp will not do" stayed**, beside the actions on a wide window
+  and stacked under them on a phone. It restates App Scope, and that is the
+  thing worth saying on the way in.
+- **"How MedHelp works" and "Where your information goes" moved to More.**
+  They are onboarding rather than everyday content.
+- ⛔ The panel that stayed is kept at **every** width. Dropping it below
+  `BREAKPOINT.expanded` would have been a tidier consolidation and would have
+  quietly made the scope statement a desktop-only feature —
+  `responsiveLayout.test.tsx` already asserted against exactly that, on the
+  grounds that a narrower screen is not a reason to stop saying what the app
+  will not do. That assertion was kept rather than rewritten.
+
+The short scope note at the foot of the screen is unchanged and still present
+at every width. The reviewed `DisclaimerBanner` is not on this screen and was
+not moved onto or off it — which screens show it is fenced.
+
+### Sign out moved to More, and does not clear the emergency card
+
+`MoreScreen` resets the navigation stack to `Login` rather than navigating, so
+the back gesture cannot walk into signed-in screens — unchanged behaviour,
+new location.
+
+⛔ It deliberately does **not** clear the emergency card, which lives in a
+separate store and is meant to outlive a session. The screen says so, because
+on a shared computer that is a surprise worth naming, and points at "Erase
+this card".
 
 ## Open data-handling findings
 

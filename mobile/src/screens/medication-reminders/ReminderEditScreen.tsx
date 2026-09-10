@@ -14,7 +14,7 @@ import {
   saveSchedule,
 } from "@/services/reminderService";
 import { formatTimeOfDay, parseTimeOfDay, sortByTime } from "@/services/reminderTiming";
-import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, elevation, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReminderEdit">;
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.xs,
   },
-  directionsLabel: { ...typography.caption, fontWeight: "600", color: colors.textPrimary },
+  directionsLabel: { ...typography.caption, fontFamily: fonts.sansSemibold, color: colors.textPrimary },
   directionsText: { ...typography.body, color: colors.textPrimary },
   suggestion: {
     backgroundColor: colors.noticeSurface,
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   removePressed: { opacity: 0.6 },
-  removeText: { ...typography.caption, color: colors.accent, fontWeight: "600" },
+  removeText: { ...typography.caption, color: colors.accent, fontFamily: fonts.sansSemibold },
   loading: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   loadingText: { ...typography.body, color: colors.textSecondary },
   footnote: { ...typography.caption, color: colors.textSecondary },

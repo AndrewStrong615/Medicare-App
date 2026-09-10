@@ -197,7 +197,7 @@ npm test
 Refreshing the page no longer signs you out. The session token is kept in the
 platform keystore on iOS and Android, and in `sessionStorage` in a browser —
 so it survives a reload, and in a browser it ends when the tab does. Sign out
-from the button on the home screen.
+from the button under **More**.
 
 Two consequences worth knowing:
 

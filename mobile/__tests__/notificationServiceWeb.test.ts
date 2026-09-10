@@ -111,7 +111,7 @@ describe("arming reminders in a browser", () => {
   it("fires a notification at the reminder time", async () => {
     const { constructed } = stubNotification("granted");
 
-    await service.scheduleAll(REMINDERS, at(8));
+    await service.scheduleAll(REMINDERS, { now: at(8) });
     expect(constructed).toHaveLength(0);
 
     // Twelve hours later, 08:00 -> 20:00.
@@ -125,7 +125,7 @@ describe("arming reminders in a browser", () => {
   it("arms nothing without permission", async () => {
     const { constructed } = stubNotification("denied");
 
-    await service.scheduleAll(REMINDERS, at(8));
+    await service.scheduleAll(REMINDERS, { now: at(8) });
     jest.advanceTimersByTime(24 * 60 * 60 * 1000);
 
     expect(constructed).toHaveLength(0);
@@ -134,7 +134,7 @@ describe("arming reminders in a browser", () => {
   it("re-arms itself for the following day", async () => {
     const { constructed } = stubNotification("granted");
 
-    await service.scheduleAll(REMINDERS, at(8));
+    await service.scheduleAll(REMINDERS, { now: at(8) });
     jest.advanceTimersByTime(12 * 60 * 60 * 1000);
     expect(constructed).toHaveLength(1);
 
@@ -145,8 +145,8 @@ describe("arming reminders in a browser", () => {
   it("replaces the previous set rather than stacking alarms", async () => {
     const { constructed } = stubNotification("granted");
 
-    await service.scheduleAll(REMINDERS, at(8));
-    await service.scheduleAll(REMINDERS, at(8));
+    await service.scheduleAll(REMINDERS, { now: at(8) });
+    await service.scheduleAll(REMINDERS, { now: at(8) });
     jest.advanceTimersByTime(12 * 60 * 60 * 1000);
 
     // Arming twice must not mean two notifications for one dose.
@@ -156,7 +156,7 @@ describe("arming reminders in a browser", () => {
   it("stops firing once cancelled", async () => {
     const { constructed } = stubNotification("granted");
 
-    await service.scheduleAll(REMINDERS, at(8));
+    await service.scheduleAll(REMINDERS, { now: at(8) });
     await service.cancelAll();
     jest.advanceTimersByTime(24 * 60 * 60 * 1000);
 
@@ -170,7 +170,7 @@ describe("arming reminders in a browser", () => {
     global.fetch = fetchSpy as unknown as typeof fetch;
 
     try {
-      await service.scheduleAll(REMINDERS, at(8));
+      await service.scheduleAll(REMINDERS, { now: at(8) });
       jest.advanceTimersByTime(12 * 60 * 60 * 1000);
 
       // Notifications are fired locally from data already on screen. Nothing
@@ -187,5 +187,100 @@ describe("arming reminders in a browser", () => {
     // A closed tab runs no code. The screen tells the user this rather than
     // letting them assume an alarm clock.
     expect(service.supportsBackgroundDelivery()).toBe(false);
+  });
+});
+
+describe("arming refill alerts in a browser", () => {
+  const savedWindow = globals.window;
+
+  function refillAlert(hoursFromNow: number) {
+    return {
+      medicationId: "m1",
+      medicationName: "Synthetic Tablet",
+      fireAt: at(8 + hoursFromNow),
+      title: "You may be running low",
+      body: "Synthetic Tablet — MedHelp estimates you have about 3 days left. This is an estimate, not a count.",
+    };
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(async () => {
+    await service.cancelAll();
+    jest.useRealTimers();
+    globals.window = savedWindow;
+  });
+
+  it("fires a refill alert at its moment", async () => {
+    const { constructed } = stubNotification("granted");
+
+    await service.scheduleAll([], {
+      refillAlerts: [refillAlert(4)],
+      now: at(8),
+    });
+    expect(constructed).toHaveLength(0);
+
+    jest.advanceTimersByTime(4 * 60 * 60 * 1000);
+
+    expect(constructed).toHaveLength(1);
+    expect(constructed[0].options.body).toMatch(/estimate/i);
+  });
+
+  it("does not repeat a refill alert the way a dose reminder repeats", async () => {
+    // A dose reminder is a daily rhythm; a refill alert is about one estimated
+    // date, and repeating it would nag about a supply already replaced.
+    const { constructed } = stubNotification("granted");
+
+    await service.scheduleAll([], {
+      refillAlerts: [refillAlert(4)],
+      now: at(8),
+    });
+    jest.advanceTimersByTime(4 * 60 * 60 * 1000);
+    expect(constructed).toHaveLength(1);
+
+    jest.advanceTimersByTime(7 * 24 * 60 * 60 * 1000);
+    expect(constructed).toHaveLength(1);
+  });
+
+  it("arms dose reminders and refill alerts in the same call", async () => {
+    // They must be armed together: arming either one cancels everything
+    // already scheduled, so two separate calls would take turns cancelling
+    // each other and one type would silently stop firing.
+    const { constructed } = stubNotification("granted");
+
+    await service.scheduleAll(REMINDERS, {
+      refillAlerts: [refillAlert(4)],
+      now: at(8),
+    });
+    jest.advanceTimersByTime(12 * 60 * 60 * 1000);
+
+    expect(constructed).toHaveLength(2);
+  });
+
+  it("arms no refill alert without permission", async () => {
+    const { constructed } = stubNotification("denied");
+
+    await service.scheduleAll([], {
+      refillAlerts: [refillAlert(4)],
+      now: at(8),
+    });
+    jest.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+    expect(constructed).toHaveLength(0);
+  });
+
+  it("stops a pending refill alert when cancelled", async () => {
+    const { constructed } = stubNotification("granted");
+
+    await service.scheduleAll([], {
+      refillAlerts: [refillAlert(4)],
+      now: at(8),
+    });
+    await service.cancelAll();
+    jest.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+    expect(constructed).toHaveLength(0);
   });
 });

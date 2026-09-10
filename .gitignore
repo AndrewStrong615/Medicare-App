@@ -25,6 +25,7 @@ node_modules/
 dist/
 web-build/
 *.log
+*.err
 npm-debug.*
 yarn-debug.*
 yarn-error.*
@@ -59,3 +60,6 @@ backend/scripts/topic_retrieval_eval/upstream_cache.json
 # Tesseract's English model, downloaded at runtime by tesseract.js. 5 MB of
 # generated data, not source - the web scanner fetches it from a CDN.
 mobile/eng.traineddata
+
+# Agent cycle transcripts (run_cycle.sh)
+.agent-cycles/

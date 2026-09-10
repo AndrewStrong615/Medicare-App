@@ -527,14 +527,22 @@ def test_suggesting_fails_closed(model):
     assert goal_structuring.suggest_plan("I want to be healthier") is None
 
 
-def test_the_endpoint_suggests_only_when_nothing_was_named(
+def test_a_planner_outage_falls_back_to_the_persons_own_words(
     client, auth_headers, monkeypatch
 ):
     """
-    Structuring wins whenever the person named their own activities.
+    The planner is asked even when the person named their own activities, and
+    a planner that cannot answer leaves their own words standing.
 
-    The suggestion path must never overwrite someone's own words with
-    MedHelp's — it is a starting point for an empty box, not a rewrite.
+    This test used to assert the opposite — that suggesting was reserved for an
+    empty box. The repository owner asked on 2026-09-09 for MedHelp to propose
+    its own plan rather than split the person's sentence into rows, so the
+    planner now runs for every goal that is not a medical one.
+
+    What did not change is the failure direction. An outage, a veto or a
+    refusal the planner could not place must leave the person with what
+    `structure` read out of their text, never with an empty editor — the same
+    rule as a model outage in triage never being SELF_CARE.
     """
     monkeypatch.setattr(goal_structuring, "available", lambda: True)
     monkeypatch.setattr(
@@ -561,8 +569,82 @@ def test_the_endpoint_suggests_only_when_nothing_was_named(
         "/goals/draft", json={"description": WALKING}, headers=auth_headers
     ).json()
 
-    assert called == []
+    # Asked, where it used to be skipped.
+    assert called == [WALKING]
+    # And, having returned nothing, it left the person's own row alone.
+    assert body["activities"][0]["text"] == "Walk in the mornings"
     assert body["activities"][0]["generated"] is False
+
+
+def test_an_originated_plan_replaces_the_split_and_is_labelled(
+    client, auth_headers, monkeypatch
+):
+    """
+    The main path: MedHelp proposes its own plan, not the person's sentence in
+    rows, and every row it proposes says so.
+
+    The label is the load-bearing part. An originated plan is health content
+    nobody wrote, and `generated=True` is what puts "Suggested by MedHelp —
+    edit it or remove it" on the row. A plan that arrived unlabelled would read
+    as the person's own writing handed back to them.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    # The person named one activity, so the old behaviour would have returned
+    # exactly this row and never asked the planner.
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: goal_structuring.GoalDraft(
+            title="Walking",
+            activities=[
+                goal_structuring.Activity(
+                    text="Walk in the mornings",
+                    cadence="daily",
+                    preferred_time="morning",
+                    source_phrase="walk in the mornings",
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        goal_structuring,
+        "suggest_plan",
+        lambda description: goal_structuring.GoalDraft(
+            title="Getting out more",
+            activities=[
+                goal_structuring.Activity(
+                    text="Walk after lunch",
+                    cadence="times_per_week",
+                    times_per_week=4,
+                    preferred_time="afternoon",
+                    source_phrase=None,
+                    generated=True,
+                ),
+                goal_structuring.Activity(
+                    text="Go to bed at the same time each night",
+                    cadence="daily",
+                    preferred_time="evening",
+                    source_phrase=None,
+                    generated=True,
+                ),
+            ],
+        ),
+    )
+
+    body = client.post(
+        "/goals/draft", json={"description": WALKING}, headers=auth_headers
+    ).json()
+
+    assert body["title"] == "Getting out more"
+    texts = [a["text"] for a in body["activities"]]
+    assert texts == ["Walk after lunch", "Go to bed at the same time each night"]
+    # Not the row `structure` read out of their sentence.
+    assert "Walk in the mornings" not in texts
+    # ⛔ Every originated row carries the label.
+    assert all(a["generated"] is True for a in body["activities"])
+    assert all(a["source_phrase"] is None for a in body["activities"])
+    # A rhythm, not five daily rows.
+    assert body["activities"][0]["times_per_week"] == 4
 
 
 def test_a_medical_goal_is_never_answered_with_a_plan(
@@ -587,6 +669,52 @@ def test_a_medical_goal_is_never_answered_with_a_plan(
     ).json()
 
     assert called == []
+    assert body["activities"] == []
+    assert "symptoms" in body["notice"]
+
+
+def test_the_planner_reading_a_goal_as_medical_overrides_structure(
+    client, auth_headers, monkeypatch
+):
+    """
+    Two readings of the text, and the stricter one wins — in that direction
+    only.
+
+    `structure` screens first, but it is reading for quotable activities while
+    the planner is reading the goal as a whole. Where the planner comes back
+    MEDICAL_GOAL and `structure` did not, the refusal stands and the person
+    gets no plan. The reverse is not symmetrical and must never be added: a
+    planner that is happy to propose walks does not clear a goal `structure`
+    already refused.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: goal_structuring.GoalDraft(
+            title="Evenings",
+            activities=[
+                goal_structuring.Activity(
+                    text="Get my blood pressure down",
+                    cadence="daily",
+                    preferred_time="evening",
+                    source_phrase="get my blood pressure down",
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        goal_structuring,
+        "suggest_plan",
+        lambda description: goal_structuring.Refusal(goal_structuring.MEDICAL_GOAL),
+    )
+
+    body = client.post(
+        "/goals/draft",
+        json={"description": "get my blood pressure down"},
+        headers=auth_headers,
+    ).json()
+
     assert body["activities"] == []
     assert "symptoms" in body["notice"]
 

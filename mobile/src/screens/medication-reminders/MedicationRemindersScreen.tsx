@@ -12,6 +12,14 @@ import { Screen } from "@/components/Screen";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import {
+  REFILL_LEAD_DAYS_DEFAULT,
+  REFILL_LEAD_DAY_CHOICES,
+  getRefillLeadDays,
+  setRefillLeadDays,
+} from "@/services/appSettings";
+import { listMedications } from "@/services/medicationService";
+import { toRefillAlerts, type RefillAlert } from "@/services/refillAlerts";
+import {
   ApiError,
   listSchedules,
   toDueReminders,
@@ -26,7 +34,7 @@ import {
   type ReminderPermission,
 } from "@/services/notificationService";
 import { dueState, formatTimeOfDay, sortByTime } from "@/services/reminderTiming";
-import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
+import { MIN_TAP_TARGET, colors, elevation, fonts, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationReminders">;
@@ -63,18 +71,38 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [permission, setPermission] = useState<ReminderPermission>("prompt");
   const [now, setNow] = useState(() => new Date());
+  const [leadDays, setLeadDays] = useState(REFILL_LEAD_DAYS_DEFAULT);
+  const [refillAlerts, setRefillAlerts] = useState<RefillAlert[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNeedsSignIn(false);
     try {
-      const loaded = await listSchedules();
+      const days = await getRefillLeadDays();
+      setLeadDays(days);
+
+      // Both kinds of notification come from one place, because arming either
+      // one cancels everything already scheduled — see `ScheduleOptions`. The
+      // medication list is fetched here purely for the refill estimates.
+      //
+      // Its failure is swallowed rather than shared. This screen's job is the
+      // reminder times; refill alerts are the extra on top, and a medication
+      // request that fails must not turn a working reminders screen into an
+      // error page.
+      const [loaded, medications] = await Promise.all([
+        listSchedules(),
+        listMedications(days).catch(() => []),
+      ]);
       setSchedules(loaded);
+
+      const alerts = toRefillAlerts(medications, days);
+      setRefillAlerts(alerts);
+
       // Re-arm from what is actually saved, every time. This is the only
       // place notifications are scheduled, so an edit elsewhere takes effect
       // by coming back here.
-      await scheduleAll(toDueReminders(loaded));
+      await scheduleAll(toDueReminders(loaded), { refillAlerts: alerts });
     } catch (caught) {
       const message =
         caught instanceof ApiError
@@ -113,9 +141,24 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
     const result = await requestPermission();
     setPermission(result);
     if (result === "granted" && schedules) {
-      await scheduleAll(toDueReminders(schedules));
+      await scheduleAll(toDueReminders(schedules), { refillAlerts });
     }
-  }, [schedules]);
+  }, [schedules, refillAlerts]);
+
+  /**
+   * Change how far ahead a refill alert fires, and re-derive from it.
+   *
+   * The whole list is reloaded rather than recomputed on the client: the
+   * server owns the arithmetic (see `refill_forecast.py`), so asking it again
+   * is what keeps this screen and the medication list saying the same thing.
+   */
+  const changeLeadDays = useCallback(
+    async (value: number) => {
+      setLeadDays(await setRefillLeadDays(value));
+      await load();
+    },
+    [load]
+  );
 
   const withReminders = (schedules ?? []).filter((item) => item.reminders.length > 0);
   const withoutReminders = (schedules ?? []).filter(
@@ -266,6 +309,69 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/*
+        Refill alerts are armed from this screen too — see `load` for why they
+        cannot be armed anywhere else — so this is where they have to be
+        explained. A notification with no in-app account of where it came from
+        is the kind of thing people turn notifications off over.
+
+        ⛔ Every line here says "estimate". MedHelp does not know whether a
+        dose was taken, and nothing on this screen may imply that it does.
+      */}
+      {!loading && schedules !== null && (
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Refill alerts</Text>
+          <Text style={styles.sectionNote}>
+            For medications where you have entered how many are left, MedHelp
+            estimates when you will run out and alerts you beforehand. It is an
+            estimate from what you entered — it does not know whether you took
+            a dose, so it can be wrong either way.
+          </Text>
+
+          <Text style={styles.leadLabel}>Alert me this far ahead</Text>
+          <View style={styles.leadChoices}>
+            {REFILL_LEAD_DAY_CHOICES.map((choice) => {
+              const selected = choice === leadDays;
+              return (
+                <Pressable
+                  key={choice}
+                  onPress={() => void changeLeadDays(choice)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${choice} ${choice === 1 ? "day" : "days"} before running out`}
+                  style={[styles.leadChoice, selected && styles.leadChoiceSelected]}
+                >
+                  <Text
+                    style={[
+                      styles.leadChoiceText,
+                      selected && styles.leadChoiceTextSelected,
+                    ]}
+                  >
+                    {choice} {choice === 1 ? "day" : "days"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {refillAlerts.length === 0 ? (
+            <Text style={styles.sectionNote}>
+              No refill alerts are set. Add how many you have left on a
+              medication, and how often you take it, and one will appear here.
+            </Text>
+          ) : (
+            refillAlerts.map((alert) => (
+              <View key={alert.medicationId} style={styles.alertRow}>
+                <Text style={styles.alertName}>{alert.medicationName}</Text>
+                <Text style={styles.alertWhen}>
+                  Alert on {alert.fireAt.toLocaleDateString()}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
       {!loading && withReminders.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Your schedules</Text>
@@ -355,6 +461,45 @@ const styles = StyleSheet.create({
   permissionText: { ...typography.caption, color: colors.textSecondary },
   section: { gap: spacing.sm },
   sectionHeading: { ...typography.bodyStrong, color: colors.textSecondary },
+  sectionNote: { ...typography.caption, color: colors.textSecondary },
+  leadLabel: {
+    ...typography.captionStrong,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  leadChoices: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  leadChoice: {
+    minHeight: MIN_TAP_TARGET,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  leadChoiceSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSurface,
+  },
+  leadChoiceText: { ...typography.captionStrong, color: colors.textSecondary },
+  leadChoiceTextSelected: { color: colors.accent },
+  alertRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  alertName: { ...typography.bodyStrong, color: colors.textPrimary, flex: 1 },
+  alertWhen: { ...typography.caption, color: colors.textSecondary },
   todayRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -389,7 +534,7 @@ const styles = StyleSheet.create({
   rowPressed: { backgroundColor: colors.surfaceMuted },
   rowName: { ...typography.bodyStrong, color: colors.textPrimary },
   rowDose: { ...typography.caption, color: colors.textSecondary },
-  rowTimes: { ...typography.body, color: colors.accent, fontWeight: "600" },
+  rowTimes: { ...typography.body, color: colors.accent, fontFamily: fonts.sansSemibold },
   rowFrequency: { ...typography.caption, color: colors.textSecondary },
   loading: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   loadingText: { ...typography.body, color: colors.textSecondary },

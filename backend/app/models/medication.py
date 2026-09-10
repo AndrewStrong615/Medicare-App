@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -37,6 +37,24 @@ class Medication(Base):
     prescribing_doctor: Mapped[str | None] = mapped_column(String(200), nullable=True)
     refill_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Supply, for the run-out estimate. See `services/refill_forecast.py`.
+    #
+    # These extend the existing record rather than starting a parallel one:
+    # `refill_date` above is a date the user wrote down, and these three are
+    # the inputs to a projection. The two are different claims and are kept
+    # apart deliberately.
+    #
+    # `quantity_counted_on` is what stops the count going stale silently. "30
+    # left" means nothing without the day it was true, and a projection with no
+    # origin would keep reporting the same answer forever.
+    quantity_remaining: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quantity_counted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # ⛔ Never derived from `frequency`. Reading a dose count out of the printed
+    # directions is the decode the verbatim rule forbids — this is either typed
+    # by the user or left null, in which case the forecast falls back to the
+    # reminder times they confirmed.
+    doses_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -47,6 +47,23 @@ function medication(overrides: Partial<Medication> = {}): Medication {
     refillDueSoon: false,
     refillOverdue: false,
     daysUntilRefill: null,
+    // The supply fields arrived with refill forecasting after this suite was
+    // written. An empty supply is the right default here: these tests are
+    // about what Today lists, and a medication with no counted quantity
+    // offers no estimate, which is the ordinary case.
+    quantityRemaining: null,
+    quantityCountedOn: null,
+    dosesPerDay: null,
+    refillEstimate: {
+      runOutOn: null,
+      daysRemaining: null,
+      alert: false,
+      isEstimate: false,
+      dosesPerDay: null,
+      dosesPerDaySource: null,
+      reason: null,
+      leadDays: 0,
+    },
     ...overrides,
   };
 }

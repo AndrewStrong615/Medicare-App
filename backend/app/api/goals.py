@@ -125,16 +125,38 @@ def draft_goal(
         EmergencyGuidanceOut(**guidance.__dict__) if guidance is not None else None
     )
 
+    # `structure` runs first for its refusals, not for its rows. It is the
+    # screen that decides whether this goal may be answered with a plan at all,
+    # and it is deliberately the stricter of the two readings of the text.
     result = goal_structuring.structure(payload.description)
 
-    # Someone who named no activities gets a starting point rather than a dead
-    # end. Only this one refusal opens that door: a MEDICAL_GOAL must never be
-    # answered with a plan, and a model that could not read the text at all is
-    # not a model to ask for suggestions.
-    if isinstance(result, Refusal) and result.reason == NO_ACTIVITY_NAMED:
-        suggested = goal_structuring.suggest_plan(payload.description)
-        if suggested is not None:
-            result = suggested
+    # ⛔ A MEDICAL_GOAL is never answered with a plan, and that check has to
+    # happen before the planner is asked rather than inside it. "Get my blood
+    # pressure down" must reach the person as a refusal even if the planner
+    # would happily have proposed walks for it.
+    refused_outright = isinstance(result, Refusal) and result.reason == MEDICAL_GOAL
+
+    if not refused_outright:
+        # MedHelp proposes its own plan and its own weekly rhythm rather than
+        # splitting the person's sentence into rows. Asked for by the
+        # repository owner on 2026-09-09.
+        #
+        # Every row it returns is `generated=True` and reaches the screen
+        # labelled "Suggested by MedHelp", the deterministic `_FORBIDDEN` veto
+        # still discards a whole plan on one match, and nothing is saved until
+        # the person presses save. Those three are what keep this inside what
+        # the app may do, and none of them may be removed.
+        planned = goal_structuring.suggest_plan(payload.description)
+        if isinstance(planned, GoalDraft):
+            result = planned
+        elif isinstance(planned, Refusal) and planned.reason == MEDICAL_GOAL:
+            # The planner read the goal as medical where `structure` did not.
+            # The stricter of the two answers wins, in that direction only.
+            result = planned
+        # Any other planner outcome - an outage, a refusal it could not place,
+        # a draft that failed the veto - leaves `result` as `structure` left
+        # it. The person's own words are a worse plan than an originated one
+        # and a far better screen than an empty editor.
 
     if isinstance(result, GoalDraft):
         return GoalDraftOut(

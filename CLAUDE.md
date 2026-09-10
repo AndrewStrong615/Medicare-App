@@ -1391,22 +1391,33 @@ questions: `docs/health-goals-prompt.md`.
 
 ### Two paths, and the person can always tell them apart
 
-**If the person names activities, MedHelp invents nothing.** Their text is
-split into trackable rows and every row must quote them — the check below.
-This is the main path and the safest one.
+**MedHelp proposes its own plan** — a few small everyday activities and a
+weekly rhythm for them — for any goal that is not a medical one
+(`suggest_plan`). The repository owner asked for this on **2026-09-09**: the
+app should work out how to get to the goal, not hand the person's own sentence
+back split into rows.
 
-**If they name none** — "I want to be healthier" — MedHelp proposes a few
-ordinary starting points rather than giving them a dead end
-(`suggest_plan`). The repository owner asked for this directly on 2026-09-07.
+**Their own words are the fallback, not the main path.** `structure` still
+reads quotable activities out of the text and every row it produces must quote
+them — the check below — and that is what the person gets when the planner is
+unavailable, vetoed, or refuses in a way that is not a flat MEDICAL_GOAL. An
+outage must never empty the editor, the same rule as a model outage in triage
+never being SELF_CARE.
 
-⛔ **This is the one place in the app that proposes health content nobody
-wrote.** Three things keep it inside what this app may do, and none may be
-removed:
+⛔ **This inverted on 2026-09-09, and the direction matters.** Origination used
+to be the narrow fallback and is now the main path, so this is the one place in
+the app that routinely proposes health content nobody wrote. Three things keep
+it inside what this app may do, and none may be removed:
 
-1. **It only runs when the person named nothing.** A draft that structured
-   successfully is never replaced by suggestions, and a `MEDICAL_GOAL`
-   refusal — "stop my headaches", "lose weight" — is **never** answered with a
-   plan. Only the `NO_ACTIVITY_NAMED` refusal opens that path. Both tested.
+1. **A medical goal is never answered with a plan.** `structure` screens first
+   and a `MEDICAL_GOAL` refusal — "stop my headaches", "lose weight", "get my
+   blood pressure down" — short-circuits before the planner is asked at all, so
+   the planner cannot propose walks for a blood-pressure goal. Where the
+   planner reads a goal as medical and `structure` did not, the refusal still
+   wins; ⛔ **the reverse is not symmetrical and must never be added.** A
+   planner willing to propose something does not clear a goal `structure`
+   already refused. Three tests hold this, including that the planner is not
+   even called.
 2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
    the screen, the row reads "Suggested by MedHelp — edit it or remove it",
    and editing a row clears the label because it has become the person's own.
@@ -1424,9 +1435,22 @@ The generation prompt also forbids explaining what an activity will do for the
 person — propose the activity and stop. A benefit claim is the app authoring a
 health claim, which is the line this whole feature is built around.
 
-⛔ **Suggestions are not clinically reviewed.** They are general wellbeing
-prompts written by a software engineer, and no clinician has read the prompt
-or the veto list.
+⛔ **Suggestions are not clinically reviewed, and since 2026-09-09 they are
+what most people will see.** They are general wellbeing prompts written by a
+software engineer; no clinician has read `PLAN_SYSTEM_PROMPT` or the veto list.
+This was a narrow fallback when that was written and is now the main path, so
+the exposure is materially larger than the sentence used to describe — every
+person who writes a goal now gets an app-authored plan rather than their own
+words back. It belongs in the same review as `followup.py` and
+`dose_schedule.py`, and it is now the more urgent of the three.
+
+⛔ **The safety checks are asymmetric, and origination is on the weaker side.**
+The quoting and digit checks below cannot apply to a plan nobody wrote, so an
+originated row is guarded by `_FORBIDDEN` alone where a structured row is
+guarded by `_FORBIDDEN` *and* the requirement that it quote the person. Moving
+the main path to origination therefore moved most rows onto the weaker guard.
+That is the trade the owner asked for, made deliberately; it is also the reason
+adding to `_FORBIDDEN` is the cheapest safety win available in this feature.
 
 ### The structuring rule is checked, not trusted
 

@@ -18,6 +18,41 @@ import { apiRequest } from "@/services/apiClient";
 export type Cadence = "daily" | "times_per_week" | "unspecified";
 export type PreferredTime = "morning" | "afternoon" | "evening" | "unspecified";
 
+/**
+ * The days a planned activity falls on.
+ *
+ * Week order, and lowercase, matching the server's `DAYS`. The screens
+ * capitalise for display rather than storing a second spelling.
+ */
+export const DAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+
+export type Day = (typeof DAYS)[number];
+
+/** Mon, Tue, … for a chip or a schedule line. */
+export function shortDay(day: Day): string {
+  return day.charAt(0).toUpperCase() + day.slice(1, 3);
+}
+
+/**
+ * Which day of the week a date is, as one of `DAYS`.
+ *
+ * Read off the device's own calendar day, not through UTC — the same rule as
+ * `localDay` below. A plan that said Tuesday must not read as Monday because
+ * someone is west of Greenwich.
+ */
+export function dayOfWeek(when: Date = new Date()): Day {
+  // getDay() is 0 = Sunday; DAYS starts on Monday.
+  return DAYS[(when.getDay() + 6) % 7];
+}
+
 /** Red-flag guidance. Rendered above everything else, never suppressed. */
 export interface EmergencyGuidance {
   category: string;
@@ -43,6 +78,17 @@ export interface DraftActivity {
    * which lines are theirs.
    */
   generated: boolean;
+  /**
+   * The proposed daily schedule.
+   *
+   * A planned row carries both; a row read out of the person's own words
+   * carries neither, because a clock time MedHelp invented would be a
+   * quantity the person never wrote. Either may be empty and the editor
+   * handles that — an activity with no schedule is a valid activity.
+   */
+  days: Day[];
+  /** Local wall-clock "HH:MM", never a UTC instant. */
+  timeOfDay: string | null;
 }
 
 export interface GoalDraft {
@@ -59,6 +105,10 @@ export interface GoalActivity {
   timesPerWeek: number | null;
   quantityText: string | null;
   preferredTime: PreferredTime;
+  /** Week-ordered day names. Empty means no particular day. */
+  days: Day[];
+  /** Local wall-clock "HH:MM", or null for no particular time. */
+  timeOfDay: string | null;
   /**
    * Whether the person ticked this on the day being shown.
    *
@@ -83,6 +133,8 @@ interface ApiActivity {
   times_per_week: number | null;
   quantity_text: string | null;
   preferred_time: PreferredTime;
+  days: Day[] | null;
+  time_of_day: string | null;
   completed_today: boolean;
 }
 
@@ -94,6 +146,19 @@ interface ApiGoal {
   activities: ApiActivity[];
 }
 
+/**
+ * Day names the client recognises, in week order.
+ *
+ * Filtered rather than trusted: an unrecognised value would reach a schedule
+ * line as a day nobody can act on, and ordering here means a schedule reads
+ * the same whatever order it arrived in.
+ */
+function toDays(raw: string[] | null | undefined): Day[] {
+  if (!raw) return [];
+  const named = new Set(raw.map((day) => day.toLowerCase()));
+  return DAYS.filter((day) => named.has(day));
+}
+
 function toActivity(raw: ApiActivity): GoalActivity {
   return {
     id: raw.id,
@@ -102,6 +167,8 @@ function toActivity(raw: ApiActivity): GoalActivity {
     timesPerWeek: raw.times_per_week,
     quantityText: raw.quantity_text,
     preferredTime: raw.preferred_time,
+    days: toDays(raw.days),
+    timeOfDay: raw.time_of_day ?? null,
     completedToday: raw.completed_today,
   };
 }
@@ -160,6 +227,8 @@ export async function draftGoal(description: string): Promise<GoalDraft> {
       quantityText: raw.quantity_text,
       preferredTime: raw.preferred_time,
       generated: raw.generated ?? false,
+      days: toDays(raw.days),
+      timeOfDay: raw.time_of_day ?? null,
     })),
     notice: body.notice,
     emergency: body.emergency
@@ -179,6 +248,8 @@ export interface ActivityInput {
   timesPerWeek: number | null;
   quantityText: string | null;
   preferredTime: PreferredTime;
+  days: Day[];
+  timeOfDay: string | null;
 }
 
 /** Save what the person confirmed on screen. */
@@ -198,6 +269,9 @@ export async function createGoal(input: {
         times_per_week: activity.cadence === "times_per_week" ? activity.timesPerWeek : null,
         quantity_text: activity.quantityText,
         preferred_time: activity.preferredTime,
+        days: activity.days,
+        // "" would fail the server's HH:MM check; no time is null.
+        time_of_day: activity.timeOfDay || null,
       })),
     }),
     fallbackMessage: "We couldn't save that goal. Please try again.",

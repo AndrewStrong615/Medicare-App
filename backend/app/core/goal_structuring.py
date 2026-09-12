@@ -1,33 +1,49 @@
 """
-Health goals: arranging a person's own words into a schedule the app can track.
+Health goals: proposing a plan and a daily schedule, and arranging a person's
+own words when a plan cannot be had.
 
-⛔ THE MODEL DOES NOT AUTHOR ANY OF THIS. CLAUDE.md's rule is that the app never
-authors medical content — it is why MedlinePlus text is rendered verbatim and
-why `labelParser.ts` copies a sig line across without expanding `BID`. A model
-that decides someone should walk three times a week, drink more water and wind
-down before bed has authored health advice, however sensible each line reads.
+⛔ THIS MODULE AUTHORS HEALTH PLANS. That was not true before 2026-09-12 and
+the whole of the reasoning below turns on it, so read this before the rest.
 
-So the model is given the one job that is not authoring: splitting text the
-person already wrote into individually trackable activities. It supplies form;
-the person supplies content. Same line `services/search_terms.py` walks.
+There are two paths and they are not equally guarded.
 
-## The property that is checked rather than trusted
+## `suggest_plan` — the main path, and the one that authors
 
-Every activity carries a `source_phrase`, and `_validate` discards the entire
-draft unless that phrase occurs in the text the person submitted. A model that
-wants to add stretching to a walking goal has to quote the word "stretch" out
-of text that never contained it, and it cannot.
+Given any goal a person types, including a medical one, it proposes the
+activities *and* the days and times they sit on. Nothing the person wrote has
+to appear in the result.
 
-That is the difference between this and a prompt instruction. The prompt asks;
+Until 2026-09-12 this path refused a medical goal outright and screened every
+suggestion against `_FORBIDDEN`, a phrase list that discarded a whole plan on
+one match. The repository owner asked for both to be removed so that a health
+goal is answered with a plan instead of a refusal, and they were.
+
+**So there is no deterministic guard on this path any more.** What constrains
+it is `PLAN_SYSTEM_PROMPT`, and a prompt is an instruction that is usually
+followed rather than a check that always runs. `_validate_plan` checks shape —
+a title, a day list, an "HH:MM" — and no longer looks at content at all. When
+weighing a change here, do not reason from the guarantees the second path
+offers; this one does not have them.
+
+## `structure` — the fallback, and the one that is checked
+
+Unchanged. It may only rearrange words the person actually wrote: every
+activity carries a `source_phrase`, and `_validate` discards the entire draft
+unless that phrase occurs in the submitted text. A model that wants to add
+stretching to a walking goal has to quote the word "stretch" out of text that
+never contained it, and it cannot.
+
+That is the difference between a check and an instruction. The prompt asks;
 the check enforces. Four further checks follow the same principle — most
 importantly that **no digit may appear in an activity unless the person wrote
 it**, because a number nobody asked for is the likely shape of an invented
-duration, distance or dose.
+duration, distance or dose. It is also why a `structure` row carries no clock
+time: a time is digits nobody wrote.
 
-The checks are not a complete guard. A model can still mis-split a sentence, or
-attach a real phrase to the wrong activity. They make the one failure that
-matters most — inventing an activity outright — mechanically impossible rather
-than discouraged.
+These checks are not a complete guard either. A model can still mis-split a
+sentence, or attach a real phrase to the wrong activity. They make the one
+failure that matters most on this path — inventing an activity outright —
+mechanically impossible rather than discouraged.
 
 ## Failure is never a plan
 
@@ -48,9 +64,11 @@ Nothing here is user-facing copy either. A refusal comes back as a code and the
 API owns the sentence, for the same reason `emergency.py` owns its guidance
 text: what a person reads in a health app is reviewed text.
 
-NOT REVIEWED BY A CLINICIAN. The prompt and the refusal list are a software
-engineer's construction and belong in the same review as `followup.py` and
-`dose_schedule.py`. See `docs/health-goals-prompt.md`.
+NOT REVIEWED BY A CLINICIAN, and now the only guard on the authoring path.
+`PLAN_SYSTEM_PROMPT` is a software engineer's construction and belongs in the
+same review as `followup.py` and `dose_schedule.py` — it is the most urgent of
+the three, because since 2026-09-12 nothing deterministic backs it up. See
+`docs/health-goals-prompt.md`.
 """
 
 from __future__ import annotations
@@ -72,17 +90,41 @@ MAX_ACTIVITIES = 8
 CADENCES = {"daily", "times_per_week", "unspecified"}
 PREFERRED_TIMES = {"morning", "afternoon", "evening", "unspecified"}
 
+# The days of the week a plan may put an activity on, in the order a week is
+# read. Lowercase because that is what the model is asked for and what is
+# stored; the screen capitalises for display.
+DAYS: tuple[str, ...] = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+# A scheduled time is a local wall clock "HH:MM", never a UTC instant - the
+# same rule as a medication reminder. Eight in the morning means eight in the
+# morning wherever the person is, and converting through a timezone would move
+# someone's plan the moment they travelled.
+_TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
 # Refusal codes. The API maps these to the sentences a person reads; the model
 # never writes those.
+#
+# MEDICAL_GOAL and WOULD_REQUIRE_AUTHORING were removed on 2026-09-12 at the
+# repository owner's direct request: the goals section now answers a health
+# goal with a plan rather than refusing it. A refusal reason that exists is a
+# refusal somebody eventually reads, and "MedHelp can only track activities
+# you plan to do" was the dead end this change was asked to remove.
+#
+# What is left refuses only the two things that are not a goal at all: an
+# empty box, and text nobody could read an intention out of.
 NO_ACTIVITY_NAMED = "NO_ACTIVITY_NAMED"
-MEDICAL_GOAL = "MEDICAL_GOAL"
-WOULD_REQUIRE_AUTHORING = "WOULD_REQUIRE_AUTHORING"
 UNCLEAR = "UNCLEAR"
 
 REFUSAL_REASONS = {
     NO_ACTIVITY_NAMED,
-    MEDICAL_GOAL,
-    WOULD_REQUIRE_AUTHORING,
     UNCLEAR,
 }
 
@@ -148,20 +190,23 @@ WHEN TO REFUSE
 Call cannot_structure - do not call structure_goal - when:
 
 - The person named no activity at all. "I want to be healthier", "help me
-  feel better", "get in shape" describe a destination and no steps.
-  Structuring this would mean inventing the plan.
-- What they wrote is about a symptom, an illness, an injury, a medication, or
-  a change to their body rather than about something they intend to do.
-  "Stop my headaches", "lose 20 pounds", "come off my blood pressure
-  tablets", "stop feeling dizzy" are all refusals.
-- They are asking you for a diet, a calorie target, a training programme, or
-  anything else you would have to author.
-- You cannot tell from the text what the activities actually are.
+  feel better", "get in shape" describe a destination and no steps. There is
+  nothing here to quote, so there is nothing for you to split. Use the reason
+  NO_ACTIVITY_NAMED. Somewhere else in the application proposes a plan for a
+  goal like that; it is not your job and you must not attempt it here.
+- You cannot tell from the text what the activities actually are. Use the
+  reason UNCLEAR.
 
-Refusing is always available and is always the right answer when you are
-unsure. A refusal costs the person one screen on which they type their own
-activities. An invented plan puts words into a health application's mouth
-that no one has reviewed.
+Those are the only two refusals available to you, and the reason is worth
+knowing: this step is the fallback that runs when the planner could not
+answer, so a refusal here usually leaves the person with an empty editor.
+Refuse when you genuinely cannot quote an activity out of what they wrote,
+and not otherwise.
+
+Do NOT refuse because the goal is about health. A goal about weight, sleep,
+blood pressure, fitness, food or a long-term condition is an ordinary goal
+here. If the person named things they intend to do about it, split those
+things out in their own words exactly as you would for any other goal.
 
 Give the reason code only. The application writes what the person reads; do
 not write a message to them yourself.\
@@ -270,6 +315,22 @@ class Activity:
     for a suggested activity — see `suggest_plan`. `generated` is carried all
     the way to the screen so a suggestion is always labelled as one; a person
     must never be unable to tell which lines are theirs.
+
+    ## The schedule half
+
+    `days` and `time_of_day` are the concrete daily schedule added on
+    2026-09-12: which days of the week this lands on, and the local wall-clock
+    time it sits at. They are set by `suggest_plan`, which is proposing a plan
+    of its own and may therefore name a time.
+
+    They stay empty on the `structure` path, and that is deliberate rather
+    than unfinished. `structure` may only rearrange words the person actually
+    wrote, and a clock time it invented would be a quantity nobody stated -
+    the same rule that stops it inventing a duration or a distance. A person
+    whose own words came back sets their own times on the editor.
+
+    `cadence` and `times_per_week` are *derived* from `days` for a planned
+    row rather than being asked for separately, so the two can never disagree.
     """
 
     text: str
@@ -279,6 +340,10 @@ class Activity:
     times_per_week: int | None = None
     quantity_text: str | None = None
     generated: bool = False
+    # Lowercase members of DAYS, in week order. Empty means no particular day.
+    days: tuple[str, ...] = ()
+    # Local wall clock "HH:MM", or None for no particular time.
+    time_of_day: str | None = None
 
 
 @dataclass(frozen=True)
@@ -464,108 +529,143 @@ def _validate_activity(
 
 
 # ---------------------------------------------------------------------------
-# Suggesting a starting plan, when the person named no activities of their own.
+# Proposing the plan, and the daily schedule that goes with it.
 #
-# ⛔ THIS IS THE ONE PLACE MEDHELP PROPOSES CONTENT NOBODY WROTE, and it exists
-# because the repository owner asked for it directly on 2026-09-07: someone who
-# types "I want to be healthier" gets a dead end otherwise.
+# ⛔ THIS IS WHERE MEDHELP AUTHORS CONTENT NOBODY WROTE. It runs for every goal
+# a person types, including a medical one, and it proposes both the activities
+# and the days and times they sit on.
 #
-# Three things keep it inside what this app may do:
+# ## What changed on 2026-09-12, and what it cost
 #
-# 1. **It only runs when the person named nothing.** If they listed activities,
-#    those are structured and quoted as before and nothing is invented. This
-#    path is a starting point, not a rewrite of anyone's own words.
-# 2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
+# This path used to refuse a medical goal outright (the MEDICAL_GOAL code) and
+# ran every suggestion past `_FORBIDDEN`, a phrase list that discarded a whole
+# plan on one match — so "lose weight" or "get my blood pressure down" reached
+# the person as a refusal rather than a plan. The repository owner asked
+# directly, on 2026-09-12, for both to go and for the section to answer any
+# health goal with a plan and a daily schedule.
+#
+# Both are gone. Be clear-eyed about what that means rather than reassured by
+# what is left: the deterministic guard is removed, and the prompt below is now
+# the ONLY thing standing between a model and an app-authored health plan for a
+# named condition. A prompt is an instruction that is usually followed; a
+# phrase list was a check that always ran. This is a materially weaker position
+# and it was chosen deliberately.
+#
+# ## What still holds
+#
+# 1. **Every suggestion is labelled and confirmed.** `generated=True` reaches
 #    the screen, the row says MedHelp suggested it, and nothing is saved until
-#    the person edits and presses save. The human review pass CLAUDE.md asks
-#    for is the person themselves.
-# 3. **A deterministic veto, not a model gate.** `_FORBIDDEN` below is a phrase
-#    list a clinician can read line by line, and any suggestion matching one is
-#    discarded. A second model asked "is this safe?" would have a silent pass
-#    as its failure mode; a phrase list fails closed.
+#    the person edits and presses save. The review pass is the person.
+# 2. **Nothing is a claim.** The prompt still forbids saying what an activity
+#    will do for someone — propose the activity, not the benefit — because a
+#    benefit claim is the app making a health claim about a named condition.
+# 3. **Emergency screening still runs first**, in `api/goals.py`, before this
+#    is ever called. That is untouched and must stay untouched.
+# 4. **The `structure` fallback is unchanged.** Where this path fails, the
+#    person's own quoted words still come back rather than an empty editor.
 #
-# ⛔ NOT CLINICALLY REVIEWED. These are general wellbeing prompts, not advice
-# for any condition, and nobody qualified has read them. That review is still
-# outstanding — see `docs/health-goals-prompt.md`.
+# ⛔ NOT CLINICALLY REVIEWED, AND NOW CARRYING MORE WEIGHT THAN EVER. Nobody
+# qualified has read `PLAN_SYSTEM_PROMPT`, and it is now the whole of the
+# guard. This is the most urgent item in the outstanding clinical review — see
+# `docs/health-goals-prompt.md` and CLAUDE.md.
 # ---------------------------------------------------------------------------
 
-# A suggested plan stays small. A long list read as a prescription, and nobody
-# starting out keeps to fifteen new habits.
+# A plan stays small. A long list reads as a prescription, and nobody starting
+# out keeps to fifteen new habits.
 MAX_SUGGESTED = 5
 
 PLAN_SYSTEM_PROMPT = """\
-You are helping someone start a wellbeing plan inside a health application.
-They have written down what they would like to work towards. You are proposing
-the plan itself: a few small everyday activities, and a weekly rhythm for them,
-that would be an ordinary way to work towards what they described.
+You are proposing a plan inside a health application. A person has written
+down a goal, and your job is to turn it into something they can actually do:
+a few small everyday activities, and a daily schedule saying which days of the
+week each one happens and at what time.
 
 This is your plan, not a re-reading of their sentence. If they already named
 some activities you may keep the ones that fit, but do not simply hand their
 own words back as a list - propose the plan you would actually suggest to
 someone starting out. They edit every row before anything is saved.
 
-GIVING IT A SHAPE
+ANY GOAL GETS A PLAN
 
-The person gets a rhythm, not a pile. Spread the activities across the week
-rather than making every one of them daily, and use `preferred_time` to put
-each one somewhere it plausibly fits - a walk after lunch is afternoon,
-winding down is evening. Two or three things on a steady weekly rhythm is a
-better plan than five things every day, which nobody keeps up.
+Plan for the goal they actually wrote, including a health one. Weight, sleep,
+fitness, food, stress, energy, a long-term condition, a measurement their
+doctor mentioned - these are ordinary goals here and each gets a practical
+plan of everyday activities. Do not refuse a goal for being about health, and
+do not quietly answer a different, safer goal than the one they wrote.
 
-Whenever you set `cadence` to "times_per_week" you MUST also give
-`times_per_week`, a whole number from 1 to 7. A weekly activity without a
-number is rejected, and one rejected activity discards the entire plan - the
-person is left with nothing. If you do not want to commit to a number, use
-"daily" or "unspecified" instead and leave `times_per_week` null.
+THE DAILY SCHEDULE
+
+Every activity needs `days` and `time_of_day`. This is the part the person
+came for: a plan with no schedule is a list.
+
+- `days` is a list of day names from: monday, tuesday, wednesday, thursday,
+  friday, saturday, sunday. Give every day the activity happens on. All seven
+  for something daily.
+- `time_of_day` is a 24-hour local clock time, "HH:MM" - "07:30", "13:00",
+  "21:15". Pick an hour the activity plausibly fits: a walk after lunch is
+  early afternoon, winding down is late evening, stretching on waking is
+  early morning.
+- Spread the week out and stagger the times. Two or three things on a steady
+  rhythm at sensible hours is a better plan than five things every day at
+  09:00, which nobody keeps up.
+- Waking hours only, and keep them ordinary: nothing before 06:00 or after
+  22:00 unless the goal is itself about sleep or shift work.
+
+Do not set `cadence` or `times_per_week`. The application works those out
+from the days you give, so they can never disagree with the schedule.
 
 WHAT TO PROPOSE
 
 - Between two and five small, ordinary, everyday activities.
 - Things a person can do without equipment, a gym, a subscription or money.
-- Plain movement, rest, routine, time outdoors, time with people, and simple
-  daily habits.
+- Plain movement, rest, routine, food habits, time outdoors, time with
+  people, and simple daily habits.
 - Modest starting points, not a training programme. Assume the person is
   starting from nothing and has little spare time.
 - Write each one as a short plain instruction: "Walk after lunch", "Go to bed
-  at the same time each night".
+  at the same time each night", "Cook dinner at home".
 - You may give a small, gentle amount of time where it helps - "ten minutes",
-  "a short walk". Keep it easy. Never a distance, a weight, a repetition
-  count, a pace or a heart rate.
+  "a short walk". Keep it easy.
 
 WHAT YOU MUST NEVER PROPOSE
 
-These are absolute. If a goal cannot be answered without one of these, refuse
-instead.
+These are absolute, and they are about what only a clinician may decide. If a
+goal cannot be answered without one of these, propose the everyday activities
+around it instead and leave the clinical part alone.
 
-- Anything about food quantity, calories, dieting, fasting, skipping meals,
-  cutting out food groups, or weight in any units.
-- Anything about losing or gaining weight, body size, body shape or appearance.
-- Supplements, vitamins, medicines, doses, or changes to anything prescribed.
-- Treating, managing, monitoring or improving any symptom, illness, injury or
-  medical measurement - including blood pressure, blood sugar and cholesterol.
+- A medication, a dose, a supplement, or any change to something prescribed -
+  including starting, stopping, splitting or skipping one. If a goal is about
+  medication, the most you may propose is a routine for taking it as already
+  prescribed, and never a change to what that is.
+- A target number for a clinical measurement: a weight to reach, a blood
+  pressure, a blood sugar, a cholesterol figure, a calorie target.
+- Anything presented as treating, curing or managing a diagnosed illness or
+  injury, or as a substitute for seeing someone about it.
 - Intense, strenuous or competitive exercise, training to exhaustion, or
   continuing through pain of any kind.
+- Fasting, purging, detoxes, cleanses, skipping meals, or cutting out a food
+  group entirely.
 - Any claim about what an activity will do for the person's health, body or
-  illness. Propose the activity and stop. No benefits, no reasons, no promises.
-- Any mention of a medical condition, by name or by description.
+  illness. Propose the activity and stop. No benefits, no reasons, no
+  promises, no mechanisms. "Walk after lunch" - not "walk after lunch to
+  bring your blood sugar down".
+
+The last one matters most and is the easiest to break. A plan that only
+proposes activities is a plan; the moment it explains what those activities
+will do to a person's illness, it has become advice nobody qualified wrote.
 
 WHEN TO REFUSE
 
-Call cannot_structure instead of suggest_plan when:
+Refusing is a last resort here, not a safe default. The person came for a
+plan, and an empty screen is the worst answer available. Call
+cannot_structure instead of suggest_plan only when:
 
-- The goal is about a symptom, illness, injury, medication, or a change to the
-  person's body. "Stop my headaches", "lose weight", "get my blood pressure
-  down", "come off my tablets". Use the reason MEDICAL_GOAL. This holds however
-  the person phrased it and however much detail they gave: a medical goal with
-  activities already attached to it is still a medical goal, and building a
-  plan around one would be the app prescribing.
-- The goal asks for a diet, a calorie target or a training programme. Use
-  WOULD_REQUIRE_AUTHORING.
-- You cannot tell what the person is going for. Use UNCLEAR.
+- The box is empty, or there is no goal in it at all. Use the reason
+  NO_ACTIVITY_NAMED.
+- You genuinely cannot tell what the person is going for. Use UNCLEAR.
 
-Refusing is always available and is always right when you are unsure. The
-person can write their own activities on the next screen, so a refusal costs
-them very little and a bad suggestion costs them a great deal more.\
+There is no refusal code for "this goal is about health". That is not a
+reason to refuse.\
 """
 
 SUGGEST_PLAN = {
@@ -573,8 +673,9 @@ SUGGEST_PLAN = {
     "function": {
         "name": "suggest_plan",
         "description": (
-            "Propose a few small everyday starting activities the person will "
-            "edit before anything is saved."
+            "Propose a few small everyday activities, each on named days of "
+            "the week at a named time, which the person will edit before "
+            "anything is saved."
         ),
         "parameters": {
             "type": "object",
@@ -592,42 +693,34 @@ SUGGEST_PLAN = {
                                 "type": "string",
                                 "description": "Short plain instruction.",
                             },
-                            "cadence": {
-                                "type": "string",
-                                "enum": sorted(CADENCES),
+                            # ⛔ The schedule replaced `cadence` /
+                            # `times_per_week` as model input on 2026-09-12.
+                            # Those two are still stored, but they are now
+                            # DERIVED from `days` in `_validate_plan` rather
+                            # than asked for, so a plan cannot come back
+                            # saying "three times a week" beside four days.
+                            # It also removes the failure that discarded a
+                            # whole plan when a model picked the weekly
+                            # cadence and forgot the count.
+                            "days": {
+                                "type": "array",
+                                "items": {"type": "string", "enum": list(DAYS)},
+                                "minItems": 1,
+                                "maxItems": 7,
                                 "description": (
-                                    "Use 'times_per_week' for anything not "
-                                    "done every day, and give times_per_week "
-                                    "with it."
+                                    "Every day of the week this happens on. "
+                                    "All seven for a daily activity."
                                 ),
                             },
-                            "times_per_week": {
-                                "type": ["integer", "null"],
-                                "minimum": 1,
-                                "maximum": 7,
-                                # ⛔ REQUIRED whenever cadence is
-                                # "times_per_week", and the schema cannot say
-                                # so - JSON Schema needs if/then for that and
-                                # providers vary in whether they honour it. The
-                                # validator discards the WHOLE plan when it is
-                                # missing, so a model that picks the weekly
-                                # cadence and omits the count costs the person
-                                # their entire plan. Stated here and in
-                                # PLAN_SYSTEM_PROMPT because those are the two
-                                # places the model actually reads.
-                                "description": (
-                                    "How many days a week, 1 to 7. REQUIRED "
-                                    "when cadence is 'times_per_week'. Use "
-                                    "null only when cadence is 'daily' or "
-                                    "'unspecified'."
-                                ),
-                            },
-                            "preferred_time": {
+                            "time_of_day": {
                                 "type": "string",
-                                "enum": sorted(PREFERRED_TIMES),
+                                "description": (
+                                    "Local 24-hour clock time, 'HH:MM', e.g. "
+                                    "'07:30' or '18:00'."
+                                ),
                             },
                         },
-                        "required": ["text", "cadence", "preferred_time"],
+                        "required": ["text", "days", "time_of_day"],
                         "additionalProperties": False,
                     },
                 },
@@ -639,51 +732,42 @@ SUGGEST_PLAN = {
 }
 
 
-# The veto. Lay language, matched on word boundaries, because a model writes
-# "lose weight", not "reduce body mass". Anything matching is discarded whole.
+# ⛔ `_FORBIDDEN` AND `mentions_forbidden` WERE REMOVED ON 2026-09-12.
 #
-# Each group is here because it is a category this app may not author, not
-# because the words are rude. Adding to this list is cheap and safe; removing
-# from it needs the clinical review.
-_FORBIDDEN: tuple[str, ...] = (
-    # Food quantity and restriction.
-    "calorie", "calories", "kcal", "diet", "diets", "dieting", "fasting",
-    "fast for", "skip a meal", "skip meals", "skip breakfast", "skip lunch",
-    "skip dinner", "cut out", "cut down on food", "portion control",
-    "restrict", "restricting", "detox", "cleanse", "juice cleanse",
-    # Body and weight.
-    "weight", "weigh", "pounds", "lbs", "kilograms", "kilos", "kg", "bmi",
-    "body fat", "waist", "slim", "lean down", "tone up", "belly",
-    # Medicines and measurements.
-    "supplement", "supplements", "vitamin", "vitamins", "protein powder",
-    "medication", "medicine", "tablet", "pill", "dose", "dosage", "mg",
-    "blood pressure", "blood sugar", "cholesterol", "heart rate", "bpm",
-    "symptom", "symptoms", "diagnos", "treat", "treatment", "cure", "therapy",
-    # Intensity.
-    "intense", "intensity", "high-intensity", "hiit", "strenuous", "vigorous",
-    "push through", "no pain", "to failure", "max out", "sprint", "marathon",
-    "heavy lifting", "personal best",
-)
-
-_FORBIDDEN_PATTERNS = tuple(
-    re.compile(rf"\b{re.escape(phrase)}", re.IGNORECASE) for phrase in _FORBIDDEN
-)
-
-
-def mentions_forbidden(value: str) -> bool:
-    """Whether `value` touches a category this app may not author."""
-    return any(pattern.search(value) for pattern in _FORBIDDEN_PATTERNS)
+# They were a phrase list — "calorie", "weight", "blood pressure", "dose",
+# "hiit" and about sixty more — and one match anywhere in a plan discarded the
+# whole plan. That is what made "help me lose weight" unanswerable: the goal
+# could not be planned for without using the words the veto was watching for.
+#
+# The repository owner asked for that blocking gone, so it is gone rather than
+# loosened. Two things follow, and both are worth knowing before anyone
+# reinstates a check here:
+#
+# - **There is no deterministic guard on a suggested plan any more.** The only
+#   constraint is `PLAN_SYSTEM_PROMPT`, which is an instruction rather than a
+#   check. A phrase list failed closed; a prompt fails open and silently.
+# - **Reinstating a narrower list is the cheapest safety work available in
+#   this feature**, and the clinical reviewer should be asked what belongs on
+#   it. It is deliberately not being guessed at here.
+#
+# What did NOT change: a plan is still labelled `generated`, still edited and
+# confirmed by the person before it is saved, and emergency screening in
+# `api/goals.py` still runs before this module is called at all.
 
 
 def suggest_plan(description: str) -> GoalDraft | Refusal | None:
     """
     Propose an original plan, and a weekly rhythm for it, for a stated goal.
 
-    This runs for every goal that is not a medical one, not only for someone
-    who named no activities - the repository owner asked on 2026-09-09 for the
-    app to propose its own plan rather than split the person's sentence into
-    rows. `structure` still exists and is still the fallback: where a plan
-    cannot be had, the person's own words are better than an empty editor.
+    This runs for every goal, medical ones included - the repository owner
+    asked on 2026-09-09 for the app to propose its own plan rather than split
+    the person's sentence into rows, and on 2026-09-12 for the refusal that
+    held health goals back to be removed. `structure` still exists and is
+    still the fallback: where a plan cannot be had, the person's own words are
+    better than an empty editor.
+
+    Every activity comes back with `days` and `time_of_day` set, so what
+    reaches the screen is a plan with a daily schedule rather than a list.
 
     Everything it returns is `generated=True`, so every row reaches the screen
     carrying "Suggested by MedHelp - edit it or remove it". That label is what
@@ -731,13 +815,76 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | None:
     return _validate_plan(call.arguments)
 
 
+def _normalise_days(raw: Any) -> tuple[str, ...] | None:
+    """
+    The days a planned activity lands on, deduplicated and in week order.
+
+    Returns None when the value is not a usable list of day names. Week order
+    is imposed here rather than trusted from the model, so "sunday, monday"
+    and "monday, sunday" are the same schedule and read the same on screen.
+    """
+    if not isinstance(raw, list) or not raw:
+        return None
+    named = {
+        value.strip().lower()
+        for value in raw
+        if isinstance(value, str) and value.strip().lower() in DAYS
+    }
+    if not named or len(named) != len({v.strip().lower() for v in raw if isinstance(v, str)}):
+        # An unrecognised day name means the model was working from a
+        # vocabulary that is not ours, and guessing which day it meant would
+        # put an activity on the wrong day of someone's week.
+        return None
+    return tuple(day for day in DAYS if day in named)
+
+
+def _normalise_time(raw: Any) -> str | None:
+    """
+    A local wall-clock "HH:MM", or None if it is not one.
+
+    Deliberately strict: "8am", "0800" and "8:00" are refused rather than
+    guessed, exactly as `services/dose_schedule.py` refuses them, and for the
+    same reason - "8" could be either end of the day and an activity put at
+    the wrong one is worse than an activity with no time on it.
+    """
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    return value if _TIME_PATTERN.match(value) else None
+
+
+def _bucket(time_of_day: str | None) -> str:
+    """
+    The coarse `preferred_time` that goes with a clock time.
+
+    Derived rather than asked for, so the two can never contradict each other
+    on screen. The boundaries are the ordinary English ones and carry no
+    clinical meaning.
+    """
+    if time_of_day is None:
+        return "unspecified"
+    hour = int(time_of_day[:2])
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
+
+
 def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     """
-    Check a suggested plan.
+    Check a suggested plan and derive its cadence from its schedule.
 
-    A single forbidden phrase discards the whole plan rather than the one row.
-    A model that proposed one thing it should not have is not a model whose
-    other four suggestions have been earned.
+    ⛔ THIS NO LONGER VETOES ON CONTENT. The `_FORBIDDEN` phrase list that used
+    to discard a whole plan on one match was removed on 2026-09-12 — see the
+    note above it. What is left checks shape only: that there is a title, that
+    there are not too many rows, and that every row carries a schedule this
+    app can actually render.
+
+    A row without a usable day list or a usable "HH:MM" discards the whole
+    plan rather than being kept with a blank schedule. A plan the person asked
+    for and cannot see the timing of is not the thing they asked for, and a
+    silently half-scheduled plan is harder to notice than an absent one.
     """
     title = arguments.get("title")
     raw_activities = arguments.get("activities")
@@ -747,44 +894,36 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
         return _discard("plan: no activities")
     if len(raw_activities) > MAX_SUGGESTED:
         return _discard("plan: more activities than MAX_SUGGESTED")
-    if mentions_forbidden(title):
-        return _discard("plan: the title matched the forbidden list")
 
     activities: list[Activity] = []
     for raw in raw_activities:
         if not isinstance(raw, dict):
             return _discard("plan: an activity was not an object")
         text = raw.get("text")
-        cadence = raw.get("cadence")
-        preferred_time = raw.get("preferred_time")
-        times_per_week = raw.get("times_per_week")
-
         if not isinstance(text, str) or not text.strip():
             return _discard("plan: an activity had no text")
-        if cadence not in CADENCES or preferred_time not in PREFERRED_TIMES:
-            return _discard("plan: an activity had an unrecognised cadence or time")
-        if mentions_forbidden(text):
-            # The veto doing its job. Worth separating from every other discard,
-            # because it is the one that is *correct* to fire — and the one
-            # worth investigating only if it fires for everybody, which is
-            # exactly what CLAUDE.md says about the structuring checks.
-            return _discard("plan: an activity matched the forbidden list")
-        if cadence == "times_per_week":
-            if not isinstance(times_per_week, int) or not 1 <= times_per_week <= 7:
-                return _discard("plan: times_per_week was missing or out of range")
-        elif times_per_week is not None:
-            return _discard("plan: times_per_week was given for a non-weekly cadence")
+
+        days = _normalise_days(raw.get("days"))
+        if days is None:
+            return _discard("plan: an activity had no usable list of days")
+        time_of_day = _normalise_time(raw.get("time_of_day"))
+        if time_of_day is None:
+            return _discard("plan: an activity had no usable HH:MM time")
+
+        # Derived, never asked for: a plan cannot say "three times a week"
+        # beside four days, because nothing separately reports the count.
+        cadence = "daily" if len(days) == len(DAYS) else "times_per_week"
 
         activities.append(
             Activity(
                 text=text.strip(),
                 cadence=cadence,
-                preferred_time=preferred_time,
+                preferred_time=_bucket(time_of_day),
                 source_phrase=None,
-                times_per_week=(
-                    times_per_week if cadence == "times_per_week" else None
-                ),
+                times_per_week=None if cadence == "daily" else len(days),
                 generated=True,
+                days=days,
+                time_of_day=time_of_day,
             )
         )
 

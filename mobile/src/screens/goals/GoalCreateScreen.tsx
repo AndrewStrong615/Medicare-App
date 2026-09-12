@@ -11,9 +11,12 @@ import { Screen } from "@/components/Screen";
 import { TextField } from "@/components/TextField";
 import { ApiError } from "@/services/apiClient";
 import {
+  DAYS,
   createGoal,
   draftGoal,
+  shortDay,
   type ActivityInput,
+  type Day,
   type EmergencyGuidance,
 } from "@/services/goalService";
 import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
@@ -34,27 +37,35 @@ type Props = NativeStackScreenProps<RootStackParamList, "GoalCreate">;
  *
  * ## Two kinds of row, and the person can always tell them apart
  *
- * When the person named activities, the draft may only ever contain their own
- * words rearranged: the server checks that each row quotes the text they typed
- * and discards the whole draft otherwise. `sourcePhrase` is shown beneath the
- * row so that is visible rather than taken on trust.
+ * The usual row is one MedHelp proposed: an activity it wrote, on days it
+ * picked, at a time it chose. Those rows are `generated` and they say so on
+ * screen. ⛔ Never render a suggested row without that label — a person must
+ * be able to tell which lines are theirs, and editing a row's text clears the
+ * label because the line has become theirs.
  *
- * When they named none — "I want to be healthier" — MedHelp proposes a few
- * ordinary starting points instead of giving them a dead end. Those rows are
- * `generated`, and they say so on screen. ⛔ Never render a suggested row
- * without that label: a person must be able to tell which lines are theirs,
- * and editing one clears the label because it has become theirs.
- *
- * A suggestion is confirmed the same way everything else here is — nothing is
- * saved until they press save.
+ * The other row quotes the person. It appears when the planner could not
+ * answer and the server fell back to splitting what they wrote; the server
+ * checked that each row quotes their text, and `sourcePhrase` is shown
+ * beneath it so that is visible rather than taken on trust. Those rows carry
+ * no schedule, because a time MedHelp invented would be a quantity the person
+ * never wrote — the day chips and the time field start empty and they fill
+ * them in.
  *
  * A draft can legitimately be empty — no model configured, an outage, or a
  * refusal. The screen then shows the server's sentence and an empty row to
  * type into. There is never a generated fallback plan.
  *
- * ⛔ Nothing here interprets a goal. It does not say whether a goal is
- * realistic, healthy or advisable, and it never explains why an activity might
- * help. That would be app-authored health advice, which CLAUDE.md forbids.
+ * ## ⛔ What this screen must keep saying
+ *
+ * Since 2026-09-12 MedHelp proposes a plan for **any** goal, a medical one
+ * included, and no deterministic check screens what it proposes. The footnote
+ * above the save button is what tells the person that what they are looking
+ * at was written by software and reviewed by nobody. It is not decoration.
+ *
+ * Nothing here interprets a goal beyond proposing activities for it. It does
+ * not say whether a goal is realistic or advisable, and it never explains
+ * what an activity will do for the person — a benefit claim is the app making
+ * a health claim, which is the line this feature is still built around.
  */
 export function GoalCreateScreen({ navigation }: Props) {
   const [description, setDescription] = useState("");
@@ -75,6 +86,8 @@ export function GoalCreateScreen({ navigation }: Props) {
     timesPerWeek: null,
     quantityText: null,
     preferredTime: "unspecified",
+    days: [],
+    timeOfDay: null,
   });
 
   const suggest = async () => {
@@ -93,6 +106,8 @@ export function GoalCreateScreen({ navigation }: Props) {
               timesPerWeek: activity.timesPerWeek,
               quantityText: activity.quantityText,
               preferredTime: activity.preferredTime,
+              days: activity.days,
+              timeOfDay: activity.timeOfDay,
             }))
           : [blank()]
       );
@@ -131,6 +146,33 @@ export function GoalCreateScreen({ navigation }: Props) {
     setSuggested((current) => current.map((was, at) => (at === index ? false : was)));
   };
 
+  /**
+   * Add or remove one day from a row's schedule.
+   *
+   * Rebuilt from `DAYS` rather than pushed onto, so the list stays in week
+   * order however the chips were tapped and a schedule reads the same way
+   * every time.
+   */
+  const toggleDay = (index: number, day: Day) => {
+    setActivities((current) =>
+      current.map((activity, at) => {
+        if (at !== index) return activity;
+        const picked = new Set(activity.days);
+        if (picked.has(day)) picked.delete(day);
+        else picked.add(day);
+        return { ...activity, days: DAYS.filter((each) => picked.has(each)) };
+      })
+    );
+  };
+
+  const updateTime = (index: number, timeOfDay: string) => {
+    setActivities((current) =>
+      current.map((activity, at) =>
+        at === index ? { ...activity, timeOfDay: timeOfDay.trim() || null } : activity
+      )
+    );
+  };
+
   const removeActivity = (index: number) => {
     setActivities((current) => current.filter((_, at) => at !== index));
     setSources((current) => current.filter((_, at) => at !== index));
@@ -144,7 +186,37 @@ export function GoalCreateScreen({ navigation }: Props) {
   };
 
   const filled = activities.filter((activity) => activity.text.trim().length > 0);
-  const canSave = title.trim().length > 0 && filled.length > 0 && !saving;
+
+  /**
+   * A time is either a 24-hour HH:MM or nothing at all.
+   *
+   * Checked here as well as on the server so someone who mistypes one is told
+   * on the screen they typed it on, rather than by a 422 after pressing save.
+   */
+  const badTimes = filled
+    .map((activity, index) => ({ activity, index }))
+    .filter(({ activity }) => activity.timeOfDay && !/^([01]\d|2[0-3]):[0-5]\d$/.test(activity.timeOfDay));
+
+  const canSave = title.trim().length > 0 && filled.length > 0 && badTimes.length === 0 && !saving;
+
+  /**
+   * Keep the cadence in step with the days that were ticked.
+   *
+   * The server derives these for a plan it proposed; a row the person typed
+   * or re-ticked has to have them worked out somewhere too, or the schedule
+   * line would say "whenever you choose" beside three ticked days.
+   */
+  const withDerivedCadence = (activity: ActivityInput): ActivityInput => {
+    if (activity.days.length === 0) return activity;
+    if (activity.days.length === DAYS.length) {
+      return { ...activity, cadence: "daily", timesPerWeek: null };
+    }
+    return {
+      ...activity,
+      cadence: "times_per_week",
+      timesPerWeek: activity.days.length,
+    };
+  };
 
   const save = async () => {
     setError(null);
@@ -153,10 +225,9 @@ export function GoalCreateScreen({ navigation }: Props) {
       await createGoal({
         title: title.trim(),
         description: description.trim() || title.trim(),
-        activities: filled.map((activity) => ({
-          ...activity,
-          text: activity.text.trim(),
-        })),
+        activities: filled.map((activity) =>
+          withDerivedCadence({ ...activity, text: activity.text.trim() })
+        ),
       });
       navigation.navigate("HealthGoals", { savedFor: title.trim() });
     } catch (caught) {
@@ -175,7 +246,7 @@ export function GoalCreateScreen({ navigation }: Props) {
     <Screen wide>
       <PageHeader
         title="Add a goal"
-        subtitle="Write what you plan to do. MedHelp will help you keep track of it."
+        subtitle="Write what you want to work towards. MedHelp will suggest a plan and a weekly schedule you can change."
       />
 
       {/* Above everything else, and never suppressed by a later failure. */}
@@ -188,21 +259,21 @@ export function GoalCreateScreen({ navigation }: Props) {
       )}
 
       <TextField
-        label="What do you plan to do?"
+        label="What would you like to work towards?"
         value={description}
         onChangeText={setDescription}
         multiline
-        placeholder="For example: walk in the mornings and swim at the weekend"
-        hint="Write it however you like. If you list what you plan to do, MedHelp only splits up your own words. If you don't, it will suggest a few ordinary starting points for you to edit."
+        placeholder="For example: I want to sleep better and get outdoors more"
+        hint="Write it however you like. MedHelp will suggest a few everyday activities and the days and times to do them. Every row is yours to change, and nothing is saved until you press save."
       />
 
       <AppButton
-        label={drafting ? "Reading…" : "Suggest activities"}
+        label={drafting ? "Working it out…" : "Suggest a plan"}
         onPress={suggest}
         loading={drafting}
         disabled={description.trim().length === 0 || drafting}
         variant="secondary"
-        accessibilityHint="Splits what you wrote into activities you can edit. Nothing is saved yet."
+        accessibilityHint="Suggests activities and a weekly schedule you can edit. Nothing is saved yet."
       />
 
       {notice && <Text style={styles.notice}>{notice}</Text>}
@@ -232,6 +303,47 @@ export function GoalCreateScreen({ navigation }: Props) {
                   Suggested by MedHelp — edit it or remove it
                 </Text>
               ) : null}
+
+              {/*
+                The daily schedule. Every day is a separate toggle rather than
+                a "weekdays" shortcut: a shortcut would be MedHelp deciding
+                which days someone's week is made of.
+              */}
+              <Text style={styles.scheduleLabel}>Which days?</Text>
+              <View style={styles.days}>
+                {DAYS.map((day) => {
+                  const picked = activity.days.includes(day);
+                  return (
+                    <Pressable
+                      key={day}
+                      onPress={() => toggleDay(index, day)}
+                      style={[styles.day, picked && styles.dayPicked]}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: picked }}
+                      accessibilityLabel={`${day} for activity ${index + 1}`}
+                    >
+                      <Text style={[styles.dayText, picked && styles.dayTextPicked]}>
+                        {shortDay(day)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <TextField
+                label="At what time?"
+                value={activity.timeOfDay ?? ""}
+                onChangeText={(time) => updateTime(index, time)}
+                placeholder="08:00"
+                hint="24-hour clock, like 08:00 or 18:30. Leave it blank for no set time."
+              />
+              {activity.timeOfDay &&
+                !/^([01]\d|2[0-3]):[0-5]\d$/.test(activity.timeOfDay) && (
+                  <Text style={styles.badTime}>
+                    Enter the time as HH:MM on a 24-hour clock, like 08:00.
+                  </Text>
+                )}
+
               {activities.length > 1 && (
                 <Pressable
                   onPress={() => removeActivity(index)}
@@ -256,10 +368,24 @@ export function GoalCreateScreen({ navigation }: Props) {
             disabled={!canSave}
             accessibilityHint="Saves this goal and its activities"
           />
+          {/*
+            ⛔ This replaced "MedHelp does not decide what your goals should
+            be", which stopped being true on 2026-09-12 when the app started
+            proposing plans for any goal. A statement about the software that
+            no longer describes the software is worse than none, and this one
+            sits where a person reads it before saving an authored plan.
+
+            It is not the reviewed `DisclaimerBanner`, which this screen has
+            never carried — which screens show that is fenced in CLAUDE.md and
+            is a reviewer's call, not a layout one.
+          */}
           <Text style={styles.footnote}>
-            MedHelp keeps track of what you tick off. It does not decide what your
-            goals should be, and it cannot tell you whether a goal is right for you —
-            for that, speak to a healthcare professional.
+            These suggestions were written by MedHelp, not by a doctor or nurse.
+            Nobody medically qualified has checked them or knows anything about
+            your health. Change anything that does not suit you, and speak to a
+            healthcare professional before acting on a goal about a medical
+            condition, a medicine, or a big change to what you eat or how you
+            exercise.
           </Text>
         </View>
       )}
@@ -288,6 +414,26 @@ const styles = StyleSheet.create({
   activityRow: { gap: spacing.xs },
   source: { ...typography.caption, color: colors.textSecondary },
   suggested: { ...typography.caption, color: colors.accent },
+  scheduleLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  days: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  day: {
+    minWidth: MIN_TAP_TARGET,
+    minHeight: MIN_TAP_TARGET,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayPicked: { backgroundColor: colors.accent, borderColor: colors.accent },
+  dayText: { ...typography.caption, color: colors.textSecondary },
+  dayTextPicked: { color: colors.surface },
+  badTime: { ...typography.caption, color: colors.errorText },
   remove: {
     minHeight: MIN_TAP_TARGET,
     justifyContent: "center",

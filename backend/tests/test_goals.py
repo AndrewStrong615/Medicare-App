@@ -245,15 +245,50 @@ def test_no_model_configured_yields_nothing():
 
 
 def test_refusal_codes_survive_and_unknown_ones_do_not(model):
-    model(_refusal(goal_structuring.MEDICAL_GOAL))
-    result = goal_structuring.structure("stop my headaches")
+    model(_refusal(goal_structuring.NO_ACTIVITY_NAMED))
+    result = goal_structuring.structure("I want to be healthier")
     assert isinstance(result, goal_structuring.Refusal)
-    assert result.reason == goal_structuring.MEDICAL_GOAL
+    assert result.reason == goal_structuring.NO_ACTIVITY_NAMED
 
     model(_refusal("SOMETHING_ELSE"))
     result = goal_structuring.structure("stop my headaches")
     assert isinstance(result, goal_structuring.Refusal)
     assert result.reason == goal_structuring.UNCLEAR
+
+
+def test_the_codes_that_blocked_a_health_goal_are_gone():
+    """
+    ⛔ The regression guard for this whole change.
+
+    MEDICAL_GOAL and WOULD_REQUIRE_AUTHORING were how "help me lose weight"
+    became a refusal instead of a plan. They were removed on 2026-09-12 at the
+    repository owner's request, and a model that asks for one now gets the
+    generic UNCLEAR rather than a blocking sentence.
+
+    This asserts against the module rather than the behaviour so that
+    reintroducing either code is a failing test, not a quiet restoration of
+    the dead end.
+    """
+    assert not hasattr(goal_structuring, "MEDICAL_GOAL")
+    assert not hasattr(goal_structuring, "WOULD_REQUIRE_AUTHORING")
+    assert goal_structuring.REFUSAL_REASONS == {
+        goal_structuring.NO_ACTIVITY_NAMED,
+        goal_structuring.UNCLEAR,
+    }
+
+
+def test_the_forbidden_phrase_veto_is_gone():
+    """
+    The deterministic veto was removed with the refusal codes.
+
+    Stated as a test because its absence is load-bearing: `_FORBIDDEN` held
+    "weight", "calorie", "blood pressure" and about sixty more, and one match
+    anywhere discarded a whole plan — which is what made a health goal
+    unanswerable. Anyone reinstating it should have to change this test and
+    read why it was written.
+    """
+    assert not hasattr(goal_structuring, "_FORBIDDEN")
+    assert not hasattr(goal_structuring, "mentions_forbidden")
 
 
 # ---------------------------------------------------------------------------
@@ -289,15 +324,38 @@ def test_the_app_writes_the_refusal_sentence_not_the_model(
     client, auth_headers, model
 ):
     """The model returns a code; user-facing health copy is reviewed text."""
-    model(_refusal(goal_structuring.MEDICAL_GOAL))
+    model(_refusal(goal_structuring.UNCLEAR))
     body = client.post(
         "/goals/draft",
-        json={"description": "stop my headaches"},
+        json={"description": "asdf qwer zxcv"},
         headers=auth_headers,
     ).json()
 
     assert body["activities"] == []
-    assert "symptoms" in body["notice"]
+    assert "could not tell what you were going for" in body["notice"]
+
+
+def test_no_notice_tells_a_person_medhelp_will_not_plan_for_them(
+    client, auth_headers, model
+):
+    """
+    ⛔ The sentences that turned a health goal away are gone from the API.
+
+    "MedHelp can only track activities you plan to do, not symptoms,
+    medicines or changes to your body" and "MedHelp does not write health
+    plans" were what a person read when they asked for help with a health
+    goal. Both are now false descriptions of the app, so neither may be
+    reachable — including through the generic fallbacks.
+    """
+    from app.api import goals as goals_api
+
+    everything = " ".join(
+        [*goals_api._REFUSAL_NOTICES.values(), goals_api._NO_PROPOSAL_NOTICE]
+    ).lower()
+
+    assert "does not write health plans" not in everything
+    assert "can only track activities" not in everything
+    assert "not symptoms" not in everything
 
 
 def test_emergency_screening_runs_on_the_goal_box(client, auth_headers, model):
@@ -306,8 +364,12 @@ def test_emergency_screening_runs_on_the_goal_box(client, auth_headers, model):
 
     The model is refusing here, so this also proves guidance is returned
     alongside a failure rather than instead of it.
+
+    ⛔ Emergency screening was NOT touched by the 2026-09-12 change that
+    removed the plan blocking. It still runs before the model, and its
+    guidance still survives a refusal.
     """
-    model(_refusal(goal_structuring.MEDICAL_GOAL))
+    model(_refusal(goal_structuring.UNCLEAR))
     body = client.post(
         "/goals/draft",
         json={"description": "stop the crushing chest pain when I walk"},
@@ -446,10 +508,12 @@ def test_goals_require_a_signed_in_person(client):
 
 
 # ---------------------------------------------------------------------------
-# Suggesting a starting plan, for someone who named no activities.
+# Proposing a plan, and the daily schedule under it.
 #
-# This is the one place MedHelp proposes content nobody wrote, so the tests are
-# about what it refuses rather than what it produces.
+# This is where MedHelp authors content nobody wrote. Since 2026-09-12 it runs
+# for every goal including a medical one, and the content veto is gone, so
+# these tests are about the shape of what it produces and about the blocking
+# staying removed.
 # ---------------------------------------------------------------------------
 
 
@@ -461,8 +525,18 @@ def _plan(**arguments) -> ChatReply:
     )
 
 
-def _walk_suggestion(text="Walk after lunch"):
-    return {"text": text, "cadence": "daily", "preferred_time": "unspecified"}
+# A sentinel, so `days=None` can be tested as the bad value it is rather than
+# being read as "caller did not say".
+_UNSET = object()
+
+
+def _walk_suggestion(text="Walk after lunch", days=_UNSET, time_of_day="13:00"):
+    """A planned row in the shape the model is now asked for."""
+    return {
+        "text": text,
+        "days": list(goal_structuring.DAYS) if days is _UNSET else days,
+        "time_of_day": time_of_day,
+    }
 
 
 def test_a_suggested_plan_is_labelled_as_suggested(model):
@@ -479,24 +553,22 @@ def test_a_suggested_plan_is_labelled_as_suggested(model):
 @pytest.mark.parametrize(
     "text",
     [
-        "Eat 1500 calories a day",
-        "Start a low carb diet",
-        "Try fasting until lunch",
-        "Aim to lose weight this month",
-        "Take a vitamin D supplement",
-        "Check your blood pressure each morning",
-        "Do a high-intensity workout",
-        "Push through the discomfort",
-        "Skip breakfast twice a week",
+        "Eat your evening meal at the same time",
+        "Cook at home on weeknights",
+        "Take your tablets with breakfast",
+        "Sit down somewhere quiet for ten minutes",
+        "Walk to the shop instead of driving",
+        "Go to bed at the same time each night",
     ],
 )
-def test_forbidden_categories_discard_the_whole_plan(model, text):
+def test_an_everyday_activity_is_no_longer_vetoed_on_its_wording(model, text):
     """
-    A phrase list, not a model gate.
+    ⛔ The counterpart of `test_the_forbidden_phrase_veto_is_gone`.
 
-    A second model asked "is this safe?" fails silently open. This fails
-    closed, and one bad row discards the good ones with it — a model that
-    proposed a calorie target has not earned the other four suggestions.
+    `_FORBIDDEN` matched on words, not on meaning, so ordinary rows were
+    discarded for containing "weight", "diet", "tablet" or "treat" in a
+    harmless sense — and one match took the whole plan with it. Nothing is
+    discarded on wording now.
     """
     model(
         _plan(
@@ -504,11 +576,89 @@ def test_forbidden_categories_discard_the_whole_plan(model, text):
             activities=[_walk_suggestion(), _walk_suggestion(text)],
         )
     )
+    draft = goal_structuring.suggest_plan("I want to be healthier")
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.activities[1].text == text
+
+
+def test_a_health_goal_is_answered_with_a_plan(model):
+    """
+    ⛔ The behaviour this change was asked for.
+
+    "Help me lose weight" used to reach the person as a refusal: `structure`
+    returned MEDICAL_GOAL and the API short-circuited before the planner ran.
+    It now comes back as a plan with a schedule.
+    """
+    model(
+        _plan(
+            title="Getting more active",
+            activities=[_walk_suggestion(days=["monday", "thursday"], time_of_day="08:00")],
+        )
+    )
+    draft = goal_structuring.suggest_plan("help me lose weight")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.activities[0].days == ("monday", "thursday")
+    assert draft.activities[0].time_of_day == "08:00"
+
+
+def test_a_plan_carries_a_schedule_and_derives_its_cadence(model):
+    """
+    `cadence` and `times_per_week` are worked out from `days`, not asked for.
+
+    That is what stops a plan saying "three times a week" beside four days —
+    nothing separately reports the count, so the two cannot disagree.
+    """
+    model(
+        _plan(
+            title="Getting outdoors",
+            activities=[
+                _walk_suggestion(days=["monday", "wednesday", "friday"], time_of_day="07:30"),
+                _walk_suggestion("Wind down", days=list(goal_structuring.DAYS), time_of_day="21:00"),
+            ],
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to get outdoors more")
+    assert isinstance(draft, goal_structuring.GoalDraft)
+
+    weekly, daily = draft.activities
+    assert weekly.cadence == "times_per_week"
+    assert weekly.times_per_week == 3
+    assert weekly.preferred_time == "morning"
+
+    assert daily.cadence == "daily"
+    assert daily.times_per_week is None
+    assert daily.preferred_time == "evening"
+
+
+def test_days_come_back_in_week_order_however_they_were_given(model):
+    """A schedule reads the same however the model listed the days."""
+    model(
+        _plan(
+            title="Getting outdoors",
+            activities=[_walk_suggestion(days=["sunday", "monday", "friday"])],
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to get outdoors more")
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.activities[0].days == ("monday", "friday", "sunday")
+
+
+@pytest.mark.parametrize("bad", ["8am", "0800", "8:00", "25:00", "12:60", "", "noon"])
+def test_a_time_is_refused_rather_than_guessed(model, bad):
+    """
+    Same rule as `dose_schedule.py`: "8" could be either end of the day.
+
+    A whole plan is discarded rather than one row kept with a blank time — a
+    half-scheduled plan is harder to notice than an absent one.
+    """
+    model(_plan(title="Feeling better", activities=[_walk_suggestion(time_of_day=bad)]))
     assert goal_structuring.suggest_plan("I want to be healthier") is None
 
 
-def test_a_forbidden_title_is_refused_too(model):
-    model(_plan(title="Weight loss plan", activities=[_walk_suggestion()]))
+@pytest.mark.parametrize("bad", [[], ["someday"], ["monday", "funday"], "monday", None])
+def test_an_unusable_day_list_discards_the_plan(model, bad):
+    model(_plan(title="Feeling better", activities=[_walk_suggestion(days=bad)]))
     assert goal_structuring.suggest_plan("I want to be healthier") is None
 
 
@@ -536,13 +686,14 @@ def test_a_planner_outage_falls_back_to_the_persons_own_words(
 
     This test used to assert the opposite — that suggesting was reserved for an
     empty box. The repository owner asked on 2026-09-09 for MedHelp to propose
-    its own plan rather than split the person's sentence into rows, so the
-    planner now runs for every goal that is not a medical one.
+    its own plan rather than split the person's sentence into rows, and on
+    2026-09-12 for the medical-goal gate to go, so the planner now runs for
+    every goal without exception.
 
-    What did not change is the failure direction. An outage, a veto or a
-    refusal the planner could not place must leave the person with what
-    `structure` read out of their text, never with an empty editor — the same
-    rule as a model outage in triage never being SELF_CARE.
+    What did not change is the failure direction. An outage, or a refusal the
+    planner could not place, must leave the person with what `structure` read
+    out of their text, never with an empty editor — the same rule as a model
+    outage in triage never being SELF_CARE.
     """
     monkeypatch.setattr(goal_structuring, "available", lambda: True)
     monkeypatch.setattr(
@@ -647,20 +798,39 @@ def test_an_originated_plan_replaces_the_split_and_is_labelled(
     assert body["activities"][0]["times_per_week"] == 4
 
 
-def test_a_medical_goal_is_never_answered_with_a_plan(
-    client, auth_headers, monkeypatch
-):
-    """"Stop my headaches" gets a refusal, never a set of suggestions."""
+def test_a_medical_goal_now_reaches_the_planner(client, auth_headers, monkeypatch):
+    """
+    ⛔ The inverse of the test this replaced.
+
+    `test_a_medical_goal_is_never_answered_with_a_plan` asserted that "stop my
+    headaches" produced a refusal and that the planner was **never called**.
+    The repository owner asked on 2026-09-12 for that gate to go, so the
+    planner is now asked for every goal and its plan is what the person gets.
+
+    Kept as a test rather than deleted because the old behaviour is the thing
+    someone would most plausibly restore by accident.
+    """
     monkeypatch.setattr(goal_structuring, "available", lambda: True)
-    monkeypatch.setattr(
-        goal_structuring,
-        "structure",
-        lambda description: goal_structuring.Refusal(goal_structuring.MEDICAL_GOAL),
-    )
     called = []
-    monkeypatch.setattr(
-        goal_structuring, "suggest_plan", lambda d: called.append(d) or None
-    )
+
+    def _plan_for(description):
+        called.append(description)
+        return goal_structuring.GoalDraft(
+            title="Winding down",
+            activities=[
+                goal_structuring.Activity(
+                    text="Go to bed at the same time each night",
+                    cadence="daily",
+                    preferred_time="evening",
+                    source_phrase=None,
+                    generated=True,
+                    days=goal_structuring.DAYS,
+                    time_of_day="22:00",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(goal_structuring, "suggest_plan", _plan_for)
 
     body = client.post(
         "/goals/draft",
@@ -668,138 +838,98 @@ def test_a_medical_goal_is_never_answered_with_a_plan(
         headers=auth_headers,
     ).json()
 
-    assert called == []
-    assert body["activities"] == []
-    assert "symptoms" in body["notice"]
+    assert called == ["stop my headaches"]
+    assert body["notice"] is None
+    assert body["activities"][0]["text"] == "Go to bed at the same time each night"
+    assert body["activities"][0]["time_of_day"] == "22:00"
+    # Still labelled: an authored row must always say it was authored.
+    assert body["activities"][0]["generated"] is True
 
 
-def test_the_plan_tool_tells_the_model_when_times_per_week_is_required():
-    """
-    The weekly count is required by the validator and optional in the schema,
-    so the contract has to be written where the model reads it.
-
-    This is a regression test for a real breakage. `PLAN_SYSTEM_PROMPT` was
-    changed to ask for a plan spread across the week, which made the model far
-    more likely to choose the `times_per_week` cadence — while the schema still
-    described the count as an unlabelled optional integer. A weekly activity
-    that arrived without one discarded the *whole* plan, so the person got
-    their own words back and the app looked like it had ignored the change.
-
-    JSON Schema cannot express "required when cadence is times_per_week"
-    portably (it needs if/then, and providers vary in honouring it), so the
-    requirement lives in two descriptions instead. If the wording is reworked,
-    it still has to say this.
-    """
-    properties = goal_structuring.SUGGEST_PLAN["function"]["parameters"][
-        "properties"
-    ]
-    item = properties["activities"]["items"]["properties"]
-
-    count = item["times_per_week"]
-    assert "REQUIRED" in count["description"]
-    assert "times_per_week" in count["description"]
-    assert count["minimum"] == 1 and count["maximum"] == 7
-
-    # And the prompt, which is the half the model is most likely to follow.
-    assert "times_per_week" in goal_structuring.PLAN_SYSTEM_PROMPT
-    assert "discards the entire plan" in goal_structuring.PLAN_SYSTEM_PROMPT
-
-
-def test_a_weekly_activity_with_no_count_is_still_discarded_whole():
-    """
-    The check itself did not move.
-
-    The fix for the breakage above was to tell the model what the contract is,
-    not to loosen the contract. A plan whose rows do not parse is still no
-    plan — inventing a count would be MedHelp deciding how often someone
-    should do something, which is the authoring this module exists to avoid.
-    """
-    discarded = goal_structuring._validate_plan(
-        {
-            "title": "Getting out more",
-            "activities": [
-                {
-                    "text": "Walk after lunch",
-                    "cadence": "times_per_week",
-                    # No `times_per_week`.
-                    "preferred_time": "afternoon",
-                },
-                {
-                    "text": "Go to bed at the same time each night",
-                    "cadence": "daily",
-                    "preferred_time": "evening",
-                },
-            ],
-        }
-    )
-    assert discarded is None
-
-
-def test_a_weekly_activity_with_a_count_survives():
-    """The same plan, with the number the contract asks for."""
-    draft = goal_structuring._validate_plan(
-        {
-            "title": "Getting out more",
-            "activities": [
-                {
-                    "text": "Walk after lunch",
-                    "cadence": "times_per_week",
-                    "times_per_week": 4,
-                    "preferred_time": "afternoon",
-                }
-            ],
-        }
-    )
-    assert draft is not None
-    assert draft.activities[0].times_per_week == 4
-    assert draft.activities[0].generated is True
-    assert draft.activities[0].source_phrase is None
-
-
-def test_the_planner_reading_a_goal_as_medical_overrides_structure(
+def test_the_planner_runs_before_structure_and_structure_is_skipped(
     client, auth_headers, monkeypatch
 ):
     """
-    Two readings of the text, and the stricter one wins — in that direction
-    only.
+    The order reversed on 2026-09-12, and the saving is not incidental.
 
-    `structure` screens first, but it is reading for quotable activities while
-    the planner is reading the goal as a whole. Where the planner comes back
-    MEDICAL_GOAL and `structure` did not, the refusal stands and the person
-    gets no plan. The reverse is not symmetrical and must never be added: a
-    planner that is happy to propose walks does not clear a goal `structure`
-    already refused.
+    `structure` used to run first so a refusal could short-circuit the
+    planner. With no gate left to apply, running it first would be a second
+    model call whose only use is a fallback that is not needed.
     """
     monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    structured = []
     monkeypatch.setattr(
         goal_structuring,
         "structure",
-        lambda description: goal_structuring.GoalDraft(
-            title="Evenings",
-            activities=[
-                goal_structuring.Activity(
-                    text="Get my blood pressure down",
-                    cadence="daily",
-                    preferred_time="evening",
-                    source_phrase="get my blood pressure down",
-                )
-            ],
-        ),
+        lambda description: structured.append(description) or None,
     )
     monkeypatch.setattr(
         goal_structuring,
         "suggest_plan",
-        lambda description: goal_structuring.Refusal(goal_structuring.MEDICAL_GOAL),
+        lambda description: goal_structuring.GoalDraft(
+            title="Getting out more",
+            activities=[
+                goal_structuring.Activity(
+                    text="Walk after lunch",
+                    cadence="daily",
+                    preferred_time="afternoon",
+                    source_phrase=None,
+                    generated=True,
+                    days=goal_structuring.DAYS,
+                    time_of_day="13:00",
+                )
+            ],
+        ),
     )
 
     body = client.post(
-        "/goals/draft",
-        json={"description": "get my blood pressure down"},
-        headers=auth_headers,
+        "/goals/draft", json={"description": WALKING}, headers=auth_headers
     ).json()
 
-    assert body["activities"] == []
-    assert "symptoms" in body["notice"]
+    assert structured == []
+    assert body["activities"][0]["text"] == "Walk after lunch"
+
+
+def test_the_plan_tool_asks_for_a_schedule_not_a_cadence():
+    """
+    The model is asked for days and a time, and `cadence` is derived.
+
+    This replaces the regression test for the old contract, where a weekly
+    cadence without its count discarded the whole plan. That failure mode is
+    gone by construction: nothing separately reports a count any more, so
+    there is nothing for the model to omit.
+    """
+    item = goal_structuring.SUGGEST_PLAN["function"]["parameters"]["properties"][
+        "activities"
+    ]["items"]
+
+    assert set(item["required"]) == {"text", "days", "time_of_day"}
+    assert "cadence" not in item["properties"]
+    assert "times_per_week" not in item["properties"]
+    assert item["properties"]["days"]["items"]["enum"] == list(goal_structuring.DAYS)
+
+    # And the prompt, which is the half the model is most likely to follow.
+    assert "HH:MM" in goal_structuring.PLAN_SYSTEM_PROMPT
+    assert "Do not set `cadence`" in goal_structuring.PLAN_SYSTEM_PROMPT
+
+
+def test_the_plan_prompt_does_not_tell_the_model_to_refuse_health_goals():
+    """
+    ⛔ The prompt is now the only guard, so what it says is load-bearing.
+
+    Two halves. It must no longer carry the refusal that blocked a health
+    goal, and it must still carry the one rule that was never about blocking:
+    propose the activity, never a claim about what the activity will do.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "MEDICAL_GOAL" not in prompt
+    assert "WOULD_REQUIRE_AUTHORING" not in prompt
+    assert "Do not refuse a goal for being about health" in prompt
+
+    # Still refused, because these are a clinician's call and not a plan.
+    assert "No benefits, no reasons, no" in prompt
+    assert "never a change to what that is" in prompt
 
 
 # ---------------------------------------------------------------------------

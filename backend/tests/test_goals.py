@@ -913,6 +913,135 @@ def test_the_plan_tool_asks_for_a_schedule_not_a_cadence():
     assert "Do not set `cadence`" in goal_structuring.PLAN_SYSTEM_PROMPT
 
 
+# ---------------------------------------------------------------------------
+# Rate limiting. Found against the live deployment on 2026-09-12: the fifth
+# goal inside a minute fast-failed, and every one after it, while the same
+# text worked again minutes later. Everyone affected was told "MedHelp has no
+# suggestions right now", which is wrong and unactionable.
+# ---------------------------------------------------------------------------
+
+
+def test_a_rate_limit_is_not_reported_as_having_no_suggestions(
+    client, auth_headers, monkeypatch
+):
+    """
+    ⛔ The regression test for the production bug.
+
+    A rate limit is temporary and fixes itself. Telling someone the app has
+    nothing to suggest for their goal — and offering them the manual path as
+    the remedy — sends them away from something that would have worked on the
+    next press.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring,
+        "suggest_plan",
+        lambda description: goal_structuring.Busy(5),
+    )
+
+    body = client.post(
+        "/goals/draft",
+        json={"description": "I want to lose weight"},
+        headers=auth_headers,
+    ).json()
+
+    notice = body["notice"]
+    assert body["activities"] == []
+    assert "busy" in notice.lower()
+    assert "again" in notice.lower()
+    # The sentence that was wrong. It must not be what a rate limit produces.
+    assert "no suggestions" not in notice.lower()
+
+
+def test_a_rate_limit_does_not_spend_a_second_call_on_the_same_quota(
+    client, auth_headers, monkeypatch
+):
+    """
+    `structure` is the same endpoint and the same quota.
+
+    Falling back to it when the planner was rate limited cannot succeed — it
+    only makes a rate-limited person wait twice as long for the same answer.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring, "suggest_plan", lambda description: goal_structuring.Busy(3)
+    )
+    structured = []
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: structured.append(description) or None,
+    )
+
+    client.post(
+        "/goals/draft",
+        json={"description": "I want to get outdoors more"},
+        headers=auth_headers,
+    )
+
+    assert structured == []
+
+
+def test_emergency_guidance_survives_a_rate_limit(client, auth_headers, monkeypatch):
+    """Guidance is never withheld because a vendor was busy."""
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(
+        goal_structuring, "suggest_plan", lambda description: goal_structuring.Busy(2)
+    )
+
+    body = client.post(
+        "/goals/draft",
+        json={"description": "stop the crushing chest pain when I walk"},
+        headers=auth_headers,
+    ).json()
+
+    assert body["emergency"] is not None
+    assert "911" in body["emergency"]["action"]
+
+
+def test_a_rate_limited_planner_returns_busy_not_none(model, monkeypatch):
+    """
+    `LLMRateLimited` is turned into `Busy`, not swallowed as a generic outage.
+
+    It subclasses `LLMUnavailable`, so the danger is a bare `except
+    LLMUnavailable` further up catching it first and losing the distinction.
+    """
+    from app.services.llm import LLMRateLimited
+
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+
+    def _chat(**kwargs):
+        raise LLMRateLimited("limited", 7)
+
+    monkeypatch.setattr(goal_structuring.llm, "chat", _chat)
+
+    result = goal_structuring.suggest_plan("I want to be healthier")
+    assert isinstance(result, goal_structuring.Busy)
+    assert result.retry_after_seconds == 7
+
+
+def test_a_rate_limit_still_counts_as_unavailable_for_anyone_not_looking(
+    model, monkeypatch
+):
+    """
+    ⛔ The safety property behind making it a subclass.
+
+    Every existing `except LLMUnavailable` must keep catching a rate limit, so
+    no caller becomes less safe by the new class existing. In triage that
+    means the rule tier still stands.
+    """
+    from app.services.llm import LLMRateLimited, LLMUnavailable
+
+    assert issubclass(LLMRateLimited, LLMUnavailable)
+
+    caught = None
+    try:
+        raise LLMRateLimited("limited", 3)
+    except LLMUnavailable as exc:
+        caught = exc
+    assert caught is not None
+
+
 def test_the_plan_prompt_does_not_tell_the_model_to_refuse_health_goals():
     """
     ⛔ The prompt is now the only guard, so what it says is load-bearing.

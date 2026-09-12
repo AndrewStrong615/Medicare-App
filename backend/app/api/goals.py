@@ -53,6 +53,7 @@ from app.core.emergency import screen_for_emergency
 from app.core.goal_structuring import (
     NO_ACTIVITY_NAMED,
     UNCLEAR,
+    Busy,
     GoalDraft,
     Refusal,
 )
@@ -101,6 +102,38 @@ _NO_PROPOSAL_NOTICE = (
 )
 
 
+def _busy_notice(retry_after_seconds: int | None) -> str:
+    """
+    What a rate-limited person reads.
+
+    ⛔ IT MUST SAY "TRY AGAIN", AND IT MUST NOT SAY "NO SUGGESTIONS".
+
+    Found against the live deployment on 2026-09-12: once the free-tier
+    provider started rate limiting, every goal came back as "MedHelp has no
+    suggestions right now. You can add your activities below." The plan was
+    one button-press away the whole time. That sentence told people the app
+    had nothing for their goal, and pointed them at the one remedy - type it
+    yourself - that was not the answer.
+
+    So this names the cause, gives the remedy, and only then mentions the
+    manual path as a choice rather than a consolation. The wait is rounded up
+    to whole seconds and only quoted when the provider gave a short, credible
+    one; an unbounded "try later" is worse than no number at all.
+    """
+    if retry_after_seconds is not None and 1 <= retry_after_seconds <= 120:
+        when = (
+            "in a few seconds"
+            if retry_after_seconds <= 10
+            else f"in about {retry_after_seconds} seconds"
+        )
+    else:
+        when = "in a few seconds"
+    return (
+        f"MedHelp is busy right now. Press “Suggest a plan” again {when} and it "
+        "should work. You can also add your own activities below."
+    )
+
+
 def _get_owned_goal_or_404(goal_id: str, user: User, db: Session) -> HealthGoal:
     goal = (
         db.query(HealthGoal)
@@ -143,6 +176,18 @@ def draft_goal(
     # "Suggested by MedHelp" on screen, and nothing is saved until the person
     # presses save. Emergency screening has already run, above.
     result = goal_structuring.suggest_plan(payload.description)
+
+    if isinstance(result, Busy):
+        # ⛔ Do NOT fall back to `structure` here. It is the same endpoint and
+        # the same quota, so a second call is guaranteed to fail too - it
+        # would only make a rate-limited person wait twice as long to be told
+        # the same thing. Answer immediately and tell them to try again.
+        return GoalDraftOut(
+            title=None,
+            activities=[],
+            notice=_busy_notice(result.retry_after_seconds),
+            emergency=emergency,
+        )
 
     if not isinstance(result, GoalDraft):
         # The planner had nothing - an outage, no endpoint configured, or an

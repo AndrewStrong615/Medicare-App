@@ -380,6 +380,81 @@ def test_emergency_screening_runs_on_the_goal_box(client, auth_headers, model):
     assert "911" in body["emergency"]["action"]
 
 
+def test_a_red_flag_goal_is_never_answered_with_a_plan(
+    client, auth_headers, monkeypatch
+):
+    """
+    ⛔ THE MOST IMPORTANT TEST IN THIS FILE.
+
+    Found against the live deployment on 2026-09-12. "I want to stop the
+    crushing chest pain when I walk" returned the emergency guidance *and* a
+    four-row plan titled "Gentle walking routine", including "Walk at a
+    comfortable pace for five minutes, then pause and breathe" on Mon/Wed/Fri
+    at 08:00 — authored by MedHelp, `generated=True`.
+
+    An exercise schedule written by software for a textbook description of
+    exertional angina. The guidance above it does not undo that; the plan is
+    the part that looks like something to follow.
+
+    The screen is now deterministic: a red flag means guidance and no plan,
+    and the model is not asked at all. The prompt cannot be trusted with this
+    — the prompt is what wrote the walking plan.
+    """
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    asked = []
+    monkeypatch.setattr(
+        goal_structuring,
+        "suggest_plan",
+        lambda description: asked.append(description) or _never_called(),
+    )
+    structured = []
+    monkeypatch.setattr(
+        goal_structuring,
+        "structure",
+        lambda description: structured.append(description) or _never_called(),
+    )
+
+    body = client.post(
+        "/goals/draft",
+        json={"description": "I want to stop the crushing chest pain when I walk"},
+        headers=auth_headers,
+    ).json()
+
+    # Guidance is there, and is the only thing offering direction.
+    assert body["emergency"] is not None
+    assert "911" in body["emergency"]["action"]
+
+    # No plan, no title, and the model was never consulted.
+    assert body["activities"] == []
+    assert body["title"] is None
+    assert asked == []
+    assert structured == []
+
+    # The notice explains the absence and points at the guidance. It must not
+    # hand out advice of its own.
+    assert "has not suggested a plan" in body["notice"]
+    assert "guidance above" in body["notice"]
+
+
+def _never_called():
+    raise AssertionError("The model must not be consulted for a red-flag goal.")
+
+
+def test_the_emergency_notice_gives_no_advice_of_its_own(client, auth_headers):
+    """
+    Only `core/emergency.py` tells anyone what to do.
+
+    A second sentence on the same screen offering its own instruction would be
+    unreviewed health copy sitting beside reviewed health copy, which is the
+    one place it would most easily be mistaken for it.
+    """
+    from app.api import goals as goals_api
+
+    notice = goals_api._EMERGENCY_NOTICE.lower()
+    for word in ("call", "911", "rest", "stop walking", "see a doctor", "hospital"):
+        assert word not in notice
+
+
 def test_emergency_guidance_survives_a_model_outage(client, auth_headers, model):
     model(LLMUnavailable("down"))
     body = client.post(
@@ -982,8 +1057,18 @@ def test_a_rate_limit_does_not_spend_a_second_call_on_the_same_quota(
     assert structured == []
 
 
-def test_emergency_guidance_survives_a_rate_limit(client, auth_headers, monkeypatch):
-    """Guidance is never withheld because a vendor was busy."""
+def test_a_busy_model_still_leaves_the_person_a_way_forward(
+    client, auth_headers, monkeypatch
+):
+    """
+    A rate limit on ordinary text: no plan, but an actionable sentence.
+
+    ⛔ This test used to submit chest-pain text and assert guidance survived a
+    rate limit. That became vacuous once a red flag started short-circuiting
+    before the model is called — guidance could not fail to survive a vendor
+    that was never asked. The red-flag path has its own test above; this one
+    keeps the rate-limit path honest by using text that reaches the model.
+    """
     monkeypatch.setattr(goal_structuring, "available", lambda: True)
     monkeypatch.setattr(
         goal_structuring, "suggest_plan", lambda description: goal_structuring.Busy(2)
@@ -991,12 +1076,14 @@ def test_emergency_guidance_survives_a_rate_limit(client, auth_headers, monkeypa
 
     body = client.post(
         "/goals/draft",
-        json={"description": "stop the crushing chest pain when I walk"},
+        json={"description": "I want to get outdoors more"},
         headers=auth_headers,
     ).json()
 
-    assert body["emergency"] is not None
-    assert "911" in body["emergency"]["action"]
+    assert body["emergency"] is None
+    assert body["activities"] == []
+    assert "busy" in body["notice"].lower()
+    assert "again" in body["notice"].lower()
 
 
 def test_a_rate_limited_planner_returns_busy_not_none(model, monkeypatch):
@@ -1040,6 +1127,23 @@ def test_a_rate_limit_still_counts_as_unavailable_for_anyone_not_looking(
     except LLMUnavailable as exc:
         caught = exc
     assert caught is not None
+
+
+def test_the_plan_prompt_forbids_a_title_that_promises_a_clinical_result():
+    """
+    Observed live on 2026-09-12: "Headache relief routine" and "Blood pressure
+    support routine".
+
+    The activities under both were clean — ordinary walks, water, a regular
+    bedtime. The title was the problem: it attached a therapeutic function to
+    the plan, which is the same claim the activities are forbidden from
+    making, in the part a person reads first and repeats to themselves.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "THE TITLE IS HELD TO THE SAME RULE" in prompt
+    assert "Headache relief routine" in prompt
+    assert "Blood pressure support routine" in prompt
 
 
 def test_the_plan_prompt_does_not_tell_the_model_to_refuse_health_goals():

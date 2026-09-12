@@ -101,6 +101,23 @@ _NO_PROPOSAL_NOTICE = (
     "MedHelp has no suggestions right now. You can add your activities below."
 )
 
+# What a person reads when their goal text matched an emergency red flag.
+#
+# ⛔ IT MUST NOT GIVE ADVICE OF ITS OWN. The reviewed guidance from
+# `core/emergency.py` is rendered above it and is the only thing on this
+# screen that tells anyone what to do; this sentence exists to explain the
+# absence of a plan and to point at that guidance, nothing more.
+#
+# It deliberately does not say "add your own activities" as brightly as the
+# other notices do. The other notices are apologising for a missing
+# convenience. This one is not: MedHelp withheld the plan on purpose, and
+# nudging someone straight back into building a walking schedule would
+# undo the reason it was withheld.
+_EMERGENCY_NOTICE = (
+    "MedHelp has not suggested a plan for what you wrote. Please read the "
+    "guidance above first."
+)
+
 
 def _busy_notice(retry_after_seconds: int | None) -> str:
     """
@@ -163,6 +180,36 @@ def draft_goal(
     emergency = (
         EmergencyGuidanceOut(**guidance.__dict__) if guidance is not None else None
     )
+
+    # ⛔ A RED FLAG MEANS NO PLAN. The model is not called at all.
+    #
+    # Found by running the live deployment on 2026-09-12. "I want to stop the
+    # crushing chest pain when I walk" returned the emergency guidance AND a
+    # four-row plan titled "Gentle walking routine", whose second row was
+    # "Walk at a comfortable pace for five minutes, then pause and breathe" —
+    # authored by MedHelp, `generated=True`, scheduled Mon/Wed/Fri at 08:00.
+    #
+    # That is an exercise prescription written by software for a textbook
+    # description of exertional angina. Guidance above it does not cancel it
+    # out: the screen said "call 911" and "here is your walking schedule for
+    # the week" at the same time, and the second one is the one that looks
+    # like a plan to follow.
+    #
+    # This follows the rule intake already applies — the EMERGENT tier gets no
+    # reading material, because "the only thing worth showing is how to get
+    # emergency help". Goals needs it more, not less: intake was withholding
+    # somebody else's reference text, and this withholds the app's own
+    # instructions.
+    #
+    # Deterministic on purpose. The prompt cannot be trusted with this: it is
+    # the layer that produced the walking plan in the first place.
+    if guidance is not None:
+        return GoalDraftOut(
+            title=None,
+            activities=[],
+            notice=_EMERGENCY_NOTICE,
+            emergency=emergency,
+        )
 
     # ⛔ THE PLANNER RUNS FIRST, AND NOTHING SCREENS THE GOAL BEFORE IT.
     #

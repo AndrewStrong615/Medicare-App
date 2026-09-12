@@ -558,6 +558,38 @@ describe("HealthGoalsScreen", () => {
     await waitFor(() => expect(screen.getByText("Mon, Wed, Fri · 13:00")).toBeTruthy());
   });
 
+  it("retires the saved confirmation when that goal is deleted", async () => {
+    /*
+     * Seen on the deployed site on 2026-09-12: deleting the goal you had just
+     * saved left "“…” has been saved." sitting directly above "No goals yet".
+     * Two statements about the person's own data, one of them false.
+     */
+    mockList.mockResolvedValue([goal()]);
+    mockDelete.mockResolvedValue();
+
+    render(
+      <HealthGoalsScreen
+        navigation={navigation as never}
+        route={
+          {
+            key: "k",
+            name: "HealthGoals",
+            params: { savedFor: "Getting outdoors" },
+          } as never
+        }
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/has been saved/i)).toBeTruthy()
+    );
+
+    fireEvent.press(screen.getByLabelText("Delete Getting outdoors"));
+
+    await waitFor(() => expect(screen.getByText("No goals yet")).toBeTruthy());
+    expect(screen.queryByText(/has been saved/i)).toBeNull();
+  });
+
   it("invites a first goal rather than showing an empty page", async () => {
     mockList.mockResolvedValue([]);
 

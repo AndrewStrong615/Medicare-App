@@ -12,8 +12,20 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.goal_structuring import CADENCES, MAX_ACTIVITIES, PREFERRED_TIMES
+import re
+
+from app.core.goal_structuring import (
+    CADENCES,
+    DAYS,
+    MAX_ACTIVITIES,
+    PREFERRED_TIMES,
+)
 from app.schemas.symptom import EmergencyGuidanceOut
+
+# A local wall-clock "HH:MM". Same shape the core module accepts, restated
+# here because a schema that took anything would let a client store a time
+# the screens cannot render.
+_TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 
 class GoalDraftIn(BaseModel):
@@ -35,6 +47,11 @@ class ActivityIn(BaseModel):
     times_per_week: int | None = Field(None, ge=1, le=7)
     quantity_text: str | None = Field(None, max_length=120)
     preferred_time: str = Field("unspecified")
+    # The daily schedule the person confirmed. Both default to "no particular
+    # day" and "no particular time" so an activity typed by hand, with no
+    # schedule set on it, is still a valid thing to save.
+    days: list[str] = Field(default_factory=list, max_length=7)
+    time_of_day: str | None = Field(None)
 
     @field_validator("cadence")
     @classmethod
@@ -48,6 +65,39 @@ class ActivityIn(BaseModel):
     def _known_time(cls, value: str) -> str:
         if value not in PREFERRED_TIMES:
             raise ValueError("Unrecognised preferred time.")
+        return value
+
+    @field_validator("days")
+    @classmethod
+    def _known_days(cls, value: list[str]) -> list[str]:
+        """
+        Day names only, deduplicated, and always in week order.
+
+        Ordering here rather than trusting the client means a schedule reads
+        the same however the checkboxes were ticked, and the stored string is
+        stable for a given set of days.
+        """
+        named = {day.strip().lower() for day in value}
+        unknown = named - set(DAYS)
+        if unknown:
+            raise ValueError("Unrecognised day.")
+        return [day for day in DAYS if day in named]
+
+    @field_validator("time_of_day")
+    @classmethod
+    def _wall_clock(cls, value: str | None) -> str | None:
+        """
+        Refuse a time rather than guess at one.
+
+        "8am", "0800" and "8:00" are rejected for the same reason
+        `dose_schedule.py` rejects them: "8" could be either end of the day,
+        and an activity put at the wrong one is worse than one with no time.
+        """
+        if value is None or value.strip() == "":
+            return None
+        value = value.strip()
+        if not _TIME.match(value):
+            raise ValueError("Time must be a 24-hour HH:MM.")
         return value
 
 
@@ -79,6 +129,11 @@ class ActivityDraftOut(BaseModel):
     quantity_text: str | None
     preferred_time: str
     generated: bool = False
+    # The proposed daily schedule. A planned row always carries both; a row
+    # read out of the person's own words carries neither, because a clock
+    # time it invented would be a quantity they never wrote.
+    days: list[str] = []
+    time_of_day: str | None = None
 
 
 class GoalDraftOut(BaseModel):
@@ -108,6 +163,10 @@ class ActivityOut(BaseModel):
     times_per_week: int | None
     quantity_text: str | None
     preferred_time: str
+    # Week-ordered day names, and a local wall-clock "HH:MM". Either may be
+    # empty: an activity with no schedule is a valid activity.
+    days: list[str] = []
+    time_of_day: str | None = None
     # Whether the person ticked this on the date they asked about. Not an
     # adherence figure - see the note in `models/goal.py`.
     completed_today: bool

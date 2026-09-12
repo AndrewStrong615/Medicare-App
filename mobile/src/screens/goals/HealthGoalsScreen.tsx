@@ -13,10 +13,12 @@ import { Screen } from "@/components/Screen";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import { ApiError } from "@/services/apiClient";
 import {
+  dayOfWeek,
   deleteGoal,
   listGoals,
   localDay,
   setCompletion,
+  shortDay,
   type GoalActivity,
   type HealthGoal,
 } from "@/services/goalService";
@@ -110,6 +112,11 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
     }
   };
 
+  // Which weekday it is where the person is. Read off the device's own
+  // calendar rather than through UTC, so a plan that says Tuesday reads as
+  // Tuesday wherever they are.
+  const weekday = dayOfWeek();
+
   const remove = async (goal: HealthGoal) => {
     setBusy(goal.id);
     try {
@@ -176,6 +183,23 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
                   <View style={styles.activityText}>
                     <Text style={styles.activityLabel}>{activity.text}</Text>
                     <Text style={styles.activityMeta}>{describe(activity)}</Text>
+                    {/*
+                      Which of the plan's rows are due today.
+
+                      ⛔ This marks a day, it does not keep score. There is
+                      deliberately no "2 of 3 today" and no count of what is
+                      left — see the note at the top of this file. An
+                      untouched row is untouched, not missed.
+                    */}
+                    {/*
+                      "Due today", not "Today": the bottom tab bar already
+                      has a tab called Today, and two different meanings for
+                      one word on one screen is worse for a screen reader
+                      than a longer label.
+                    */}
+                    {isOn(activity, weekday) && (
+                      <Text style={styles.dueToday}>Due today</Text>
+                    )}
                   </View>
                 </Pressable>
               ))}
@@ -210,23 +234,42 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
 }
 
 /**
- * The cadence line beneath an activity.
+ * The schedule line beneath an activity.
  *
- * Only ever restates what the person wrote. An unset cadence says so rather
- * than being filled in with a default — MedHelp does not decide how often
- * anyone does anything.
+ * Restates the schedule the person confirmed and nothing else. An activity
+ * with no days and no time says so rather than being filled in with a
+ * default — an app that quietly decided someone's Monday at 09:00 would be
+ * claiming a choice nobody made.
  */
 function describe(activity: GoalActivity): string {
   const parts: string[] = [];
-  if (activity.cadence === "daily") parts.push("Every day");
+
+  if (activity.days.length === 7) parts.push("Every day");
+  else if (activity.days.length > 0)
+    parts.push(activity.days.map(shortDay).join(", "));
+  else if (activity.cadence === "daily") parts.push("Every day");
   else if (activity.cadence === "times_per_week" && activity.timesPerWeek)
     parts.push(`${activity.timesPerWeek} times a week`);
   else parts.push("Whenever you choose");
 
+  if (activity.timeOfDay) parts.push(activity.timeOfDay);
+  else if (activity.preferredTime !== "unspecified") parts.push(activity.preferredTime);
+
   if (activity.quantityText) parts.push(activity.quantityText);
-  if (activity.preferredTime !== "unspecified") parts.push(activity.preferredTime);
   return parts.join(" · ");
 }
+
+/**
+ * Whether an activity is scheduled for the day being shown.
+ *
+ * An activity with no days at all is **not** treated as "every day". It is
+ * treated as unscheduled and left out of the today list, because nobody
+ * chose those days — the person sees it in its goal card instead.
+ */
+function isOn(activity: GoalActivity, day: string): boolean {
+  return activity.days.includes(day as never);
+}
+
 
 const styles = StyleSheet.create({
   loading: { marginTop: spacing.xl },
@@ -261,6 +304,7 @@ const styles = StyleSheet.create({
   activityText: { flex: 1 },
   activityLabel: { ...typography.body, color: colors.textPrimary },
   activityMeta: { ...typography.caption, color: colors.textSecondary },
+  dueToday: { ...typography.caption, color: colors.accent },
   delete: { minHeight: MIN_TAP_TARGET, justifyContent: "center" },
   deleteText: { ...typography.body, color: colors.textSecondary },
   footnote: {

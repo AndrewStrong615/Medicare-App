@@ -163,17 +163,53 @@ for triage.
 Goals would also be another plaintext health table beside `medications` and
 `intake_assessments` — open finding 2 in CLAUDE.md, unchanged and now larger.
 
+## ⛔ 2026-09-12: the blocking was removed, and this section is now the guard
+
+The repository owner asked, in conversation, for the feature that blocked
+health plans to go and for the section to produce a plan and a daily schedule
+for any goal typed in. Two things were deleted:
+
+- the `MEDICAL_GOAL` and `WOULD_REQUIRE_AUTHORING` refusal codes, so a goal
+  about weight, blood pressure or a symptom is planned for rather than turned
+  away; and
+- `_FORBIDDEN`, the phrase list that discarded a whole plan on one match.
+
+**`PLAN_SYSTEM_PROMPT` is now the only thing constraining an authored plan.**
+It is an instruction, not a check — it fails open and silently, where the
+phrase list failed closed. That makes the review below more urgent than it
+was when this document was written, not less, and it changes what the reviewer
+is being asked to sign off: not a structuring step with a safety net, but an
+app that writes health plans for named conditions with a prompt in front of
+it.
+
+The prompt still refuses a medication, a dose, a change to anything
+prescribed, a target figure for a clinical measurement, and any claim about
+what an activity will do for someone. Those are the lines judged to be a
+clinician's call rather than a plan. Whether they are the right lines, and
+whether a prompt is an acceptable place to put them, is question 2 below.
+
 ## For the reviewer
 
-1. Is "structuring only" a line that holds? Splitting "walk and swim" into two
-   activities is clerical. Deciding that "wind down before bed" is one habit
-   rather than three is closer to a judgement.
-2. Should `MEDICAL_GOAL` route somewhere rather than only refusing? "Lose 20
-   pounds" and "come off my tablets" are things people genuinely want, and a
-   dead end may push them to a worse tool.
-3. Is a refusal for a goal with no named activity the right default, given that
+1. Is "structuring only" a line that holds on the fallback path? Splitting
+   "walk and swim" into two activities is clerical. Deciding that "wind down
+   before bed" is one habit rather than three is closer to a judgement.
+2. **Now the most important question.** With `_FORBIDDEN` gone, should a
+   narrow, reviewed veto list be reinstated — and what belongs on it? It was
+   deliberately not guessed at when the old list was removed. This is the
+   cheapest safety work available in the feature.
+3. Are the prompt's remaining refusals the right ones — medication and dose
+   changes, clinical target numbers, benefit claims — and are they in the
+   right place, given a prompt cannot be relied on the way a check can?
+4. Is a plan for a medical goal ("lose weight", "get my blood pressure down")
+   something this app should produce at all, now that it does? The owner asked
+   for it; the clinical question is separate from the product one.
+5. Are the proposed **times and days** in scope for this review? MedHelp now
+   picks an hour and a set of weekdays for each activity. They are ordinary
+   waking hours with no clinical reasoning behind them, and the person edits
+   them, but the app is choosing when someone does something.
+6. Is a refusal for a goal with no named activity the right default, given that
    it is the most natural thing to type into an empty box?
-4. Does a goal reminder on a lock screen need different copy from a medication
+7. Does a goal reminder on a lock screen need different copy from a medication
    one?
 
 

@@ -69,6 +69,7 @@ services:
       python scripts/create_missing_tables.py &&
       python scripts/add_intake_audit_columns.py &&
       python scripts/add_medication_supply_columns.py &&
+      python scripts/add_goal_schedule_columns.py &&
       uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

@@ -11,10 +11,18 @@ Every row here is health data about a named person. The rules from
 
 ## MedHelp proposes. It never saves.
 
-`POST /goals/draft` splits the person's text into activities and **writes
-nothing** - a test asserts a draft leaves the user with no goals. Rows exist
-only after `POST /goals` sends back what the person confirmed on screen, the
-same read-then-confirm shape as medication reminders.
+`POST /goals/draft` proposes a plan — activities, the days they fall on and
+the time of day for each — and **writes nothing**; a test asserts a draft
+leaves the user with no goals. Rows exist only after `POST /goals` sends back
+what the person confirmed on screen, the same read-then-confirm shape as
+medication reminders.
+
+⛔ Since 2026-09-12 that plan is authored by MedHelp for **any** goal,
+including a medical one, and no deterministic check screens it. The refusal
+that used to turn "get my blood pressure down" into a dead end was removed at
+the repository owner's request. Read the module docstring of
+`core/goal_structuring.py` before changing anything on this path — what
+guards it is a prompt, not a check.
 
 ## Emergency screening runs first, and before any vendor
 
@@ -43,10 +51,8 @@ from app.core import goal_structuring
 from app.core.dependencies import get_current_user
 from app.core.emergency import screen_for_emergency
 from app.core.goal_structuring import (
-    MEDICAL_GOAL,
     NO_ACTIVITY_NAMED,
     UNCLEAR,
-    WOULD_REQUIRE_AUTHORING,
     GoalDraft,
     Refusal,
 )
@@ -70,23 +76,23 @@ router = APIRouter(prefix="/goals", tags=["goals"])
 # What the person reads when MedHelp has no proposal. Each one says what
 # happened and leaves them a way forward, because the editor is open either
 # way - a refusal costs one screen of typing, never a dead end.
+#
+# ⛔ TWO NOTICES WERE DELETED ON 2026-09-12, with the refusal codes behind
+# them. "MedHelp can only track activities you plan to do, not symptoms,
+# medicines or changes to your body" (MEDICAL_GOAL) and "MedHelp does not
+# write health plans" (WOULD_REQUIRE_AUTHORING) were the sentences a person
+# got when they asked for help with a health goal. Both are now false as
+# descriptions of the app, which is the point of the change rather than an
+# oversight: MedHelp does write health plans now. Do not reinstate either
+# sentence without reinstating the behaviour it describes.
 _REFUSAL_NOTICES = {
     NO_ACTIVITY_NAMED: (
-        "MedHelp could not find anything to track in what you wrote. Add the "
-        "things you plan to do and they will appear here."
-    ),
-    MEDICAL_GOAL: (
-        "MedHelp can only track activities you plan to do, not symptoms, "
-        "medicines or changes to your body. If something is worrying you, "
-        "speak to a healthcare professional."
-    ),
-    WOULD_REQUIRE_AUTHORING: (
-        "MedHelp does not write health plans. Add the things you plan to do "
-        "and it will help you keep track of them."
+        "MedHelp could not find a goal in what you wrote. Write what you would "
+        "like to work towards and it will suggest a plan."
     ),
     UNCLEAR: (
-        "MedHelp could not tell which activities you meant. You can add them "
-        "yourself below."
+        "MedHelp could not tell what you were going for. You can add your own "
+        "activities below."
     ),
 }
 
@@ -125,38 +131,34 @@ def draft_goal(
         EmergencyGuidanceOut(**guidance.__dict__) if guidance is not None else None
     )
 
-    # `structure` runs first for its refusals, not for its rows. It is the
-    # screen that decides whether this goal may be answered with a plan at all,
-    # and it is deliberately the stricter of the two readings of the text.
-    result = goal_structuring.structure(payload.description)
+    # ⛔ THE PLANNER RUNS FIRST, AND NOTHING SCREENS THE GOAL BEFORE IT.
+    #
+    # Until 2026-09-12 `structure` ran first so that a MEDICAL_GOAL refusal
+    # could short-circuit the planner: "get my blood pressure down" reached
+    # the person as a refusal even though the planner would have answered it.
+    # The repository owner asked for that gate removed, so the order is now
+    # the plain one - MedHelp proposes a plan for whatever was typed.
+    #
+    # What still holds: every row comes back `generated=True` and is labelled
+    # "Suggested by MedHelp" on screen, and nothing is saved until the person
+    # presses save. Emergency screening has already run, above.
+    result = goal_structuring.suggest_plan(payload.description)
 
-    # ⛔ A MEDICAL_GOAL is never answered with a plan, and that check has to
-    # happen before the planner is asked rather than inside it. "Get my blood
-    # pressure down" must reach the person as a refusal even if the planner
-    # would happily have proposed walks for it.
-    refused_outright = isinstance(result, Refusal) and result.reason == MEDICAL_GOAL
-
-    if not refused_outright:
-        # MedHelp proposes its own plan and its own weekly rhythm rather than
-        # splitting the person's sentence into rows. Asked for by the
-        # repository owner on 2026-09-09.
-        #
-        # Every row it returns is `generated=True` and reaches the screen
-        # labelled "Suggested by MedHelp", the deterministic `_FORBIDDEN` veto
-        # still discards a whole plan on one match, and nothing is saved until
-        # the person presses save. Those three are what keep this inside what
-        # the app may do, and none of them may be removed.
-        planned = goal_structuring.suggest_plan(payload.description)
-        if isinstance(planned, GoalDraft):
-            result = planned
-        elif isinstance(planned, Refusal) and planned.reason == MEDICAL_GOAL:
-            # The planner read the goal as medical where `structure` did not.
-            # The stricter of the two answers wins, in that direction only.
-            result = planned
-        # Any other planner outcome - an outage, a refusal it could not place,
-        # a draft that failed the veto - leaves `result` as `structure` left
-        # it. The person's own words are a worse plan than an originated one
-        # and a far better screen than an empty editor.
+    if not isinstance(result, GoalDraft):
+        # The planner had nothing - an outage, no endpoint configured, or an
+        # answer that failed its shape checks. Fall back to splitting the
+        # person's own words, which is a worse plan than an originated one and
+        # a far better screen than an empty editor. A `structure` refusal is
+        # only ever reached once the planner has already failed, so it can no
+        # longer block a plan by itself.
+        fallback = goal_structuring.structure(payload.description)
+        if isinstance(fallback, GoalDraft):
+            result = fallback
+        elif result is None:
+            # The planner failed without saying why. A refusal code from
+            # `structure` is a better sentence for the person than the
+            # generic "no suggestions right now"; None here keeps that.
+            result = fallback
 
     if isinstance(result, GoalDraft):
         return GoalDraftOut(
@@ -170,6 +172,8 @@ def draft_goal(
                     quantity_text=activity.quantity_text,
                     preferred_time=activity.preferred_time,
                     generated=activity.generated,
+                    days=list(activity.days),
+                    time_of_day=activity.time_of_day,
                 )
                 for activity in result.activities
             ],
@@ -213,6 +217,12 @@ def create_goal(
                     activity.quantity_text.strip() if activity.quantity_text else None
                 ),
                 preferred_time=activity.preferred_time,
+                # Stored as a comma-separated string of day names in week
+                # order - see the note on the column. Empty means no
+                # particular day, which is what a hand-typed activity has
+                # until the person picks days for it.
+                days=",".join(activity.days),
+                time_of_day=activity.time_of_day,
                 position=position,
             )
         )
@@ -310,6 +320,20 @@ def delete_goal(
     db.commit()
 
 
+def _days_of(activity: GoalActivity) -> list[str]:
+    """
+    The stored day string as a list, in week order and without junk.
+
+    Filtered against `DAYS` rather than split and trusted: the column is free
+    text, and a value that is not a day name would reach the client as a
+    schedule row nobody can act on.
+    """
+    if not activity.days:
+        return []
+    named = {part.strip().lower() for part in activity.days.split(",")}
+    return [day for day in goal_structuring.DAYS if day in named]
+
+
 def _to_out(goal: HealthGoal, *, on: date, db: Session) -> GoalOut:
     activity_ids = [activity.id for activity in goal.activities]
     ticked: set[str] = set()
@@ -337,6 +361,8 @@ def _to_out(goal: HealthGoal, *, on: date, db: Session) -> GoalOut:
                 times_per_week=activity.times_per_week,
                 quantity_text=activity.quantity_text,
                 preferred_time=activity.preferred_time,
+                days=_days_of(activity),
+                time_of_day=activity.time_of_day,
                 completed_today=activity.id in ticked,
             )
             for activity in goal.activities

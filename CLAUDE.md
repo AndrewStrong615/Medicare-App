@@ -1385,72 +1385,128 @@ description that had none, and round two then takes it back out.
 
 ## Health goals (implemented)
 
-A person writes down what they intend to do, confirms the activities MedHelp
-read out of it, and ticks them off. Reasoning and the reviewer's open
-questions: `docs/health-goals-prompt.md`.
+A person writes down a goal, confirms the plan and daily schedule MedHelp
+proposes for it, and ticks the activities off. Reasoning and the reviewer's
+open questions: `docs/health-goals-prompt.md`.
 
-### Two paths, and the person can always tell them apart
+### ⛔ The blocking was removed on 2026-09-12. Read this first.
 
-**MedHelp proposes its own plan** — a few small everyday activities and a
-weekly rhythm for them — for any goal that is not a medical one
-(`suggest_plan`). The repository owner asked for this on **2026-09-09**: the
-app should work out how to get to the goal, not hand the person's own sentence
-back split into rows.
+**MedHelp now proposes a plan for any goal a person types, including a medical
+one, and no deterministic check screens what it proposes.** Two things were
+deleted at the repository owner's direct request, asked for in conversation on
+2026-09-12 — "remove the feature that blocks health plans and make it so the
+section creates a plan and daily schedule for the health goal the user
+inputs":
+
+- **The `MEDICAL_GOAL` refusal**, and `WOULD_REQUIRE_AUTHORING` with it. These
+  were how "lose weight", "stop my headaches" and "get my blood pressure down"
+  reached the person as a refusal instead of a plan: `structure` ran first,
+  and a `MEDICAL_GOAL` answer short-circuited before the planner was called.
+  The order is now the plain one — the planner runs first, for everything.
+- **`_FORBIDDEN`**, the phrase-list veto in `core/goal_structuring.py`. It
+  held "calorie", "weight", "blood pressure", "dose", "hiit" and about sixty
+  more, and one match anywhere discarded the *whole* plan. It is what made a
+  health goal unanswerable in practice, because the goal could not be planned
+  for without using the words it watched for.
+
+⛔ **Be clear-eyed about the cost rather than reassured by what is left.** The
+only thing now constraining an authored plan is `PLAN_SYSTEM_PROMPT`. A prompt
+is an instruction that is usually followed; a phrase list was a check that
+always ran. A prompt fails open and silently. This is a materially weaker
+position than the one this file described before, and it was chosen
+deliberately — not arrived at by drift.
+
+Two tests pin the removal so it cannot be quietly undone
+(`test_the_codes_that_blocked_a_health_goal_are_gone`,
+`test_the_forbidden_phrase_veto_is_gone`). Reinstating either is a failing
+suite and a conversation, not a tidy-up.
+
+### What still holds, and may not be removed
+
+1. **Every suggestion is labelled and confirmed.** `generated=True` reaches
+   the screen, the row reads "Suggested by MedHelp — edit it or remove it",
+   and editing a row's text clears the label because it has become the
+   person's own. Nothing is saved until they press save. ⛔ Never render a
+   suggested row without that label.
+2. **No benefit claims.** `PLAN_SYSTEM_PROMPT` still forbids explaining what
+   an activity will do for the person — propose the activity and stop.
+   "Walk after lunch", never "walk after lunch to bring your blood sugar
+   down". A benefit claim is the app authoring a health claim, which is the
+   line this feature is still built around, and it is the easiest one to
+   break now that the veto is gone.
+3. **Still no medication or clinical targets.** The prompt refuses a dose, a
+   supplement, a change to anything prescribed, and a target figure for a
+   weight, blood pressure, blood sugar or calorie count. These are a
+   clinician's call, and refusing them is not the same as refusing to plan.
+4. **Emergency screening runs first and is untouched.** `api/goals.py` calls
+   `screen_for_emergency` before the model, and its guidance is returned
+   alongside whatever else happened.
+5. **The `structure` fallback is unchanged**, checks and all. Where the
+   planner fails, the person's own quoted words come back rather than an
+   empty editor — the same rule as a model outage in triage never being
+   SELF_CARE.
 
 **Their own words are the fallback, not the main path.** `structure` still
 reads quotable activities out of the text and every row it produces must quote
-them — the check below — and that is what the person gets when the planner is
-unavailable, vetoed, or refuses in a way that is not a flat MEDICAL_GOAL. An
-outage must never empty the editor, the same rule as a model outage in triage
-never being SELF_CARE.
+them — the check below. It now runs only when the planner returned nothing.
 
-⛔ **This inverted on 2026-09-09, and the direction matters.** Origination used
-to be the narrow fallback and is now the main path, so this is the one place in
-the app that routinely proposes health content nobody wrote. Three things keep
-it inside what this app may do, and none may be removed:
-
-1. **A medical goal is never answered with a plan.** `structure` screens first
-   and a `MEDICAL_GOAL` refusal — "stop my headaches", "lose weight", "get my
-   blood pressure down" — short-circuits before the planner is asked at all, so
-   the planner cannot propose walks for a blood-pressure goal. Where the
-   planner reads a goal as medical and `structure` did not, the refusal still
-   wins; ⛔ **the reverse is not symmetrical and must never be added.** A
-   planner willing to propose something does not clear a goal `structure`
-   already refused. Three tests hold this, including that the planner is not
-   even called.
-2. **Every suggestion is labelled and confirmed.** `generated=True` reaches
-   the screen, the row reads "Suggested by MedHelp — edit it or remove it",
-   and editing a row clears the label because it has become the person's own.
-   Nothing is saved until they press save. ⛔ Never render a suggested row
-   without that label.
-3. **A deterministic veto, not a model gate.** `_FORBIDDEN` in
-   `core/goal_structuring.py` is a phrase list a clinician can read line by
-   line — food quantity and restriction, weight and body, medicines and
-   clinical measurements, exercise intensity — and one match discards the
-   *whole* plan. A second model asked "is this safe?" fails silently open; a
-   phrase list fails closed. ⛔ Do not replace it with a model, and do not
-   remove entries without the clinical review. Adding to it is free.
-
-The generation prompt also forbids explaining what an activity will do for the
-person — propose the activity and stop. A benefit claim is the app authoring a
-health claim, which is the line this whole feature is built around.
-
-⛔ **Suggestions are not clinically reviewed, and since 2026-09-09 they are
-what most people will see.** They are general wellbeing prompts written by a
-software engineer; no clinician has read `PLAN_SYSTEM_PROMPT` or the veto list.
-This was a narrow fallback when that was written and is now the main path, so
-the exposure is materially larger than the sentence used to describe — every
-person who writes a goal now gets an app-authored plan rather than their own
-words back. It belongs in the same review as `followup.py` and
-`dose_schedule.py`, and it is now the more urgent of the three.
+⛔ **Suggestions are not clinically reviewed, and they are what everyone
+sees.** They are written by a software engineer; no clinician has read
+`PLAN_SYSTEM_PROMPT`, and since 2026-09-12 it is the whole of the guard rather
+than one layer of two. It belongs in the same review as `followup.py` and
+`dose_schedule.py` and is now clearly the most urgent of the three.
 
 ⛔ **The safety checks are asymmetric, and origination is on the weaker side.**
 The quoting and digit checks below cannot apply to a plan nobody wrote, so an
-originated row is guarded by `_FORBIDDEN` alone where a structured row is
-guarded by `_FORBIDDEN` *and* the requirement that it quote the person. Moving
-the main path to origination therefore moved most rows onto the weaker guard.
-That is the trade the owner asked for, made deliberately; it is also the reason
-adding to `_FORBIDDEN` is the cheapest safety win available in this feature.
+originated row is now guarded by the prompt alone, where a structured row is
+guarded by the prompt *and* the requirement that it quote the person. Almost
+every row a person sees is an originated one. **Reinstating a narrow, reviewed
+veto list is the cheapest safety work available in this feature** — it is
+deliberately not guessed at here, and it is the first thing to ask the
+clinical reviewer about.
+
+### The plan carries a daily schedule
+
+Each proposed activity comes back with `days` (which days of the week) and
+`time_of_day` (a local wall-clock `"HH:MM"`), added 2026-09-12. That is the
+half the person came for: a plan with no schedule is a list.
+
+- ⛔ **A time is a local wall clock, never a UTC instant** — the same rule as
+  `medication_reminders`. Eight in the morning means eight in the morning
+  wherever the person is; storing an instant would move their plan when they
+  travelled.
+- **`cadence` and `times_per_week` are derived from `days`**, in
+  `_validate_plan` and again on the editor when the person re-ticks days. The
+  model is not asked for them. A plan therefore cannot say "three times a
+  week" beside four ticked days, and the old failure where a weekly cadence
+  arrived without its count and discarded the whole plan is gone by
+  construction.
+- **A time is refused, never guessed.** `8am`, `0800` and `8:00` are rejected
+  by both the core module and the schema, exactly as `dose_schedule.py`
+  rejects them: "8" could be either end of the day.
+- **A row with no usable day list or time discards the whole plan.** A
+  silently half-scheduled plan is harder to notice than an absent one.
+- **A `structure` row carries no schedule at all**, deliberately. That path
+  may only rearrange words the person wrote, and a clock time is digits
+  nobody wrote — the same rule that stops it inventing a duration. The person
+  sets their own days and time on the editor.
+- **An activity with no days is not treated as daily.** It is unscheduled,
+  reads "Whenever you choose", and is never marked "Due today" — nobody chose
+  those days. It stays tickable, because a tick is a note the person makes
+  for themselves.
+- ⛔ The goals screen marks due rows **"Due today", not "Today"** — the tab
+  bar already has a tab called Today, and one word meaning two things on one
+  screen is worse for a screen reader than a longer label.
+- ⛔ Still **not an adherence record**. The marker says which day a row falls
+  on; it never counts, scores, or says how many are left. No "2 of 3 today".
+  Asserted by a test.
+
+**Deploying this needs the column script.** `days` and `time_of_day` went onto
+the existing `goal_activities` table, so run
+`scripts/add_goal_schedule_columns.py` once against any database created
+before this change or `/goals` returns 500s. It is idempotent and the Render
+start command runs it. Neither column is backfilled with a guess: a goal saved
+before this does not acquire an 08:00.
 
 ### The structuring rule is checked, not trusted
 
@@ -1461,9 +1517,14 @@ walking goal has to quote "stretch" out of text that never contained it.
 
 Four further checks follow the same principle, most importantly that **no digit
 may appear in an activity unless the person wrote it** — an invented number is
-the likely shape of an invented duration, distance or dose. Suggested rows are
-exempt from the quoting and digit rules by construction, since nothing was
-written to quote; the veto list is what guards them instead.
+the likely shape of an invented duration, distance or dose. It is also why a
+`structure` row carries no clock time: a time is digits nobody wrote.
+
+⛔ **This applies to the fallback path only.** Suggested rows are exempt from
+the quoting and digit rules by construction, since nothing was written to
+quote. The veto list used to guard them instead; it was removed on 2026-09-12,
+so nothing deterministic guards them now. `_validate_plan` checks shape — a
+title, a day list, an `"HH:MM"` — and does not look at content at all.
 
 Rules for anyone extending this:
 
@@ -1513,17 +1574,34 @@ having been shown that the originally proposed design (a model authoring
 weekly plans, with a second model checking them for safety) could not be
 built here. That is approval to **build it on a branch**.
 
-⛔ It is not clinical sign-off. `SYSTEM_PROMPT`, the refusal list and the
-cadence copy in `core/goal_structuring.py` are a software engineer's
-construction and belong in the same review as `followup.py` and
-`dose_schedule.py`. It is **not** approval to merge to `main` or to deploy —
-this file fences those separately and they need their own answer.
+They asked again on **2026-09-12**, in conversation, for the blocking to be
+removed and for the section to produce a plan and a daily schedule for any
+health goal typed in. That is the approval this change rests on, and it was
+given after being told plainly that removing `_FORBIDDEN` leaves the prompt as
+the only guard. Same basis as the other entries this file records: a person
+answering in their own words, outside the agent pipeline.
+
+⛔ Neither is clinical sign-off, and the 2026-09-12 one makes that review more
+urgent rather than less. `SYSTEM_PROMPT`, `PLAN_SYSTEM_PROMPT` and the cadence
+copy in `core/goal_structuring.py` are a software engineer's construction and
+belong in the same review as `followup.py` and `dose_schedule.py`. It is
+**not** approval to merge to `main` or to deploy — this file fences those
+separately and they need their own answer.
 
 The goals screens deliberately do **not** use `DisclaimerBanner`. Which
 screens show it is fenced by this file, and adding it to a new screen is a
 reviewer's call, not a layout one. They carry a plain statement about the
-software instead — MedHelp tracks what you decide to do, does not decide what
-your goals should be, and cannot tell you whether one is right for you.
+software instead.
+
+⛔ **That statement was rewritten on 2026-09-12 and the old one must not come
+back.** It used to read "MedHelp tracks what you decide to do, does not decide
+what your goals should be" — which stopped being true the moment the app began
+proposing plans. `GoalCreateScreen` now says the suggestions were written by
+MedHelp rather than by a doctor or nurse, that nobody medically qualified has
+checked them, and to speak to a professional before acting on a goal about a
+medical condition, a medicine, or a big change to eating or exercise. With the
+refusal gone, that footnote is the only thing on the screen telling a person
+what they are looking at. A test asserts it.
 
 ### Goals may use a different model endpoint from triage
 

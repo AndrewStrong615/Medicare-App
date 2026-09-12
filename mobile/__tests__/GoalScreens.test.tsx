@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { GoalCreateScreen } from "@/screens/goals/GoalCreateScreen";
 import { HealthGoalsScreen } from "@/screens/goals/HealthGoalsScreen";
 import {
+  DAYS,
   createGoal,
   deleteGoal,
   draftGoal,
@@ -59,6 +60,8 @@ function goal(overrides: Partial<HealthGoal> = {}): HealthGoal {
         timesPerWeek: null,
         quantityText: null,
         preferredTime: "morning",
+        days: [...DAYS],
+        timeOfDay: "08:00",
         completedToday: false,
       },
     ],
@@ -84,6 +87,10 @@ describe("GoalCreateScreen", () => {
             quantityText: null,
             preferredTime: "morning",
             generated: false,
+            // A quoted row carries no schedule: a time MedHelp invented
+            // would be a quantity the person never wrote.
+            days: [],
+            timeOfDay: null,
           },
         ],
       })
@@ -91,10 +98,10 @@ describe("GoalCreateScreen", () => {
 
     render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(
-      screen.getByLabelText(/What do you plan to do/i),
+      screen.getByLabelText(/What would you like to work towards/i),
       "walk in the mornings"
     );
-    fireEvent.press(screen.getByText("Suggest activities"));
+    fireEvent.press(screen.getByText("Suggest a plan"));
 
     await waitFor(() => expect(mockDraft).toHaveBeenCalledWith("walk in the mornings"));
     // The proposal is on screen, and nothing has been written.
@@ -115,14 +122,18 @@ describe("GoalCreateScreen", () => {
             quantityText: null,
             preferredTime: "morning",
             generated: false,
+            // A quoted row carries no schedule: a time MedHelp invented
+            // would be a quantity the person never wrote.
+            days: [],
+            timeOfDay: null,
           },
         ],
       })
     );
 
     render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
-    fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "walk in the mornings");
-    fireEvent.press(screen.getByText("Suggest activities"));
+    fireEvent.changeText(screen.getByLabelText(/What would you like to work towards/i), "walk in the mornings");
+    fireEvent.press(screen.getByText("Suggest a plan"));
 
     await waitFor(() =>
       expect(screen.getByText(/From your words/i)).toBeTruthy()
@@ -135,20 +146,20 @@ describe("GoalCreateScreen", () => {
     );
 
     render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
-    fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "get healthier");
-    fireEvent.press(screen.getByText("Suggest activities"));
+    fireEvent.changeText(screen.getByLabelText(/What would you like to work towards/i), "get healthier");
+    fireEvent.press(screen.getByText("Suggest a plan"));
 
     await waitFor(() =>
       expect(screen.getByText(/no suggestions right now/i)).toBeTruthy()
     );
     // One blank row to type into, and nothing filled in on the person's behalf.
-    expect(screen.getByLabelText(/Activity 1/i).props.value).toBe("");
+    expect(screen.getByLabelText("Activity 1").props.value).toBe("");
   });
 
   it("shows emergency guidance above everything, even when the model refused", async () => {
     mockDraft.mockResolvedValue(
       emptyDraft({
-        notice: "MedHelp can only track activities you plan to do.",
+        notice: "MedHelp could not tell what you were going for.",
         emergency: {
           category: "cardiac",
           headline: "Call 911 now",
@@ -160,10 +171,10 @@ describe("GoalCreateScreen", () => {
 
     render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
     fireEvent.changeText(
-      screen.getByLabelText(/What do you plan to do/i),
+      screen.getByLabelText(/What would you like to work towards/i),
       "stop the chest pain when I walk"
     );
-    fireEvent.press(screen.getByText("Suggest activities"));
+    fireEvent.press(screen.getByText("Suggest a plan"));
 
     await waitFor(() => expect(screen.getByText("Call 911 now")).toBeTruthy());
   });
@@ -173,12 +184,12 @@ describe("GoalCreateScreen", () => {
     mockCreate.mockResolvedValue(goal());
 
     render(<GoalCreateScreen navigation={navigation as never} route={{ key: "k", name: "GoalCreate" }} />);
-    fireEvent.changeText(screen.getByLabelText(/What do you plan to do/i), "swim");
-    fireEvent.press(screen.getByText("Suggest activities"));
-    await waitFor(() => expect(screen.getByLabelText(/Activity 1/i)).toBeTruthy());
+    fireEvent.changeText(screen.getByLabelText(/What would you like to work towards/i), "swim");
+    fireEvent.press(screen.getByText("Suggest a plan"));
+    await waitFor(() => expect(screen.getByLabelText("Activity 1")).toBeTruthy());
 
     fireEvent.changeText(screen.getByLabelText(/Goal name/i), "Swimming");
-    fireEvent.changeText(screen.getByLabelText(/Activity 1/i), "Swim on Saturdays");
+    fireEvent.changeText(screen.getByLabelText("Activity 1"), "Swim on Saturdays");
     fireEvent.press(screen.getByText("Save goal"));
 
     await waitFor(() =>
@@ -199,11 +210,13 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk after lunch",
             sourcePhrase: null,
-            cadence: "daily",
-            timesPerWeek: null,
+            cadence: "times_per_week",
+            timesPerWeek: 3,
             quantityText: null,
-            preferredTime: "unspecified",
+            preferredTime: "afternoon",
             generated: true,
+            days: ["monday", "wednesday", "friday"],
+            timeOfDay: "13:00",
           },
         ],
       })
@@ -216,17 +229,151 @@ describe("GoalCreateScreen", () => {
       />
     );
     fireEvent.changeText(
-      screen.getByLabelText(/What do you plan to do/i),
+      screen.getByLabelText(/What would you like to work towards/i),
       "I want to be healthier"
     );
-    fireEvent.press(screen.getByText("Suggest activities"));
+    fireEvent.press(screen.getByText("Suggest a plan"));
 
     // A person must be able to tell which lines are theirs.
     await waitFor(() => expect(screen.getByText(/Suggested by MedHelp/i)).toBeTruthy());
 
     // Editing it makes it theirs, so the label goes.
-    fireEvent.changeText(screen.getByLabelText(/Activity 1/i), "Walk after dinner");
+    fireEvent.changeText(screen.getByLabelText("Activity 1"), "Walk after dinner");
     await waitFor(() => expect(screen.queryByText(/Suggested by MedHelp/i)).toBeNull());
+  });
+
+  it("lands the suggested schedule in the editor, with its days ticked", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({
+        title: "Feeling better",
+        activities: [
+          {
+            text: "Walk after lunch",
+            sourcePhrase: null,
+            cadence: "times_per_week",
+            timesPerWeek: 3,
+            quantityText: null,
+            preferredTime: "afternoon",
+            generated: true,
+            days: ["monday", "wednesday", "friday"],
+            timeOfDay: "13:00",
+          },
+        ],
+      })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to be healthier"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() => expect(screen.getByDisplayValue("13:00")).toBeTruthy());
+
+    // The three proposed days are ticked and the other four are not.
+    expect(screen.getByLabelText(/monday for activity 1/i).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText(/wednesday for activity 1/i).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText(/tuesday for activity 1/i).props.accessibilityState.checked).toBe(false);
+  });
+
+  it("saves the schedule, deriving the cadence from the days ticked", async () => {
+    mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
+    mockCreate.mockResolvedValue(goal());
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "swim"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+    await waitFor(() => expect(screen.getByLabelText("Activity 1")).toBeTruthy());
+
+    fireEvent.changeText(screen.getByLabelText(/Goal name/i), "Swimming");
+    fireEvent.changeText(screen.getByLabelText("Activity 1"), "Swim");
+    fireEvent.press(screen.getByLabelText(/saturday for activity 1/i));
+    fireEvent.press(screen.getByLabelText(/sunday for activity 1/i));
+    fireEvent.changeText(screen.getByLabelText("At what time?"), "09:30");
+    fireEvent.press(screen.getByText("Save goal"));
+
+    await waitFor(() =>
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          activities: [
+            expect.objectContaining({
+              text: "Swim",
+              days: ["saturday", "sunday"],
+              timeOfDay: "09:30",
+              // Worked out from the days, so the schedule line cannot
+              // contradict the ticks.
+              cadence: "times_per_week",
+              timesPerWeek: 2,
+            }),
+          ],
+        })
+      )
+    );
+  });
+
+  it("refuses a time it cannot read rather than guessing at one", async () => {
+    mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "swim"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+    await waitFor(() => expect(screen.getByLabelText("Activity 1")).toBeTruthy());
+
+    fireEvent.changeText(screen.getByLabelText(/Goal name/i), "Swimming");
+    fireEvent.changeText(screen.getByLabelText("Activity 1"), "Swim");
+    // "8" could be either end of the day — same rule as dose_schedule.py.
+    fireEvent.changeText(screen.getByLabelText("At what time?"), "8am");
+
+    // The field's own hint also mentions a 24-hour clock, so assert on the
+    // half that only the error says.
+    await waitFor(() => expect(screen.getByText(/Enter the time as HH:MM/i)).toBeTruthy());
+    fireEvent.press(screen.getByText("Save goal"));
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("says the plan was written by software and checked by nobody", async () => {
+    // ⛔ Since the medical-goal refusal was removed, this footnote is the
+    // only thing on the screen telling the person what they are looking at.
+    mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "lose weight"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/not by a doctor or nurse/i)).toBeTruthy()
+    );
+    expect(screen.getByText(/Nobody medically qualified has checked them/i)).toBeTruthy();
   });
 });
 
@@ -245,6 +392,8 @@ describe("HealthGoalsScreen", () => {
             timesPerWeek: null,
             quantityText: null,
             preferredTime: "morning",
+            days: [...DAYS],
+            timeOfDay: "08:00",
             completedToday: true,
           },
         ],
@@ -287,6 +436,69 @@ describe("HealthGoalsScreen", () => {
 
     fireEvent.press(screen.getByLabelText("Delete Getting outdoors"));
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith("goal-1"));
+  });
+
+  it("marks the activities that are due today", async () => {
+    // Deliberately scheduled every day, so this does not depend on which day
+    // the suite happens to run on.
+    mockList.mockResolvedValue([goal()]);
+
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+    await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
+
+    expect(screen.getByText("Due today")).toBeTruthy();
+    // ⛔ A marker, never a tally. No counts, no progress.
+    expect(screen.queryByText(/\d+ of \d+/)).toBeNull();
+  });
+
+  it("does not mark an activity with no days as due today", async () => {
+    mockList.mockResolvedValue([
+      goal({
+        activities: [
+          {
+            id: "unscheduled",
+            text: "Swim sometime",
+            cadence: "unspecified",
+            timesPerWeek: null,
+            quantityText: null,
+            preferredTime: "unspecified",
+            days: [],
+            timeOfDay: null,
+            completedToday: false,
+          },
+        ],
+      }),
+    ]);
+
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+    // Still listed, and still tickable whenever they like...
+    await waitFor(() => expect(screen.getByText("Swim sometime")).toBeTruthy());
+    // ...but nobody chose any days, so MedHelp does not claim it is due.
+    expect(screen.queryByText("Due today")).toBeNull();
+    expect(screen.getByText(/Whenever you choose/i)).toBeTruthy();
+  });
+
+  it("shows the day names and time under an activity", async () => {
+    mockList.mockResolvedValue([
+      goal({
+        activities: [
+          {
+            id: "activity-1",
+            text: "Walk after lunch",
+            cadence: "times_per_week",
+            timesPerWeek: 3,
+            quantityText: null,
+            preferredTime: "afternoon",
+            days: ["monday", "wednesday", "friday"],
+            timeOfDay: "13:00",
+            completedToday: false,
+          },
+        ],
+      }),
+    ]);
+
+    render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+    await waitFor(() => expect(screen.getByText("Mon, Wed, Fri · 13:00")).toBeTruthy());
   });
 
   it("invites a first goal rather than showing an empty page", async () => {

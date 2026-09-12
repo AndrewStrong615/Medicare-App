@@ -85,6 +85,24 @@ class GoalActivity(Base):
     # reason a sig line is never expanded.
     quantity_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
     preferred_time: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # The daily schedule, added 2026-09-12.
+    #
+    # `days` is a comma-separated list of lowercase day names in week order,
+    # e.g. "monday,wednesday,friday". Stored as text rather than as seven
+    # booleans or a bitmask because it is read far more often than it is
+    # queried, and a row a person can read in a database client is worth more
+    # here than a byte saved. Empty string means no particular day.
+    #
+    # ⛔ `time_of_day` is a LOCAL WALL CLOCK "HH:MM", never a UTC instant -
+    # the same rule as `medication_reminders`. Eight in the morning means
+    # eight in the morning wherever the person is, and storing an instant
+    # would move someone's plan the moment they travelled. Null means no
+    # particular time, which is what an activity read out of the person's own
+    # words has until they set one.
+    days: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    time_of_day: Mapped[str | None] = mapped_column(String(5), nullable=True)
+
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     goal: Mapped["HealthGoal"] = relationship(back_populates="activities")

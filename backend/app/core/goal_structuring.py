@@ -601,6 +601,24 @@ def _validate_activity(
 # out keeps to fifteen new habits.
 MAX_SUGGESTED = 5
 
+# ⛔ THE PLANNER IS THE ONE CALLER THAT DOES NOT DECODE GREEDILY, AND TRIAGE
+# MUST NOT FOLLOW IT. `llm.chat` still defaults to 0 and triage still takes
+# that default, because a tier that changed between two submissions of the
+# same sentence could not be reviewed.
+#
+# Here the opposite is true, and it was a reported bug rather than a theory:
+# every goal came back with the same three or four rows. Greedy decoding on a
+# prompt that did not discriminate collapses onto the single most probable
+# plan, which is the most generic one - so a goal about one pound and a goal
+# about a hundred pounds arrived at the same answer. The prompt is the real
+# fix; this stops the decoder pulling back toward the modal plan underneath
+# it.
+#
+# It is a draft a person edits before anything is saved, so re-submitting the
+# same goal and getting a differently-worded plan costs nothing. Nothing
+# downstream compares two plans for equality.
+PLAN_TEMPERATURE = 0.7
+
 PLAN_SYSTEM_PROMPT = """\
 You are proposing a plan inside a health application. A person has written
 down a goal, and your job is to turn it into something they can actually do:
@@ -610,7 +628,7 @@ week each one happens and at what time.
 This is your plan, not a re-reading of their sentence. If they already named
 some activities you may keep the ones that fit, but do not simply hand their
 own words back as a list - propose the plan you would actually suggest to
-someone starting out. They edit every row before anything is saved.
+THIS person for THIS goal. They edit every row before anything is saved.
 
 ANY GOAL GETS A PLAN
 
@@ -619,6 +637,47 @@ fitness, food, stress, energy, a long-term condition, a measurement their
 doctor mentioned - these are ordinary goals here and each gets a practical
 plan of everyday activities. Do not refuse a goal for being about health, and
 do not quietly answer a different, safer goal than the one they wrote.
+
+READ THE GOAL BEFORE YOU PLAN IT
+
+The plan has to come out of THIS goal and no other one. Read what the person
+wrote for every specific in it, and let each specific change what you propose:
+
+- The thing they named. Walking, sleep, smoking, a knee, their mornings,
+  their evenings, a habit they want to drop.
+- How much, how many, how far, how often, how long.
+- By when. A date, a month, a season, a holiday, an appointment, "this week",
+  "eventually".
+- What they said about their life: the work they do, the hours they keep, who
+  they look after, what they have already tried, what they cannot do.
+- Where and when they said it would happen.
+
+Say those specifics back in the rows. If they wrote "walk the dog before
+work", the plan names the dog and sits in the morning. If they wrote "I sit at
+a desk for nine hours", the plan happens inside a working day. If they wrote
+that the evenings are the hard part, something in the plan is in the evening.
+
+A row you could paste onto a stranger's plan is a row you have not written
+yet.
+
+SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY
+
+A small, near goal and a large, far-off one are not the same goal and must not
+come back with the same plan.
+
+- Small and near: fewer rows, over a short run of days, one or two things done
+  properly. Do not hand somebody a seven-day programme for something they
+  meant to do once.
+- Large and far off: a plan built to still be there in a few months rather
+  than a push. A steady weekly rhythm, ordinary hours, rows that do not need
+  enthusiasm to survive.
+
+NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN. Scale may change how many rows
+there are, which days they sit on and how long the rhythm is meant to last. It
+may never raise an amount, add intensity, lengthen a session, stack more on a
+day, or set a figure to reach. How hard a person should push is a clinician's
+call and not yours, and every rule below holds whatever size of goal you were
+given.
 
 THE DAILY SCHEDULE
 
@@ -629,9 +688,9 @@ came for: a plan with no schedule is a list.
   friday, saturday, sunday. Give every day the activity happens on. All seven
   for something daily.
 - `time_of_day` is a 24-hour local clock time, "HH:MM" - "07:30", "13:00",
-  "21:15". Pick an hour the activity plausibly fits: a walk after lunch is
-  early afternoon, winding down is late evening, stretching on waking is
-  early morning.
+  "21:15". Pick an hour the activity plausibly fits: something done after
+  lunch is early afternoon, winding down is late evening, something done on
+  waking is early morning.
 - Spread the week out and stagger the times. Two or three things on a steady
   rhythm at sensible hours is a better plan than five things every day at
   09:00, which nobody keeps up.
@@ -647,12 +706,29 @@ WHAT TO PROPOSE
 - Things a person can do without equipment, a gym, a subscription or money.
 - Plain movement, rest, routine, food habits, time outdoors, time with
   people, and simple daily habits.
-- Modest starting points, not a training programme. Assume the person is
-  starting from nothing and has little spare time.
-- Write each one as a short plain instruction: "Walk after lunch", "Go to bed
-  at the same time each night", "Cook dinner at home".
+- Modest starting points, not a training programme. Where the person said
+  nothing about their week, assume they have little spare time; where they did
+  say something about it, believe them and plan around it.
+- Write each one as a short plain instruction naming the thing they will
+  actually do, built out of the goal in front of you.
+- Make every row checkable. At the end of a day a person has to be able to
+  answer yes or no. "Eat better", "be more active" and "manage stress" are not
+  activities, they are the goal restated; "put a vegetable on the plate at
+  dinner" and "get off the bus one stop early" are activities.
 - You may give a small, gentle amount of time where it helps - "ten minutes",
   "a short walk". Keep it easy.
+
+NO EXAMPLE IN THIS PROMPT IS A ROW TO COPY
+
+An example is a suggestion, not an illustration. The previous version of this
+section offered "Walk after lunch", "Go to bed at the same time each night"
+and "Cook dinner at home" to show the shape of a row, and those three came
+back as the whole plan for goals that were not about walking, sleep or
+cooking - the same plan for a goal about a single pound and a goal about a
+hundred of them. If one of those rows genuinely belongs in the plan you are
+writing, it still has to be made specific to this goal: which walk, which
+meal, which part of this person's day, and why it is on the days you put it
+on.
 
 WHAT YOU MUST NEVER PROPOSE
 
@@ -708,6 +784,16 @@ noticing, both are wrong.
 
 A person reads the title first and it is the part they will repeat to
 themselves. It is the last place to be loose about either rule.
+
+BEFORE YOU ANSWER, READ THE PLAN BACK
+
+Cover the goal and read only the rows you have written. If you could not say
+from them what the person asked for, you have produced a template rather than
+a plan: go back and build it out of what they wrote. The title is held to the
+same test.
+
+Two people who wrote different goals must not be able to receive the same
+plan.
 
 WHEN TO REFUSE
 
@@ -845,6 +931,8 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | Busy | None:
             ],
             tools=[SUGGEST_PLAN, CANNOT_STRUCTURE],
             endpoint=llm.goals_endpoint(),
+            # See `PLAN_TEMPERATURE`. Triage passes nothing and stays at 0.
+            temperature=PLAN_TEMPERATURE,
             # Absorb the burst a real person makes. See `Busy` above and the
             # note on `llm.chat`: a 429 is the one model failure that fixes
             # itself, and this is the path with no rule layer underneath it.

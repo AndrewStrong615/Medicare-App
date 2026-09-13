@@ -1653,6 +1653,106 @@ before this change or `/goals` returns 500s. It is idempotent and the Render
 start command runs it. Neither column is backfilled with a guess: a goal saved
 before this does not acquire an 08:00.
 
+### The same plan came back for every goal (FIXED 2026-09-13)
+
+Reported by the repository owner: *"I said I want to lose a hundred pounds, and
+I said I want to lose one pound, and it gave me the same plan"*, and that the
+plans were vague generally. Two causes, and the first is the generic-title bug
+above repeating itself one section further down the same prompt.
+
+- **`WHAT TO PROPOSE` handed the model the plan.** It illustrated the shape of
+  a row with "Walk after lunch", "Go to bed at the same time each night" and
+  "Cook dinner at home" — and those three came back *as* the plan, for goals
+  that were not about walking, sleep or cooking. ⛔ **An example in a prompt is
+  a suggestion, not an illustration.** That has now cost this feature two bugs,
+  so the copied rows are named as the failure rather than offered, exactly as
+  the generic titles were.
+- **The prompt never asked the model to read the goal.** It said at length what
+  a good plan looks like in general and nothing about what makes this goal this
+  goal. It also said to "assume the person is starting from nothing", which is
+  a uniform floor: if everybody starts in the same place, everybody gets the
+  same first step. Three sections replace that — `READ THE GOAL BEFORE YOU PLAN
+  IT` (the specifics to pick up, and the requirement to say them back in the
+  rows), `SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY`, and `BEFORE YOU
+  ANSWER, READ THE PLAN BACK` (cover the goal; if you cannot tell what it was
+  from the rows, it is a template).
+
+⛔ **Scale may change a plan's shape and may never make it harder.** More rows,
+different days and a longer rhythm are planning decisions. A bigger amount, a
+longer session, more intensity, or a figure to reach are a clinician's. The
+prompt says so in as many words and `test_scale_changes_the_plan_but_may_never_make_it_harder`
+pins it, because "answer a bigger goal differently" is one careless reading
+away from "answer a bigger goal harder" — and the prompt is the only guard
+left on this path.
+
+**The planner no longer decodes greedily.** `llm.chat` gained an opt-in
+`temperature` **defaulting to 0**, so ⛔ **triage is untouched and must stay
+untouched**: a tier that moved between two submissions of the same sentence
+could not be reviewed, and that property is worth more than variety.
+`goal_structuring.PLAN_TEMPERATURE` is 0.7 and is the only caller passing
+anything — the `structure` fallback stays greedy too. Greedy decoding on a
+prompt that did not discriminate collapses onto the single most probable plan,
+which is the most generic one.
+
+#### It is measured, not asserted — but it has not been measured yet
+
+`backend/scripts/goal_plan_eval/` runs a corpus of synthetic goals built as
+**contrast pairs** — two goals a plan is obliged to answer differently,
+including the reported one — and reports the share of rows shared across goals,
+how far each pair's halves overlap, which titles were reused, and how many
+plans contain any word of their own goal.
+
+    cd backend
+    python scripts/goal_plan_eval/measure.py --show
+    python scripts/goal_plan_eval/measure.py --strict
+
+⛔ Unlike `triage_eval`, which runs an offline phrase list, **this one calls a
+live endpoint and costs whatever that endpoint costs**. With none configured it
+says so and exits rather than reporting a zero. It measures *responsiveness*
+and says nothing about whether a plan is safe, achievable or good.
+`measure()`'s arithmetic is unit tested offline in
+`tests/test_goal_plan_eval.py`, including the reported pair coming back
+identical and registering as a 100% overlap.
+
+⛔ **The numbers have not been taken.** There is no model key in the working
+copy this fix was written in, so the fix is so far a prompt change reasoned
+about rather than counted — which is the very thing the title-bug note says not
+to settle for. Run `measure.py` with the deployment's key before treating this
+as closed.
+
+### ⛔ "Proven to work through medical research" is not a claim this app may make
+
+Asked for in the same breath as the fix above, and it is a different kind of
+request rather than a larger version of it.
+
+The plans are written by a language model under a prompt a software engineer
+wrote. Labelling them evidence-based, citing a guideline under a row, or
+linking a study beside one would each **make a health claim about content
+nobody qualified has read** — and a benefit claim is the one rule under "What
+still holds, and may not be removed" that survived the 2026-09-12 removals.
+Attribution does not dodge it: a guideline printed under "Walk after lunch"
+says that body endorses this row, which is a stronger claim than the sentence
+the prompt already forbids, not a weaker one. ⛔ **Do not add "evidence-based",
+"shown to", "research suggests", a citation, or a source link to a plan row.**
+That would make the claim without doing the work.
+
+Two routes actually reach what was asked for, and both are procurement
+decisions rather than engineering ones:
+
+1. **Licensed, professionally reviewed behaviour-change content**, loaded
+   through a container that ships empty — the same shape as
+   `core/protocol_content.py` and the booking path behind
+   `delivery_available()`. The planner would then assemble reviewed material
+   instead of composing prose, and the citation would be true.
+2. **A clinician reads `PLAN_SYSTEM_PROMPT` and a corpus of the plans it
+   produces.** This file already calls that the most urgent of the three
+   outstanding prompt reviews; it is more urgent again now that the plans are
+   specific enough to be acted on.
+
+Until one of those, the honest position is the one `GoalCreateScreen` already
+states: MedHelp wrote these, nobody medically qualified has checked them, and a
+goal about a medical condition is worth raising with a professional.
+
 ### The structuring rule is checked, not trusted
 
 Every activity read out of the person's own words must carry a `source_phrase`

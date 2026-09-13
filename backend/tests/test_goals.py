@@ -8,6 +8,7 @@ tests are what make that claim true: each one hands the parser a model answer
 that invents something and asserts the whole draft is discarded.
 """
 
+import inspect
 from datetime import date
 
 import pytest
@@ -1197,6 +1198,126 @@ def test_the_plan_prompt_does_not_tell_the_model_to_refuse_health_goals():
     # Still refused, because these are a clinician's call and not a plan.
     assert "No benefits, no reasons, no" in prompt
     assert "never a change to what that is" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Reported 2026-09-13: every goal came back with the same vague plan.
+#
+# "I said I want to lose a hundred pounds, and I said I want to lose one
+# pound, and it gave me the same plan." Two causes, and the first is the title
+# bug above repeating itself one section lower down.
+# ---------------------------------------------------------------------------
+
+
+def test_the_plan_prompt_does_not_hand_the_model_a_generic_plan_to_copy():
+    """
+    ⛔ THE SAME MISTAKE AS THE TITLE ONE, IN THE ROWS INSTEAD OF THE HEADING.
+
+    `WHAT TO PROPOSE` illustrated the shape of a row with "Walk after lunch",
+    "Go to bed at the same time each night" and "Cook dinner at home" — and
+    those three came back as the plan itself, for goals that were not about
+    walking, sleep or cooking.
+
+    An example in a prompt is a suggestion, not an illustration. The rule the
+    title fix established is that the copied examples may appear only where
+    they are named as the failure; this asserts the same for the rows.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+    marker = "NO EXAMPLE IN THIS PROMPT IS A ROW TO COPY"
+
+    assert marker in prompt
+
+    offered = prompt.split(marker, 1)[0]
+    for copied in (
+        "Walk after lunch",
+        "Go to bed at the same time each night",
+        "Cook dinner at home",
+    ):
+        assert copied not in offered, (
+            f"{copied!r} is offered to the model before it is named as the "
+            "failure, which is how it became the plan for every goal"
+        )
+        assert copied in prompt, f"{copied!r} must still be named as the failure"
+
+
+def test_the_plan_prompt_tells_the_model_to_read_the_goals_own_specifics():
+    """
+    The prompt used to say what a good plan looks like in general and never
+    once said to read the goal for what makes it this goal. A template is what
+    you get when nothing asks for anything else.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "READ THE GOAL BEFORE YOU PLAN IT" in prompt
+    assert "THIS goal and no other one" in prompt
+    assert "A row you could paste onto a stranger's plan" in prompt
+    assert "must not be able to receive the same" in prompt
+
+    # And the instruction that produced the uniform floor is gone: everybody
+    # was to be assumed to be starting from nothing, so everybody got the
+    # same starting point.
+    assert "starting from nothing" not in prompt
+
+
+def test_scale_changes_the_plan_but_may_never_make_it_harder():
+    """
+    ⛔ THE SAFETY HALF OF THE FIX, AND THE REASON IT IS NOT MERELY A QUALITY ONE.
+
+    "Lose a hundred pounds" and "lose one pound" must stop producing the same
+    plan — but the way a plan is allowed to differ is bounded. More rows, a
+    longer rhythm and different days are a planning decision. A bigger amount,
+    a longer session, more intensity or a figure to reach is a clinician's
+    call, and this prompt is the only guard left on this path.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY" in prompt
+    assert "NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN" in prompt
+
+    bounded = prompt.split("NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN", 1)[1]
+    for forbidden in ("raise an amount", "add intensity", "set a figure to reach"):
+        assert forbidden in bounded
+
+    # The existing absolutes are untouched by the change.
+    assert "A target number for a clinical measurement" in prompt
+    assert "No benefits, no reasons, no" in prompt
+
+
+def test_the_planner_does_not_decode_greedily_and_nothing_else_follows_it(
+    monkeypatch,
+):
+    """
+    Greedy decoding on an underspecified prompt returns the single most
+    probable plan, which is the most generic one. That is the second cause of
+    the reported bug and it is one line.
+
+    ⛔ The assertion that matters is the second half. `llm.chat` still defaults
+    to 0 and triage still takes that default: a tier that moved between two
+    submissions of the same sentence would be unreviewable, and that property
+    is worth more than the variety this buys a draft.
+    """
+    seen: list[dict] = []
+    unpatched = goal_structuring.llm.chat
+
+    def _capture(**kwargs):
+        seen.append(kwargs)
+        return _refusal(goal_structuring.UNCLEAR)
+
+    monkeypatch.setattr(goal_structuring, "available", lambda: True)
+    monkeypatch.setattr(goal_structuring.llm, "chat", _capture)
+
+    goal_structuring.suggest_plan("I want to lose a hundred pounds")
+    assert seen[-1]["temperature"] == goal_structuring.PLAN_TEMPERATURE
+    assert goal_structuring.PLAN_TEMPERATURE > 0
+
+    # The checked path is not the authoring one and gains nothing from
+    # variety, so it is left greedy along with triage.
+    goal_structuring.structure("I want to walk in the mornings")
+    assert "temperature" not in seen[-1]
+
+    # And the default itself is still 0, which is what triage is relying on
+    # by passing nothing at all.
+    assert inspect.signature(unpatched).parameters["temperature"].default == 0
 
 
 # ---------------------------------------------------------------------------

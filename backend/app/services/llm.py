@@ -458,6 +458,7 @@ def chat(
     tools: list[dict[str, Any]] | None = None,
     endpoint: Endpoint | None = None,
     retry_on_rate_limit: int = 0,
+    temperature: float = 0,
 ) -> ChatReply:
     """
     One round trip. Raises LLMUnavailable on anything that is not a usable answer.
@@ -487,6 +488,16 @@ def chat(
     immediately as `LLMRateLimited` so the caller can say "try again shortly"
     rather than holding the connection open. Waiting out a per-minute quota
     would just turn a fast wrong answer into a slow one.
+
+    ## `temperature`
+
+    ⛔ **Defaults to 0, and triage does not pass it.** A tier that changed
+    between two submissions of the same sentence would be unreviewable, so the
+    reproducibility this module was built around stays the default. It is a
+    parameter rather than a constant only because greedy decoding is the wrong
+    setting for a caller drafting something a person will edit and re-edit:
+    `goal_structuring` is the one such caller today, and it says why at
+    `PLAN_TEMPERATURE`.
     """
     resolved = endpoint or default_endpoint()
     if not configured(resolved):
@@ -497,9 +508,12 @@ def chat(
     body: dict[str, Any] = {
         "model": resolved.model.strip(),
         "messages": messages,
-        # Triage must be as close to reproducible as a model gets: the same
-        # description should not oscillate between tiers across submissions.
-        "temperature": 0,
+        # ⛔ `temperature` defaults to 0, so triage is untouched: it must be
+        # as close to reproducible as a model gets, because the same
+        # description oscillating between tiers across submissions is not
+        # something a clinical reviewer can read. Only a caller with a reason
+        # passes anything else — see `goal_structuring.PLAN_TEMPERATURE`.
+        "temperature": temperature,
     }
     if tools:
         body["tools"] = tools

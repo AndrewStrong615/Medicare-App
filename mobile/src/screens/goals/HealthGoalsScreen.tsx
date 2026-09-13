@@ -1,5 +1,12 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -184,8 +191,14 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
               </Text>
 
               {goal.activities.map((activity) => (
+                // ⛔ The detail and the citation sit OUTSIDE the tick target.
+                //
+                // The row is a checkbox, and a link inside a checkbox is a
+                // press that means two things. Keeping them siblings also
+                // means a reader can open the source without accidentally
+                // ticking off something they have not done.
+                <View key={activity.id}>
                 <Pressable
-                  key={activity.id}
                   style={styles.activity}
                   onPress={() => toggle(goal, activity)}
                   disabled={busy === activity.id}
@@ -223,6 +236,42 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
                     )}
                   </View>
                 </Pressable>
+
+                {/* How to do it. Never what it will do for them. */}
+                {activity.detail ? (
+                  <Text style={styles.detail}>{activity.detail}</Text>
+                ) : null}
+
+                {/*
+                  ⛔ THE CITATION ALWAYS CARRIES ITS CAVEAT.
+
+                  Same rule as the editor: a publisher's name under a
+                  MedHelp-written row reads as approval of that row, and
+                  nothing here has been approved by anybody. `caveat` is
+                  server copy and is rendered every time, never reworded here
+                  and never dropped to save a line.
+                */}
+                {activity.evidence ? (
+                  <View style={styles.evidence}>
+                    <Text style={styles.evidenceQuote}>
+                      “{activity.evidence.quote}”
+                    </Text>
+                    <Text style={styles.evidenceSource}>
+                      {activity.evidence.publisher} — {activity.evidence.document}
+                    </Text>
+                    <Text
+                      style={styles.evidenceLink}
+                      accessibilityRole="link"
+                      onPress={() => Linking.openURL(activity.evidence!.url)}
+                    >
+                      Read it at the source
+                    </Text>
+                    <Text style={styles.evidenceCaveat}>
+                      {activity.evidence.caveat}
+                    </Text>
+                  </View>
+                ) : null}
+                </View>
               ))}
 
               <Pressable
@@ -326,6 +375,30 @@ const styles = StyleSheet.create({
   activityLabel: { ...typography.body, color: colors.textPrimary },
   activityMeta: { ...typography.caption, color: colors.textSecondary },
   dueToday: { ...typography.caption, color: colors.accent },
+  detail: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginLeft: MIN_TAP_TARGET,
+  },
+  // Drawn as a quotation on purpose: a ruled block with a publisher under it
+  // reads as somebody else's words, which is what it is. Never styled to look
+  // like MedHelp speaking.
+  evidence: {
+    marginLeft: MIN_TAP_TARGET,
+    marginTop: 2,
+    paddingLeft: spacing.sm,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+    gap: 2,
+  },
+  evidenceQuote: { ...typography.bodyQuoted, color: colors.textSecondary },
+  evidenceSource: { ...typography.caption, color: colors.textSecondary },
+  evidenceLink: {
+    ...typography.caption,
+    color: colors.accent,
+    textDecorationLine: "underline",
+  },
+  evidenceCaveat: { ...typography.caption, color: colors.textSecondary },
   delete: { minHeight: MIN_TAP_TARGET, justifyContent: "center" },
   deleteText: { ...typography.body, color: colors.textSecondary },
   footnote: {

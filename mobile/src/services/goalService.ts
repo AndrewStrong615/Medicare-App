@@ -89,6 +89,43 @@ export interface DraftActivity {
   days: Day[];
   /** Local wall-clock "HH:MM", never a UTC instant. */
   timeOfDay: string | null;
+  /**
+   * One or two sentences on how to do this on the day.
+   *
+   * Never what it will do for the person — that is a claim MedHelp may not
+   * make, and the prompt forbids it. Null on a row read out of the person's
+   * own words, which may not gain sentences nobody wrote.
+   */
+  detail: string | null;
+  evidence: Evidence | null;
+  /**
+   * The id behind `evidence`, carried so a confirmed plan can be posted back
+   * with its citation intact. Only the id travels — never the quotation.
+   */
+  evidenceDomain: string | null;
+}
+
+/**
+ * Published guidance a row is attributed to, assembled by the server.
+ *
+ * ⛔ `caveat` is sent with every citation and MUST be rendered with it. A
+ * government publisher's name under a MedHelp-written row reads as approval of
+ * that row, and nothing here has been approved by anybody — the caveat is the
+ * only thing standing between attribution and an endorsement the app has not
+ * earned. Never render `publisher`, `document` or `quote` without it, and
+ * never reword it here: it is reviewed copy and it comes from the server for
+ * the same reason the refusal sentences do.
+ *
+ * Null for any row MedHelp could not attribute, which is an ordinary outcome
+ * and renders as nothing at all — never as a nearest-looking source.
+ */
+export interface Evidence {
+  publisher: string;
+  document: string;
+  url: string;
+  /** Verbatim from the document. Never trimmed, never paraphrased. */
+  quote: string;
+  caveat: string;
 }
 
 export interface GoalDraft {
@@ -96,6 +133,15 @@ export interface GoalDraft {
   activities: DraftActivity[];
   notice: string | null;
   emergency: EmergencyGuidance | null;
+  /**
+   * How big the planner read the goal to be: "small" | "moderate" | "major".
+   *
+   * ⛔ DO NOT RENDER THIS. It is here so the behaviour is inspectable, not so
+   * a screen can tell somebody their goal is major — MedHelp does not judge
+   * whether a goal is realistic or ambitious. The shape of the plan is how the
+   * reading shows.
+   */
+  complexity: string | null;
 }
 
 export interface GoalActivity {
@@ -116,6 +162,8 @@ export interface GoalActivity {
    * evidence that anything was or was not done.
    */
   completedToday: boolean;
+  detail: string | null;
+  evidence: Evidence | null;
 }
 
 export interface HealthGoal {
@@ -124,6 +172,14 @@ export interface HealthGoal {
   description: string;
   createdAt: string;
   activities: GoalActivity[];
+}
+
+interface ApiEvidence {
+  publisher: string;
+  document: string;
+  url: string;
+  quote: string;
+  caveat: string;
 }
 
 interface ApiActivity {
@@ -136,6 +192,8 @@ interface ApiActivity {
   days: Day[] | null;
   time_of_day: string | null;
   completed_today: boolean;
+  detail: string | null;
+  evidence: ApiEvidence | null;
 }
 
 interface ApiGoal {
@@ -159,6 +217,26 @@ function toDays(raw: string[] | null | undefined): Day[] {
   return DAYS.filter((day) => named.has(day));
 }
 
+/**
+ * A citation, or nothing.
+ *
+ * ⛔ A citation with no caveat is dropped rather than shown. The caveat is
+ * what stops a publisher's name reading as approval of a MedHelp-written row,
+ * so a response missing it is a response this screen must not render — an
+ * older server is a reason to show no citation, never a reason to show a bare
+ * one.
+ */
+function toEvidence(raw: ApiEvidence | null | undefined): Evidence | null {
+  if (!raw || !raw.url || !raw.quote || !raw.caveat) return null;
+  return {
+    publisher: raw.publisher,
+    document: raw.document,
+    url: raw.url,
+    quote: raw.quote,
+    caveat: raw.caveat,
+  };
+}
+
 function toActivity(raw: ApiActivity): GoalActivity {
   return {
     id: raw.id,
@@ -170,6 +248,8 @@ function toActivity(raw: ApiActivity): GoalActivity {
     days: toDays(raw.days),
     timeOfDay: raw.time_of_day ?? null,
     completedToday: raw.completed_today,
+    detail: raw.detail ?? null,
+    evidence: toEvidence(raw.evidence),
   };
 }
 
@@ -207,8 +287,10 @@ export async function draftGoal(description: string): Promise<GoalDraft> {
     activities: Array<Omit<ApiActivity, "id" | "completed_today"> & {
       source_phrase: string | null;
       generated: boolean;
+      evidence_domain: string | null;
     }>;
     notice: string | null;
+    complexity: string | null;
     emergency: {
       category: string;
       headline: string;
@@ -229,8 +311,12 @@ export async function draftGoal(description: string): Promise<GoalDraft> {
       generated: raw.generated ?? false,
       days: toDays(raw.days),
       timeOfDay: raw.time_of_day ?? null,
+      detail: raw.detail ?? null,
+      evidence: toEvidence(raw.evidence),
+      evidenceDomain: raw.evidence_domain ?? null,
     })),
     notice: body.notice,
+    complexity: body.complexity ?? null,
     emergency: body.emergency
       ? {
           category: body.emergency.category,
@@ -250,6 +336,15 @@ export interface ActivityInput {
   preferredTime: PreferredTime;
   days: Day[];
   timeOfDay: string | null;
+  detail: string | null;
+  /**
+   * The id of the guidance this row was attributed to, or null.
+   *
+   * ⛔ Only the id travels. The publisher, quotation and link are the server's,
+   * so this app can never save a stale copy of a government sentence, and an
+   * id the register no longer knows simply loses its citation.
+   */
+  evidenceDomain: string | null;
 }
 
 /** Save what the person confirmed on screen. */
@@ -272,6 +367,8 @@ export async function createGoal(input: {
         days: activity.days,
         // "" would fail the server's HH:MM check; no time is null.
         time_of_day: activity.timeOfDay || null,
+        detail: activity.detail || null,
+        evidence_domain: activity.evidenceDomain || null,
       })),
     }),
     fallbackMessage: "We couldn't save that goal. Please try again.",

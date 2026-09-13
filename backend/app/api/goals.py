@@ -47,7 +47,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core import goal_structuring
+from app.core import goal_evidence, goal_structuring
 from app.core.dependencies import get_current_user
 from app.core.emergency import screen_for_emergency
 from app.core.goal_structuring import (
@@ -64,6 +64,7 @@ from app.schemas.goal import (
     ActivityDraftOut,
     ActivityOut,
     CompletionIn,
+    EvidenceOut,
     GoalCreateIn,
     GoalDraftIn,
     GoalDraftOut,
@@ -117,6 +118,43 @@ _EMERGENCY_NOTICE = (
     "MedHelp has not suggested a plan for what you wrote. Please read the "
     "guidance above first."
 )
+
+
+# ⛔ THE SENTENCE THAT STOPS A CITATION READING AS AN ENDORSEMENT.
+#
+# A government publisher's name under a model-written row reads as approval of
+# that row unless something says otherwise, and nothing about these plans has
+# been approved by anybody. So every citation travels with this, and the screen
+# renders it: the guidance is about the kind of activity, in general, and is
+# not about this person, this goal, or this plan.
+#
+# It lives here for the same reason `_REFUSAL_NOTICES` does - `core/` returns
+# ids and codes, and the wording a person reads in a health app is reviewed
+# text that belongs in one place.
+EVIDENCE_CAVEAT = (
+    "General guidance about this kind of activity. It is not advice about "
+    "you, your goal, or this plan, and nobody medically qualified checked "
+    "that it fits."
+)
+
+
+def _evidence_out(domain: str | None) -> EvidenceOut | None:
+    """
+    A row's citation, or None.
+
+    None is a normal outcome: a row MedHelp could not attribute is rendered
+    with no citation at all, never with the nearest-looking one.
+    """
+    source = goal_evidence.resolve(domain)
+    if source is None:
+        return None
+    return EvidenceOut(
+        publisher=source.publisher,
+        document=source.document,
+        url=source.url,
+        quote=source.quote,
+        caveat=EVIDENCE_CAVEAT,
+    )
 
 
 def _busy_notice(retry_after_seconds: int | None) -> str:
@@ -266,11 +304,15 @@ def draft_goal(
                     generated=activity.generated,
                     days=list(activity.days),
                     time_of_day=activity.time_of_day,
+                    detail=activity.detail,
+                    evidence=_evidence_out(activity.evidence_domain),
+                    evidence_domain=activity.evidence_domain,
                 )
                 for activity in result.activities
             ],
             notice=None,
             emergency=emergency,
+            complexity=result.complexity,
         )
 
     notice = (
@@ -315,6 +357,17 @@ def create_goal(
                 # until the person picks days for it.
                 days=",".join(activity.days),
                 time_of_day=activity.time_of_day,
+                detail=(activity.detail.strip() if activity.detail else None),
+                # Only an id that still resolves is stored. A client sending
+                # an unknown one loses the attribution rather than having it
+                # saved: a stored id nothing resolves is a citation that will
+                # never render, and quietly keeping it would hide the fact
+                # that the vocabulary moved.
+                evidence_domain=(
+                    activity.evidence_domain
+                    if goal_evidence.resolve(activity.evidence_domain)
+                    else None
+                ),
                 position=position,
             )
         )
@@ -455,6 +508,11 @@ def _to_out(goal: HealthGoal, *, on: date, db: Session) -> GoalOut:
                 preferred_time=activity.preferred_time,
                 days=_days_of(activity),
                 time_of_day=activity.time_of_day,
+                detail=activity.detail,
+                # Resolved on the way out, never stored rendered. A domain
+                # that has since been removed from the register becomes no
+                # citation, which is what an absent one looks like too.
+                evidence=_evidence_out(activity.evidence_domain),
                 completed_today=activity.id in ticked,
             )
             for activity in goal.activities

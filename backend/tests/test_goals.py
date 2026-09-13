@@ -594,6 +594,14 @@ def test_goals_require_a_signed_in_person(client):
 
 
 def _plan(**arguments) -> ChatReply:
+    """
+    A reply in which the model called `suggest_plan`.
+
+    `complexity` defaults to "small" so the many tests that hand over one or
+    two rows keep saying what they were written to say. A test about the
+    reading of the goal's size passes it explicitly.
+    """
+    arguments.setdefault("complexity", "small")
     return ChatReply(
         text="",
         tool_calls=[ToolCall(id="1", name="suggest_plan", arguments=arguments)],
@@ -606,13 +614,23 @@ def _plan(**arguments) -> ChatReply:
 _UNSET = object()
 
 
-def _walk_suggestion(text="Walk after lunch", days=_UNSET, time_of_day="13:00"):
+def _walk_suggestion(
+    text="Walk after lunch",
+    days=_UNSET,
+    time_of_day="13:00",
+    detail="Put your shoes by the door after breakfast.",
+    evidence_domain=_UNSET,
+):
     """A planned row in the shape the model is now asked for."""
-    return {
+    row = {
         "text": text,
         "days": list(goal_structuring.DAYS) if days is _UNSET else days,
         "time_of_day": time_of_day,
+        "detail": detail,
     }
+    if evidence_domain is not _UNSET:
+        row["evidence_domain"] = evidence_domain
+    return row
 
 
 def test_a_suggested_plan_is_labelled_as_suggested(model):
@@ -979,10 +997,14 @@ def test_the_plan_tool_asks_for_a_schedule_not_a_cadence():
         "activities"
     ]["items"]
 
-    assert set(item["required"]) == {"text", "days", "time_of_day"}
+    assert set(item["required"]) == {"text", "days", "time_of_day", "detail"}
     assert "cadence" not in item["properties"]
     assert "times_per_week" not in item["properties"]
     assert item["properties"]["days"]["items"]["enum"] == list(goal_structuring.DAYS)
+
+    # `detail` is required and `evidence_domain` is not: a row always says how
+    # to do it, and a row that cannot honestly be attributed carries nothing.
+    assert "evidence_domain" not in item["required"]
 
     # And the prompt, which is the half the model is most likely to follow.
     assert "HH:MM" in goal_structuring.PLAN_SYSTEM_PROMPT
@@ -1318,6 +1340,321 @@ def test_the_planner_does_not_decode_greedily_and_nothing_else_follows_it(
     # And the default itself is still 0, which is what triage is relying on
     # by passing nothing at all.
     assert inspect.signature(unpatched).parameters["temperature"].default == 0
+
+
+# ---------------------------------------------------------------------------
+# Asked for on 2026-09-13: "very detailed and proven plans ... take into
+# account for the complexity and difficultness of the goal".
+#
+# Three separate things, and they fail in three different ways.
+# ---------------------------------------------------------------------------
+
+
+def test_a_plan_must_commit_to_a_reading_of_how_big_the_goal_is(model):
+    """
+    The reading is required rather than defaulted. A model that never made one
+    has not taken the size of the goal into account, and quietly calling it
+    "moderate" would make the feature look like it was working.
+    """
+    model(
+        _plan(
+            title="Walks after lunch",
+            activities=[_walk_suggestion()],
+            complexity=None,
+        )
+    )
+
+    assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+def test_an_unrecognised_reading_is_a_discard_and_not_a_default(model):
+    model(
+        _plan(
+            title="Walks after lunch",
+            activities=[_walk_suggestion()],
+            complexity="enormous",
+        )
+    )
+
+    assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+def test_a_major_goal_may_not_be_answered_with_a_two_row_plan(model):
+    """
+    ⛔ THE REPORTED BUG, AS A CHECK RATHER THAN A SENTENCE IN A PROMPT.
+
+    "I want to lose a hundred pounds" and "I want to lose one pound" came back
+    with the same plan. A model may now still read them the same way, but it
+    cannot declare one a major goal and hand over the small-goal plan: the row
+    count and the declared reading have to agree.
+    """
+    model(
+        _plan(
+            title="Two years of Sunday cooking",
+            activities=[_walk_suggestion(), _walk_suggestion(text="Cook on Sunday")],
+            complexity="major",
+        )
+    )
+
+    assert goal_structuring.suggest_plan("I want to lose a hundred pounds") is None
+
+
+def test_a_small_goal_may_be_answered_with_a_single_row(model):
+    """
+    The floor is one, not two. Padding a plan so it looks like a plan is the
+    same failure as a template, pointing the other way.
+    """
+    model(
+        _plan(
+            title="One walk before the wedding",
+            activities=[_walk_suggestion()],
+            complexity="small",
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to lose one pound")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.complexity == "small"
+    assert len(draft.activities) == 1
+
+
+def test_a_major_goal_gets_the_longer_plan_and_says_so(model):
+    rows = [_walk_suggestion(text=f"Row {n}") for n in range(4)]
+    model(_plan(title="Two years of steady weeks", activities=rows, complexity="major"))
+    draft = goal_structuring.suggest_plan("I want to lose a hundred pounds")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.complexity == "major"
+    assert len(draft.activities) == 4
+
+
+# ---------------------------------------------------------------------------
+# "Very detailed": a row says how, not only what.
+# ---------------------------------------------------------------------------
+
+
+def test_a_row_without_detail_discards_the_plan(model):
+    model(_plan(title="Walks", activities=[_walk_suggestion(detail="   ")]))
+
+    assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+def test_detail_reaches_the_draft_with_its_whitespace_tidied(model):
+    model(
+        _plan(
+            title="Walks",
+            activities=[
+                _walk_suggestion(detail="Put your shoes\n  by the door  first.")
+            ],
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert draft.activities[0].detail == "Put your shoes by the door first."
+
+
+def test_an_essay_is_not_a_detail(model):
+    """
+    Long enough to be an article is long enough to have started explaining
+    what the activity does for the person, which is the one thing a detail may
+    never do. The cap is crude and deliberately so — it is a length check, not
+    a content check, and it says so.
+    """
+    model(
+        _plan(
+            title="Walks",
+            activities=[_walk_suggestion(detail="x" * 401)],
+        )
+    )
+
+    assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+# ---------------------------------------------------------------------------
+# "Proven": attribution, never assertion.
+# ---------------------------------------------------------------------------
+
+
+def test_a_row_can_be_attributed_to_published_guidance(model):
+    model(
+        _plan(
+            title="Walks after lunch",
+            activities=[_walk_suggestion(evidence_domain="aerobic_activity")],
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert draft.activities[0].evidence_domain == "aerobic_activity"
+
+
+def test_a_row_with_no_domain_is_kept_and_simply_carries_no_citation(model):
+    """
+    Not being able to attribute a row is ordinary. Discarding the plan over it
+    would trade a missing citation for a missing plan.
+    """
+    model(_plan(title="Walks", activities=[_walk_suggestion()]))
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert draft.activities[0].evidence_domain is None
+    assert draft.activities[0].text  # the row itself survived
+
+
+def test_an_invented_domain_becomes_no_citation_rather_than_the_nearest_one(model):
+    """
+    ⛔ The row still reaches the person — with nothing under it. A row
+    attributed to the closest-looking guideline is a fabricated citation on a
+    real person's plan, which is the failure this register exists to prevent.
+    """
+    model(
+        _plan(
+            title="Walks",
+            activities=[_walk_suggestion(evidence_domain="walking_is_good_for_you")],
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert draft.activities[0].evidence_domain is None
+    assert draft.activities[0].text == "Walk after lunch"
+
+
+# ---------------------------------------------------------------------------
+# What a citation looks like by the time a person sees it.
+# ---------------------------------------------------------------------------
+
+
+def test_a_citation_is_assembled_by_the_server_with_its_caveat_attached(
+    client, auth_headers, model
+):
+    """
+    ⛔ THE CAVEAT IS NOT OPTIONAL AND IS NOT THE CLIENT'S TO WORD.
+
+    A government publisher's name under a model-written row reads as approval
+    of that row. Nothing about these plans has been approved by anybody, so the
+    sentence that says the guidance is general and was not checked against this
+    person travels with every citation — from the server, like every other
+    piece of user-facing health copy in this app.
+    """
+    model(
+        _plan(
+            title="Walks after lunch",
+            activities=[_walk_suggestion(evidence_domain="aerobic_activity")],
+        )
+    )
+    body = client.post(
+        "/goals/draft",
+        json={"description": "I want to walk more"},
+        headers=auth_headers,
+    ).json()
+
+    evidence = body["activities"][0]["evidence"]
+    assert evidence["publisher"] == "Centers for Disease Control and Prevention"
+    assert evidence["url"].startswith("https://www.cdc.gov/")
+    assert evidence["quote"].endswith(".")
+    assert "not advice about you" in evidence["caveat"]
+
+    # And the detail reached the person too.
+    assert body["activities"][0]["detail"]
+
+
+def test_a_row_with_no_citation_reaches_the_person_with_evidence_null(
+    client, auth_headers, model
+):
+    model(_plan(title="Walks", activities=[_walk_suggestion()]))
+    body = client.post(
+        "/goals/draft",
+        json={"description": "I want to walk more"},
+        headers=auth_headers,
+    ).json()
+
+    assert body["activities"][0]["evidence"] is None
+
+
+def test_the_draft_reports_how_big_it_read_the_goal_to_be(
+    client, auth_headers, model
+):
+    """
+    Sent so the behaviour is inspectable from outside. ⛔ It is not a label for
+    a screen to print beside what somebody wrote — this app does not tell a
+    person their goal is major.
+    """
+    rows = [_walk_suggestion(text=f"Row {n}") for n in range(4)]
+    model(_plan(title="Steady weeks", activities=rows, complexity="major"))
+    body = client.post(
+        "/goals/draft",
+        json={"description": "I want to lose a hundred pounds"},
+        headers=auth_headers,
+    ).json()
+
+    assert body["complexity"] == "major"
+
+
+def test_detail_and_attribution_survive_a_save_and_come_back_rendered(
+    client, auth_headers
+):
+    """
+    Only the id is stored; the quotation and the link are assembled on the way
+    out. That is what stops a government sentence going stale in a database
+    row, and it is why a saved goal cannot hold a citation the register no
+    longer has.
+    """
+    created = client.post(
+        "/goals",
+        json={
+            "title": "Walks after lunch",
+            "description": "I want to walk more",
+            "activities": [
+                {
+                    "text": "Walk after lunch",
+                    "cadence": "daily",
+                    "preferred_time": "afternoon",
+                    "days": list(goal_structuring.DAYS),
+                    "time_of_day": "13:00",
+                    "detail": "Put your shoes by the door after breakfast.",
+                    "evidence_domain": "aerobic_activity",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert created.status_code == 201
+
+    activity = client.get("/goals", headers=auth_headers).json()[0]["activities"][0]
+    assert activity["detail"] == "Put your shoes by the door after breakfast."
+    assert activity["evidence"]["url"].startswith("https://www.cdc.gov/")
+    assert "not advice about you" in activity["evidence"]["caveat"]
+
+
+def test_a_client_cannot_save_a_citation_that_does_not_exist(client, auth_headers):
+    """
+    ⛔ An unknown id is dropped on the way in rather than stored.
+
+    Keeping it would leave a row pointing at a citation that will never
+    render, which hides the fact that the vocabulary moved — and a client is
+    not a trusted source of which guidance backs which activity.
+    """
+    client.post(
+        "/goals",
+        json={
+            "title": "Walks",
+            "description": "I want to walk more",
+            "activities": [
+                {
+                    "text": "Walk after lunch",
+                    "cadence": "daily",
+                    "preferred_time": "afternoon",
+                    "days": list(goal_structuring.DAYS),
+                    "time_of_day": "13:00",
+                    "detail": "Shoes by the door.",
+                    "evidence_domain": "walking_cures_everything",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+
+    activity = client.get("/goals", headers=auth_headers).json()[0]["activities"][0]
+    assert activity["evidence"] is None
+    assert activity["text"] == "Walk after lunch"
 
 
 # ---------------------------------------------------------------------------

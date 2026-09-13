@@ -43,7 +43,14 @@ const navigation = {
 };
 
 function emptyDraft(overrides: Partial<GoalDraft> = {}): GoalDraft {
-  return { title: null, activities: [], notice: null, emergency: null, ...overrides };
+  return {
+    title: null,
+    activities: [],
+    notice: null,
+    emergency: null,
+    complexity: null,
+    ...overrides,
+  };
 }
 
 function goal(overrides: Partial<HealthGoal> = {}): HealthGoal {
@@ -63,6 +70,8 @@ function goal(overrides: Partial<HealthGoal> = {}): HealthGoal {
         days: [...DAYS],
         timeOfDay: "08:00",
         completedToday: false,
+        detail: null,
+        evidence: null,
       },
     ],
     ...overrides,
@@ -82,6 +91,9 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk in the mornings",
             sourcePhrase: "walk in the mornings",
+            detail: null,
+            evidence: null,
+            evidenceDomain: null,
             cadence: "daily",
             timesPerWeek: null,
             quantityText: null,
@@ -117,6 +129,9 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk in the mornings",
             sourcePhrase: "walk in the mornings",
+            detail: null,
+            evidence: null,
+            evidenceDomain: null,
             cadence: "daily",
             timesPerWeek: null,
             quantityText: null,
@@ -210,6 +225,9 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk after lunch",
             sourcePhrase: null,
+            detail: null,
+            evidence: null,
+            evidenceDomain: null,
             cadence: "times_per_week",
             timesPerWeek: 3,
             quantityText: null,
@@ -250,6 +268,9 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk after lunch",
             sourcePhrase: null,
+            detail: null,
+            evidence: null,
+            evidenceDomain: null,
             cadence: "times_per_week",
             timesPerWeek: 3,
             quantityText: null,
@@ -302,6 +323,9 @@ describe("GoalCreateScreen", () => {
           {
             text: "Walk after lunch",
             sourcePhrase: null,
+            detail: null,
+            evidence: null,
+            evidenceDomain: null,
             cadence: "times_per_week",
             timesPerWeek: 2,
             quantityText: null,
@@ -434,6 +458,149 @@ describe("GoalCreateScreen", () => {
   });
 });
 
+const CITATION = {
+  publisher: "Centers for Disease Control and Prevention",
+  document: "Adult Activity: An Overview",
+  url: "https://www.cdc.gov/physical-activity-basics/guidelines/adults.html",
+  quote: "Adults need 150 minutes of moderate-intensity physical activity a week.",
+  caveat:
+    "General guidance about this kind of activity. It is not advice about " +
+    "you, your goal, or this plan, and nobody medically qualified checked " +
+    "that it fits.",
+};
+
+function plannedRow(overrides = {}) {
+  return {
+    text: "Walk after lunch",
+    sourcePhrase: null,
+    detail: "Put your shoes by the door after breakfast.",
+    evidence: CITATION,
+    evidenceDomain: "aerobic_activity",
+    cadence: "daily" as const,
+    timesPerWeek: null,
+    quantityText: null,
+    preferredTime: "afternoon" as const,
+    generated: true,
+    days: [...DAYS],
+    timeOfDay: "13:00",
+    ...overrides,
+  };
+}
+
+describe("a planned row says how to do it, and where it came from", () => {
+  it("shows the detail under the row", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({ title: "Walks after lunch", activities: [plannedRow()] })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to walk more"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Put your shoes by the door after breakfast.")
+      ).toBeTruthy()
+    );
+  });
+
+  it("⛔ never shows a citation without the sentence that stops it reading as approval", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({ title: "Walks after lunch", activities: [plannedRow()] })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to walk more"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() => expect(screen.getByText(/150 minutes/)).toBeTruthy());
+
+    // The publisher is on screen, and so is the caveat. A government name
+    // under a MedHelp-written row reads as endorsement without it.
+    expect(screen.getByText(/Centers for Disease Control/)).toBeTruthy();
+    expect(screen.getByText(/not advice about you/)).toBeTruthy();
+  });
+
+  it("⛔ drops the citation when the person rewrites the row", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({ title: "Walks after lunch", activities: [plannedRow()] })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to walk more"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+    await waitFor(() => expect(screen.getByText(/150 minutes/)).toBeTruthy());
+
+    // The row becomes the person's own idea. Nobody has checked that the
+    // guidance is about THIS activity any more, so the attribution goes.
+    fireEvent.changeText(
+      screen.getByDisplayValue("Walk after lunch"),
+      "Swim on Saturdays"
+    );
+
+    expect(screen.queryByText(/150 minutes/)).toBeNull();
+    expect(screen.queryByText(/Centers for Disease Control/)).toBeNull();
+    expect(
+      screen.queryByText("Put your shoes by the door after breakfast.")
+    ).toBeNull();
+  });
+
+  it("saves the id of the guidance and never a quotation of it", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({ title: "Walks after lunch", activities: [plannedRow()] })
+    );
+    mockCreate.mockResolvedValue(goal());
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to walk more"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+    await waitFor(() => expect(screen.getByText(/150 minutes/)).toBeTruthy());
+
+    fireEvent.press(screen.getByText("Save goal"));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+    const saved = mockCreate.mock.calls[0][0].activities[0];
+    expect(saved.evidenceDomain).toBe("aerobic_activity");
+    expect(saved.detail).toBe("Put your shoes by the door after breakfast.");
+    // ⛔ Only the id travels. A quotation copied into our database is a
+    // government sentence that can go stale where nobody will see it.
+    expect(JSON.stringify(saved)).not.toContain("150 minutes");
+    expect(JSON.stringify(saved)).not.toContain("cdc.gov");
+  });
+});
+
 describe("HealthGoalsScreen", () => {
   const route = { key: "k", name: "HealthGoals", params: undefined } as never;
 
@@ -452,6 +619,8 @@ describe("HealthGoalsScreen", () => {
             days: [...DAYS],
             timeOfDay: "08:00",
             completedToday: true,
+            detail: null,
+            evidence: null,
           },
         ],
       })
@@ -522,6 +691,8 @@ describe("HealthGoalsScreen", () => {
             days: [],
             timeOfDay: null,
             completedToday: false,
+            detail: null,
+            evidence: null,
           },
         ],
       }),
@@ -549,6 +720,8 @@ describe("HealthGoalsScreen", () => {
             days: ["monday", "wednesday", "friday"],
             timeOfDay: "13:00",
             completedToday: false,
+            detail: null,
+            evidence: null,
           },
         ],
       }),

@@ -193,3 +193,80 @@ def test_normalise_ignores_case_and_punctuation_only():
     assert measure.normalise("Walk after lunch") != measure.normalise(
         "Take a walk after lunch"
     )
+
+
+# ---------------------------------------------------------------------------
+# Reading a deployment's answer, offline.
+#
+# `--api` exists so a run needs no local key. It is the mode that measures the
+# deployed code, which is the only way to get a BEFORE number for a prompt
+# change — so what it does with a failed draft matters as much as what it does
+# with a good one.
+# ---------------------------------------------------------------------------
+
+
+def _goal(goal_id: str):
+    return next(g for g in corpus.CORPUS if g.id == goal_id)
+
+
+def test_a_draft_with_activities_is_read_as_a_plan():
+    outcome = measure.outcome_from_draft(
+        _goal("walk-dog"),
+        200,
+        {
+            "title": "Mornings with the dog",
+            "activities": [
+                {"text": "Walk the dog before work"},
+                {"text": "Put the lead by the door the night before"},
+            ],
+            "notice": None,
+        },
+    )
+
+    assert outcome.planned
+    assert outcome.title == "Mornings with the dog"
+    assert len(outcome.rows) == 2
+
+
+def test_a_draft_with_no_activities_carries_the_notice_as_the_failure():
+    """
+    "MedHelp has no suggestions right now", a rate limit and a refusal all
+    arrive as an empty activity list. The notice is the only thing telling them
+    apart from out here, so it is not thrown away.
+    """
+    outcome = measure.outcome_from_draft(
+        _goal("vague-healthier"),
+        200,
+        {"title": None, "activities": [], "notice": "MedHelp is busy. Try again."},
+    )
+
+    assert not outcome.planned
+    assert outcome.failure == "MedHelp is busy. Try again."
+
+
+def test_a_red_flag_is_reported_as_guidance_rather_than_as_a_refusal():
+    """
+    A description that trips emergency screening gets no plan at all, by
+    design. Counting that as "the planner declined" would misreport the one
+    behaviour in this feature that is not allowed to change.
+    """
+    outcome = measure.outcome_from_draft(
+        _goal("vague-energy"),
+        200,
+        {
+            "title": None,
+            "activities": [],
+            "notice": None,
+            "emergency": {"headline": "Call 911 now"},
+        },
+    )
+
+    assert not outcome.planned
+    assert "emergency guidance" in outcome.failure
+
+
+def test_an_http_error_is_a_failure_and_never_an_empty_plan():
+    outcome = measure.outcome_from_draft(_goal("walk-desk"), 503, {})
+
+    assert not outcome.planned
+    assert outcome.failure == "HTTP 503"

@@ -15,10 +15,28 @@ The same class of bug had already been found and fixed once in the titles, and
 CLAUDE.md records how: by running it against the live deployment and counting,
 not by reading the prompt and reasoning. This is that count, made repeatable.
 
-⛔ THIS CALLS A REAL MODEL ENDPOINT AND COSTS WHATEVER THAT ENDPOINT COSTS.
-Unlike scripts/triage_eval/measure.py, which runs an offline phrase list, this
-needs `GROQ_API_KEY` or the `GOALS_LLM_*` settings — see docs/free-model-setup.md.
-With none configured it says so and exits rather than reporting a zero.
+There are two ways to collect the plans, and they measure different code:
+
+  IN PROCESS (default)   calls `goal_structuring.suggest_plan` here, so it
+                         measures the working copy. This is the one that shows
+                         whether a change to the prompt worked. Needs
+                         `GROQ_API_KEY` or the `GOALS_LLM_*` settings — see
+                         docs/free-model-setup.md.
+
+  AGAINST A DEPLOYMENT   `--api https://…` signs in and posts each goal to
+                         POST /goals/draft, so it measures whatever is
+                         deployed there. Needs no key locally, because the
+                         deployment holds one. Use it for a BEFORE baseline,
+                         and again after the branch is deployed.
+
+⛔ EITHER WAY THIS CALLS A REAL MODEL AND COSTS WHATEVER THAT COSTS. Unlike
+scripts/triage_eval/measure.py, which runs an offline phrase list, there is no
+free run of this. With nothing configured it says so and exits rather than
+reporting a zero.
+
+⛔ `--api` WRITES A USER ROW to that deployment's database, and `/goals/draft`
+writes nothing else. Use a synthetic address; CLAUDE.md's synthetic-data-only
+rule applies to a deployment exactly as it does to a dev machine.
 
 ⛔ WHAT THIS MEASURES, AND WHAT IT DOES NOT. It measures whether plans differ
 from one another and whether they contain any trace of the goal's own words.
@@ -40,8 +58,20 @@ import argparse
 import json
 import re
 import sys
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
+
+import httpx
+
+# A Windows console defaults to cp1252, which cannot encode the characters
+# this repository writes in prose. Substituting a glyph is a better failure
+# than a UnicodeEncodeError traceback out of --help.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - not a tty
+        pass
 
 HERE = Path(__file__).resolve().parent
 # backend/ , so that `app.*` resolves however this is invoked.
@@ -123,6 +153,115 @@ def plan(goal: Goal) -> Outcome:
     if isinstance(result, goal_structuring.Busy):
         return Outcome(goal, failure="rate limited")
     return Outcome(goal, failure="no plan (endpoint or check)")
+
+
+# ---------------------------------------------------------------------------
+# Collecting plans from a deployment, for a run that needs no local key.
+# ---------------------------------------------------------------------------
+
+
+def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
+    """
+    One POST /goals/draft response, read as an Outcome.
+
+    Split out from the request so it can be tested without a network, which is
+    most of what could silently go wrong here: a run whose plans all failed
+    must not be able to read as a run with no repetition in it.
+    """
+    if status_code != 200:
+        return Outcome(goal, failure=f"HTTP {status_code}")
+
+    rows = tuple(
+        a["text"] for a in (payload.get("activities") or ()) if a.get("text")
+    )
+    if not rows:
+        # `notice` is the sentence the person would have read, and out here it
+        # is the only thing separating a refusal from an outage from a rate
+        # limit - so it is carried through verbatim.
+        if payload.get("emergency"):
+            return Outcome(goal, failure="emergency guidance instead of a plan")
+        return Outcome(goal, failure=payload.get("notice") or "no plan, no notice")
+
+    return Outcome(goal, title=payload.get("title") or "", rows=rows)
+
+
+class Deployment:
+    """
+    A signed-in client for POST /goals/draft.
+
+    ⛔ It reads `title` and `activities[].text` and nothing else. It never
+    saves a goal — `/goals/draft` writes nothing, which is the property that
+    makes measuring a live deployment defensible at all.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        email: str,
+        password: str,
+        pause: float,
+        retries: int = 2,
+        retry_pause: float = 20.0,
+    ):
+        self.base = base_url.rstrip("/")
+        self.pause = pause
+        self.retries = retries
+        self.retry_pause = retry_pause
+        self.client = httpx.Client(timeout=120)
+        self.token = self._sign_in(email, password)
+
+    def _sign_in(self, email: str, password: str) -> str:
+        body = {"email": email, "password": password}
+
+        # Sign up first, and treat "already registered" as success. The API
+        # discloses that deliberately (CLAUDE.md, "Sign-in"), so re-running
+        # this script does not need a fresh address every time.
+        created = self.client.post(f"{self.base}/auth/signup", json=body)
+        if created.status_code not in (201, 400):
+            raise SystemExit(
+                f"signup failed: HTTP {created.status_code} {created.text[:200]}"
+            )
+
+        token = self.client.post(f"{self.base}/auth/login", json=body)
+        if token.status_code != 200:
+            raise SystemExit(
+                f"login failed: HTTP {token.status_code} {token.text[:200]}"
+            )
+        return token.json()["access_token"]
+
+    def _once(self, goal: Goal) -> Outcome:
+        response = self.client.post(
+            f"{self.base}/goals/draft",
+            json={"description": goal.text},
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        payload = {} if response.status_code != 200 else response.json()
+        return outcome_from_draft(goal, response.status_code, payload)
+
+    def draft(self, goal: Goal) -> Outcome:
+        """
+        One goal, retried while it comes back with no plan.
+
+        ⛔ THE FIRST BASELINE RUN LOST HALF ITS SAMPLE TO A RATE LIMIT. Eight
+        of sixteen goals returned "MedHelp is busy right now" against a free
+        tier at four seconds apart, which is not a measurement, it is a
+        measurement of the quota.
+
+        It retries ANY empty answer rather than reading the notice for the
+        word "busy". A refusal will simply refuse again for the price of one
+        call, and matching on user-facing copy would make the harness break
+        the next time that sentence is reworded.
+        """
+        outcome = self._once(goal)
+
+        for _ in range(self.retries):
+            if outcome.planned:
+                break
+            time.sleep(self.retry_pause)
+            outcome = self._once(goal)
+
+        time.sleep(self.pause)
+        return outcome
 
 
 def measure(outcomes: list[Outcome]) -> dict:
@@ -280,24 +419,79 @@ def main() -> int:
         action="store_true",
         help="exit non-zero when a threshold is breached",
     )
+    parser.add_argument(
+        "--api",
+        metavar="BASE_URL",
+        help=(
+            "measure a deployment instead of this working copy, by posting "
+            "each goal to its POST /goals/draft"
+        ),
+    )
+    parser.add_argument("--email", help="account to use with --api (synthetic)")
+    parser.add_argument("--password", help="its password")
+    parser.add_argument(
+        "--pause",
+        type=float,
+        default=8.0,
+        help="seconds between --api requests, to stay inside a free-tier quota",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="re-attempts for a goal that came back with no plan (--api only)",
+    )
+    parser.add_argument(
+        "--retry-pause",
+        type=float,
+        default=20.0,
+        help="seconds to wait before such a re-attempt",
+    )
+    parser.add_argument(
+        "--label",
+        default="",
+        help="a name for this run, printed above the numbers",
+    )
     args = parser.parse_args()
 
-    if not goal_structuring.available():
-        print(
-            "No goals model endpoint is configured, so there is nothing to "
-            "measure.\nSet GROQ_API_KEY (or the GOALS_LLM_* settings) — see "
-            "docs/free-model-setup.md.",
-            file=sys.stderr,
-        )
-        return 2
-
-    endpoint = llm.goals_endpoint()
-    if not args.json:
+    if args.api:
+        if not (args.email and args.password):
+            print("--api needs --email and --password.", file=sys.stderr)
+            return 2
+        source = f"{args.api} (the DEPLOYED code, not this working copy)"
+        collect = Deployment(
+            args.api,
+            args.email,
+            args.password,
+            args.pause,
+            retries=args.retries,
+            retry_pause=args.retry_pause,
+        ).draft
+    else:
+        if not goal_structuring.available():
+            print(
+                "No goals model endpoint is configured, so there is nothing "
+                "to measure. Set GROQ_API_KEY (or the GOALS_LLM_* settings) "
+                "- see docs/free-model-setup.md - or measure a deployment "
+                "with --api.",
+                file=sys.stderr,
+            )
+            return 2
+        endpoint = llm.goals_endpoint()
         local = "local" if llm.endpoint_is_local(endpoint) else "REMOTE"
-        print(f"\nendpoint: {endpoint.model} ({local})")
-        print(f"temperature: {goal_structuring.PLAN_TEMPERATURE}")
+        source = (
+            f"in process: {endpoint.model} ({local}), "
+            f"temperature {goal_structuring.PLAN_TEMPERATURE}"
+        )
+        collect = plan
 
-    outcomes = [plan(goal) for goal in CORPUS]
+    if not args.json:
+        print()
+        if args.label:
+            print(f"run: {args.label}")
+        print(f"source: {source}")
+
+    outcomes = [collect(goal) for goal in CORPUS]
     report = measure(outcomes)
     found = breaches(report)
 

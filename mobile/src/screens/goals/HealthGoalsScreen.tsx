@@ -52,7 +52,19 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const savedFor = route.params?.savedFor;
+  /*
+   * The "has been saved" confirmation, and the one thing that retires it.
+   *
+   * Seen on the deployed site on 2026-09-12: deleting the goal you had just
+   * saved left the screen reading "“Fit and Blood Pressure Support Plan” has
+   * been saved." directly above "No goals yet". The banner is driven by a
+   * navigation param, so it outlived the thing it was describing.
+   *
+   * Two contradictory statements about the person's own data, one of which is
+   * false. Cheap to get right, and this app's whole posture is not saying
+   * things that are not so.
+   */
+  const [savedFor, setSavedFor] = useState(route.params?.savedFor);
 
   const today = localDay();
 
@@ -122,6 +134,11 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
     try {
       await deleteGoal(goal.id);
       setGoals((current) => current.filter((one) => one.id !== goal.id));
+      // The confirmation described this goal. It no longer exists, so the
+      // sentence is no longer true. Only this goal's banner is retired —
+      // deleting something else does not silence a confirmation about a goal
+      // that is still there.
+      setSavedFor((current) => (current === goal.title ? undefined : current));
     } catch (caught) {
       setError(
         caught instanceof ApiError ? caught.message : "We couldn't delete that goal."

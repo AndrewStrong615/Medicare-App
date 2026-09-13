@@ -320,7 +320,25 @@ export function GoalCreateScreen({ navigation }: Props) {
                       style={[styles.day, picked && styles.dayPicked]}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: picked }}
-                      accessibilityLabel={`${day} for activity ${index + 1}`}
+                      // ⛔ THE STATE IS IN THE LABEL AS WELL AS IN
+                      // `accessibilityState`, AND BOTH ARE NEEDED.
+                      //
+                      // Checked against the deployed site on 2026-09-12:
+                      // every chip rendered with `aria-checked` null, because
+                      // this version of React Native Web does not map
+                      // `accessibilityState` onto the DOM. The days were
+                      // ticked correctly and looked right — filled in the
+                      // accent colour — but a screen reader was told nothing
+                      // at all about which days the plan had chosen.
+                      //
+                      // Putting it in the label is the one thing that works
+                      // on every platform without depending on what RNW
+                      // happens to emit. `accessibilityState` stays because
+                      // it is the right thing on native.
+                      accessibilityLabel={
+                        `${day} for activity ${index + 1}, ` +
+                        (picked ? "selected" : "not selected")
+                      }
                     >
                       <Text style={[styles.dayText, picked && styles.dayTextPicked]}>
                         {shortDay(day)}

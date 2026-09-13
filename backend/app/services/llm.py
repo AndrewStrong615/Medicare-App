@@ -41,6 +41,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
@@ -91,6 +92,33 @@ class LLMUnavailable(Exception):
     Callers must treat this as "no answer", never as a reassuring one. In
     triage that means the rule tier stands; it never becomes SELF_CARE.
     """
+
+
+class LLMRateLimited(LLMUnavailable):
+    """
+    The provider refused because the account is over its rate limit.
+
+    ⛔ A SUBCLASS ON PURPOSE. Every existing `except LLMUnavailable` keeps
+    catching this, so no caller becomes less safe by it existing — triage
+    still falls back to the rule tier, and goals still fall back to an empty
+    editor rather than an invented plan. What the subclass adds is the
+    ability for a caller that *wants* to say something better to do so.
+
+    This is worth separating because it is the one model failure that is
+    **the caller's fault and fixes itself in seconds**. A revoked key, a
+    retired model and an unreachable host all need an operator; a rate limit
+    needs the person to wait. Reporting it as "MedHelp has no suggestions
+    right now" tells them to give up on something that would work if they
+    pressed the button again, which is the failure this class exists to stop.
+
+    `retry_after_seconds` is the provider's own `Retry-After` when it sent a
+    usable one, and None otherwise. It is a header, not response content, so
+    reading it cannot leak the request back.
+    """
+
+    def __init__(self, message: str, retry_after_seconds: int | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 @dataclass(frozen=True)
@@ -341,6 +369,42 @@ _KNOWN_ERROR_CODES = {
 }
 
 
+_TOO_MANY_REQUESTS = 429
+
+# How long `chat` may sleep in total before giving up on a rate limit, and the
+# pause it uses when the provider did not name one.
+#
+# Small on purpose: this runs inside a web request with a person waiting. The
+# job is to absorb a burst — one person pressing the button twice, or two
+# people arriving together — not to wait out a per-minute quota. Anything
+# longer and "MedHelp is busy, try again" is the better answer, because it
+# gives the person back their screen.
+_RETRY_BUDGET_SECONDS = 4.0
+_RETRY_PAUSE_SECONDS = 1.5
+
+
+def _retry_after_seconds(response: httpx.Response) -> int | None:
+    """
+    The provider's `Retry-After`, in whole seconds, when it sent a usable one.
+
+    A **header**, never response content — a provider's error body can quote
+    the request back, which is the person's own health text, and the rule that
+    nothing from a body is read unless it is known to be safe still holds.
+
+    Only the delta-seconds form is read. The HTTP-date form is legal and no
+    provider here sends it; parsing dates to decide how long to block a
+    request is more ways to be wrong than it is worth.
+    """
+    raw = response.headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        seconds = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return None
+    return seconds if 0 <= seconds <= 3600 else None
+
+
 def _known_error_code(response: httpx.Response) -> str:
     """
     The provider's error code, but only if it is one we already know.
@@ -393,14 +457,36 @@ def chat(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
     endpoint: Endpoint | None = None,
+    retry_on_rate_limit: int = 0,
 ) -> ChatReply:
     """
     One round trip. Raises LLMUnavailable on anything that is not a usable answer.
 
-    Deliberately not retried here: httpx surfaces the failure, the caller
-    treats it as "no model answer", and the rule layer underneath still
-    produces a tier. A retry loop on a health endpoint buys a slower failure,
-    not a better one.
+    Failures are **not** retried, with exactly one opt-in exception. httpx
+    surfaces the failure, the caller treats it as "no model answer", and in
+    triage the rule layer underneath still produces a tier. A retry loop on a
+    dead key or a retired model buys a slower failure, not a better one.
+
+    ## The exception: `retry_on_rate_limit`
+
+    ⛔ **Defaults to 0, so no existing caller's behaviour changes.** Triage in
+    particular is untouched: it still makes exactly one attempt, and a model
+    that does not answer still leaves the rule tier standing.
+
+    A 429 is the one failure that is temporary by definition and fixes itself
+    in seconds. It was found in production on 2026-09-12: the fifth goal
+    submitted inside a minute fast-failed at ~0.6s against a free-tier
+    provider, and every one after it, while the same text succeeded again a
+    few minutes later. A couple of short retries absorb the burst that one
+    person pressing a button, or two people arriving at once, actually
+    produces.
+
+    The budget is deliberately small. This runs inside a web request with a
+    person waiting, so `_RETRY_BUDGET_SECONDS` caps the total wait and a
+    `Retry-After` longer than that is **not** slept on — it is raised
+    immediately as `LLMRateLimited` so the caller can say "try again shortly"
+    rather than holding the connection open. Waiting out a per-minute quota
+    would just turn a fast wrong answer into a slow one.
     """
     resolved = endpoint or default_endpoint()
     if not configured(resolved):
@@ -421,32 +507,61 @@ def chat(
 
     url = completions_url(resolved.base_url)
 
-    try:
-        response = httpx.post(
-            url,
-            json=body,
-            headers=_headers(resolved),
-            timeout=settings.llm_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except httpx.HTTPStatusError as exc:
-        # Status code, plus the provider's own error code when it is one we
-        # recognise. A provider error body can quote the request — which is the
-        # user's description — so nothing else from it is read.
-        logger.warning(
-            "Model endpoint returned HTTP %s%s.",
-            exc.response.status_code,
-            _known_error_code(exc.response),
-        )
-        raise LLMUnavailable("The model endpoint rejected the request.") from exc
-    except httpx.HTTPError as exc:
-        logger.warning("Model endpoint unreachable: %s", type(exc).__name__)
-        raise LLMUnavailable("The model endpoint could not be reached.") from exc
-    except ValueError as exc:
-        raise LLMUnavailable("The model endpoint returned invalid JSON.") from exc
+    attempts_left = max(0, retry_on_rate_limit)
+    waited = 0.0
 
-    return _parse(payload, resolved.model)
+    while True:
+        try:
+            response = httpx.post(
+                url,
+                json=body,
+                headers=_headers(resolved),
+                timeout=settings.llm_timeout_seconds,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            # Status code, plus the provider's own error code when it is one we
+            # recognise. A provider error body can quote the request — which is
+            # the user's description — so nothing else from it is read.
+            logger.warning(
+                "Model endpoint returned HTTP %s%s.",
+                exc.response.status_code,
+                _known_error_code(exc.response),
+            )
+            if exc.response.status_code != _TOO_MANY_REQUESTS:
+                raise LLMUnavailable(
+                    "The model endpoint rejected the request."
+                ) from exc
+
+            retry_after = _retry_after_seconds(exc.response)
+            pause = _RETRY_PAUSE_SECONDS if retry_after is None else retry_after
+
+            # No attempts left, or the provider is asking for longer than a
+            # person will sit in front of a spinner. Say so rather than wait.
+            if attempts_left <= 0 or waited + pause > _RETRY_BUDGET_SECONDS:
+                raise LLMRateLimited(
+                    "The model endpoint is rate limited.", retry_after
+                ) from exc
+
+            attempts_left -= 1
+            waited += pause
+            logger.info(
+                "Rate limited; retrying in %.1fs (%s left).", pause, attempts_left
+            )
+            time.sleep(pause)
+            continue
+        except httpx.HTTPError as exc:
+            logger.warning("Model endpoint unreachable: %s", type(exc).__name__)
+            raise LLMUnavailable(
+                "The model endpoint could not be reached."
+            ) from exc
+        except ValueError as exc:
+            raise LLMUnavailable(
+                "The model endpoint returned invalid JSON."
+            ) from exc
+
+        return _parse(payload, resolved.model)
 
 
 def _parse(payload: Any, model: str = "") -> ChatReply:

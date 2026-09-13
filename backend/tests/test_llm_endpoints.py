@@ -407,9 +407,10 @@ def test_the_test_suite_cannot_reach_a_live_goals_endpoint():
 class _ErrorResponse:
     """An httpx-shaped error response carrying a provider error body."""
 
-    def __init__(self, status_code, payload):
+    def __init__(self, status_code, payload, headers=None):
         self.status_code = status_code
         self._payload = payload
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -561,3 +562,204 @@ def test_every_way_of_writing_groqs_url_reaches_the_same_endpoint(configured):
 )
 def test_other_providers_are_left_as_configured(configured, expected):
     assert llm.completions_url(configured) == expected
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting. A 429 is the one model failure that is temporary by
+# definition, and the only one worth retrying — found in production on
+# 2026-09-12 against a free-tier provider.
+# ---------------------------------------------------------------------------
+
+
+class _OkResponse:
+    """A minimal successful chat completion."""
+
+    status_code = 200
+    headers: dict[str, str] = {}
+
+    def json(self):
+        return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+
+    def raise_for_status(self):
+        return None
+
+
+def _goals_endpoint():
+    return llm.Endpoint(
+        base_url=llm.GROQ_BASE_URL,
+        model="synthetic-model",
+        api_key="gsk_synthetic",
+        label="Health goal descriptions",
+    )
+
+
+def _rate_limited(headers=None):
+    return _ErrorResponse(
+        429,
+        {"error": {"code": "rate_limit_exceeded", "message": "slow down: walk more"}},
+        headers,
+    )
+
+
+def _always(response):
+    """`httpx.post` is called with `url` positional, so accept anything."""
+
+    def _post(*args, **kwargs):
+        return response
+
+    return _post
+
+
+def _counting(calls, response):
+    def _post(*args, **kwargs):
+        calls.append(1)
+        return response
+
+    return _post
+
+
+def test_a_rate_limit_raises_the_distinguishable_error(monkeypatch):
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(llm.httpx, "post", _always(_rate_limited()))
+
+    with pytest.raises(llm.LLMRateLimited):
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+        )
+
+
+def test_a_rate_limit_is_still_an_llm_unavailable(monkeypatch):
+    """
+    ⛔ The safety property. Every existing handler keeps catching it, so
+    nothing becomes less safe by the subclass existing.
+    """
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(llm.httpx, "post", _always(_rate_limited()))
+
+    with pytest.raises(llm.LLMUnavailable):
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+        )
+
+
+def test_nothing_is_retried_unless_the_caller_asked(monkeypatch):
+    """
+    ⛔ Default is zero, so triage is untouched.
+
+    Triage has a rule layer underneath it and must not grow latency because
+    goals wanted a retry. One attempt, exactly as before.
+    """
+    calls = []
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        llm.httpx, "post", _counting(calls, _rate_limited())
+    )
+
+    with pytest.raises(llm.LLMRateLimited):
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+        )
+
+    assert len(calls) == 1
+
+
+def test_a_retry_recovers_a_burst(monkeypatch):
+    """The case this exists for: limited once, fine on the next attempt."""
+    replies = [_rate_limited(), _OkResponse()]
+    slept = []
+    monkeypatch.setattr(llm.time, "sleep", slept.append)
+    monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: replies.pop(0))
+
+    reply = llm.chat(
+        messages=[{"role": "user", "content": "synthetic"}],
+        endpoint=_goals_endpoint(),
+        retry_on_rate_limit=2,
+    )
+
+    assert reply.text == "ok"
+    assert len(slept) == 1
+
+
+def test_retries_are_bounded(monkeypatch):
+    """A provider that is limiting everything must not retry forever."""
+    calls = []
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        llm.httpx, "post", _counting(calls, _rate_limited())
+    )
+
+    with pytest.raises(llm.LLMRateLimited):
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+            retry_on_rate_limit=2,
+        )
+
+    # The first attempt plus two retries, and no more.
+    assert len(calls) == 3
+
+
+def test_a_long_retry_after_is_reported_rather_than_waited_on(monkeypatch):
+    """
+    ⛔ A person is waiting on this request.
+
+    Sleeping out a 60-second per-minute quota would hold the connection open
+    and turn a fast wrong answer into a slow one. The budget is small and a
+    longer `Retry-After` is raised immediately so the screen can say "try
+    again shortly".
+    """
+    slept = []
+    monkeypatch.setattr(llm.time, "sleep", slept.append)
+    monkeypatch.setattr(
+        llm.httpx, "post", _always(_rate_limited({"retry-after": "60"}))
+    )
+
+    with pytest.raises(llm.LLMRateLimited) as caught:
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+            retry_on_rate_limit=2,
+        )
+
+    assert slept == []
+    assert caught.value.retry_after_seconds == 60
+
+
+@pytest.mark.parametrize("header", [{}, {"retry-after": "banana"}, {"retry-after": "-4"}])
+def test_an_unusable_retry_after_is_simply_absent(monkeypatch, header):
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(llm.httpx, "post", _always(_rate_limited(header)))
+
+    with pytest.raises(llm.LLMRateLimited) as caught:
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+        )
+
+    assert caught.value.retry_after_seconds is None
+
+
+def test_a_rate_limit_never_copies_the_provider_body_into_the_log(monkeypatch, caplog):
+    """
+    The rule that nothing from a response body is read unless it is known to
+    be safe still holds — an error body can quote the person's own health text.
+    `Retry-After` is a header, which is why reading it is allowed.
+    """
+    monkeypatch.setattr(llm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        llm.httpx, "post", _always(_rate_limited({"retry-after": "3"}))
+    )
+
+    with pytest.raises(llm.LLMRateLimited):
+        llm.chat(
+            messages=[{"role": "user", "content": "synthetic"}],
+            endpoint=_goals_endpoint(),
+        )
+
+    assert "429" in caplog.text
+    assert "rate_limit_exceeded" in caplog.text
+    assert "walk more" not in caplog.text
+    assert "slow down" not in caplog.text

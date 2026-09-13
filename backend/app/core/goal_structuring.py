@@ -79,7 +79,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services import llm
-from app.services.llm import LLMUnavailable
+from app.services.llm import LLMRateLimited, LLMUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +365,33 @@ class Refusal:
     """The model declined. `reason` is a code; the API owns the wording."""
 
     reason: str
+
+
+@dataclass(frozen=True)
+class Busy:
+    """
+    The model endpoint was rate limited. Not a refusal, and not an outage.
+
+    ⛔ THIS EXISTS BECAUSE OF A PRODUCTION FAILURE, found on 2026-09-12 by
+    running goals against the live deployment. The fifth goal submitted inside
+    a minute fast-failed at ~0.6s, and so did every one after it, while the
+    same text produced a good plan again a few minutes later. The free-tier
+    provider was rate limiting, and every one of those people was told
+    "MedHelp has no suggestions right now. You can add your activities below."
+
+    That sentence is wrong twice over. It says the app had nothing to suggest,
+    when it had not asked; and it offers the one remedy that does not help,
+    when the remedy is to press the button again in a few seconds. Someone
+    reasonably concludes the feature does not work for their goal.
+
+    A refusal is a decision about the goal. An outage needs an operator. This
+    is neither: it is temporary, it is nobody's mistake, and it fixes itself.
+    Telling those three apart is the whole point of the type.
+
+    `retry_after_seconds` is the provider's own `Retry-After` when it sent one.
+    """
+
+    retry_after_seconds: int | None = None
 
 
 def available() -> bool:
@@ -654,6 +681,22 @@ The last one matters most and is the easiest to break. A plan that only
 proposes activities is a plan; the moment it explains what those activities
 will do to a person's illness, it has become advice nobody qualified wrote.
 
+THE TITLE IS HELD TO THE SAME RULE
+
+The title names the part of everyday life the plan is about. It must NOT name
+a medical result the plan is supposed to produce, because a title like that
+promises the outcome that the activities are forbidden from promising.
+
+- Write: "Daily routine", "Evenings and sleep", "Getting outdoors", "Movement
+  and meals".
+- Never write: "Headache relief routine", "Blood pressure support routine",
+  "Cholesterol reduction plan", "Migraine fix". Words like relief, support,
+  reduction, management, treatment and improvement attach a clinical function
+  to the plan, and the plan does not have one.
+
+A person reads the title first and it is the part they will repeat to
+themselves. It is the last place to be loose about this.
+
 WHEN TO REFUSE
 
 Refusing is a last resort here, not a safe default. The person came for a
@@ -755,7 +798,7 @@ SUGGEST_PLAN = {
 # `api/goals.py` still runs before this module is called at all.
 
 
-def suggest_plan(description: str) -> GoalDraft | Refusal | None:
+def suggest_plan(description: str) -> GoalDraft | Refusal | Busy | None:
     """
     Propose an original plan, and a weekly rhythm for it, for a stated goal.
 
@@ -790,7 +833,16 @@ def suggest_plan(description: str) -> GoalDraft | Refusal | None:
             ],
             tools=[SUGGEST_PLAN, CANNOT_STRUCTURE],
             endpoint=llm.goals_endpoint(),
+            # Absorb the burst a real person makes. See `Busy` above and the
+            # note on `llm.chat`: a 429 is the one model failure that fixes
+            # itself, and this is the path with no rule layer underneath it.
+            retry_on_rate_limit=2,
         )
+    except LLMRateLimited as exc:
+        # Distinguished from every other failure so the person is told to try
+        # again rather than that MedHelp had nothing to suggest.
+        logger.info("Goal planner was rate limited.")
+        return Busy(exc.retry_after_seconds)
     except LLMUnavailable:
         # `llm.chat` has already logged the status code and, where it is one it
         # recognises, the provider's own error code. Naming the caller is what

@@ -282,6 +282,63 @@ describe("GoalCreateScreen", () => {
     expect(screen.getByLabelText(/tuesday for activity 1/i).props.accessibilityState.checked).toBe(false);
   });
 
+  it("says whether a day is selected in the label, not only in the colour", async () => {
+    /*
+     * ⛔ Checked against the deployed site on 2026-09-12, where this failed.
+     *
+     * Every day chip rendered with `aria-checked` null: this version of React
+     * Native Web does not map `accessibilityState` onto the DOM. The chips
+     * looked right — Mon to Fri filled in the accent colour, Sat and Sun not
+     * — so the only thing telling anyone which days the plan had chosen was
+     * the fill. A screen reader was told nothing.
+     *
+     * `accessibilityState` is asserted above and is right on native. This
+     * asserts the half that survives whatever RNW emits.
+     */
+    mockDraft.mockResolvedValue(
+      emptyDraft({
+        title: "Feeling better",
+        activities: [
+          {
+            text: "Walk after lunch",
+            sourcePhrase: null,
+            cadence: "times_per_week",
+            timesPerWeek: 2,
+            quantityText: null,
+            preferredTime: "afternoon",
+            generated: true,
+            days: ["monday", "friday"],
+            timeOfDay: "13:00",
+          },
+        ],
+      })
+    );
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to be healthier"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() => expect(screen.getByDisplayValue("13:00")).toBeTruthy());
+
+    expect(screen.getByLabelText("monday for activity 1, selected")).toBeTruthy();
+    expect(screen.getByLabelText("friday for activity 1, selected")).toBeTruthy();
+    expect(screen.getByLabelText("tuesday for activity 1, not selected")).toBeTruthy();
+
+    // And it tracks the tap, rather than being a label written once.
+    fireEvent.press(screen.getByLabelText("tuesday for activity 1, not selected"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("tuesday for activity 1, selected")).toBeTruthy()
+    );
+  });
+
   it("saves the schedule, deriving the cadence from the days ticked", async () => {
     mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
     mockCreate.mockResolvedValue(goal());
@@ -499,6 +556,38 @@ describe("HealthGoalsScreen", () => {
 
     render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("Mon, Wed, Fri · 13:00")).toBeTruthy());
+  });
+
+  it("retires the saved confirmation when that goal is deleted", async () => {
+    /*
+     * Seen on the deployed site on 2026-09-12: deleting the goal you had just
+     * saved left "“…” has been saved." sitting directly above "No goals yet".
+     * Two statements about the person's own data, one of them false.
+     */
+    mockList.mockResolvedValue([goal()]);
+    mockDelete.mockResolvedValue();
+
+    render(
+      <HealthGoalsScreen
+        navigation={navigation as never}
+        route={
+          {
+            key: "k",
+            name: "HealthGoals",
+            params: { savedFor: "Getting outdoors" },
+          } as never
+        }
+      />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/has been saved/i)).toBeTruthy()
+    );
+
+    fireEvent.press(screen.getByLabelText("Delete Getting outdoors"));
+
+    await waitFor(() => expect(screen.getByText("No goals yet")).toBeTruthy());
+    expect(screen.queryByText(/has been saved/i)).toBeNull();
   });
 
   it("invites a first goal rather than showing an empty page", async () => {

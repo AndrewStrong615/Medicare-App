@@ -1,0 +1,167 @@
+{
+  "label": "BEFORE: deployed main, pre-fix",
+  "source": "https://medhelp-api-as615.onrender.com (the DEPLOYED code, not this working copy)",
+  "collected": "2026-09-13",
+  "note": "Transcribed from the --show output of the run that produced the numbers quoted in CLAUDE.md. Loading it with --load reproduces those numbers exactly, which is what verifies the transcription.",
+  "outcomes": [
+    {
+      "goal": "weight-one-pound",
+      "title": "Morning stretches, dinner walks, home meals, and screen-off evenings",
+      "rows": [
+        "Do a 5-minute stretch routine after waking",
+        "Prepare a simple home-cooked dinner",
+        "Take a 15-minute walk after dinner",
+        "Turn off screens and read for 10 minutes before bed"
+      ]
+    },
+    {
+      "goal": "weight-hundred-pounds",
+      "title": "Evening walks and home-cooked meals",
+      "rows": [
+        "Prepare a simple home-cooked dinner",
+        "Take a 15-minute walk after dinner",
+        "Drink a glass of water after waking",
+        "Go to bed at the same time each night"
+      ]
+    },
+    {
+      "goal": "sleep-shift",
+      "title": "Evening wind-down and morning light",
+      "rows": [
+        "Begin winding down (dim lights, quiet activity)",
+        "Turn off bright screens",
+        "Go to bed at the same time",
+        "Open curtains for natural light",
+        "Take a short 20-minute nap before shift"
+      ]
+    },
+    {
+      "goal": "sleep-baby",
+      "title": "Lights down and reading routine",
+      "rows": [
+        "Dim the lights in the living area",
+        "Put phone and tablet away",
+        "Read a short book or magazine",
+        "Turn off the main lights and go to bed"
+      ]
+    },
+    {
+      "goal": "walk-dog",
+      "title": "Morning dog walks and evening play",
+      "rows": [
+        "Walk the dog",
+        "Refresh the dog's water bowl",
+        "Spend a few minutes playing with the dog"
+      ]
+    },
+    {
+      "goal": "walk-desk",
+      "title": "Morning stretch and afternoon walks",
+      "rows": [
+        "Stand up and stretch arms overhead",
+        "Walk around the office for five minutes",
+        "Do seated torso twists",
+        "Take a brief walk outside after lunch"
+      ]
+    },
+    {
+      "goal": "quit-today",
+      "title": "Walk, water, and phone check",
+      "rows": [
+        "Take a 10-minute walk after breakfast",
+        "Drink a glass of water when you feel the urge to smoke",
+        "Do a 5-minute breathing break at your desk",
+        "Call or text a friend for a quick chat"
+      ]
+    },
+    {
+      "goal": "quit-year",
+      "title": "Walks, water, and evening reflections",
+      "rows": [
+        "Take a 5-minute walk outside",
+        "Drink a glass of water",
+        "Do a 5-minute breathing break",
+        "Call a friend or family member for a quick chat",
+        "Write down one thing you're grateful for"
+      ]
+    },
+    {
+      "goal": "vague-healthier",
+      "title": "Morning stretches, midday walks, home meals, and screen-off evenings",
+      "rows": [
+        "Stretch for five minutes after waking",
+        "Take a short walk after lunch",
+        "Prepare a home-cooked dinner",
+        "Turn off screens 30 minutes before bed"
+      ]
+    },
+    {
+      "goal": "vague-energy",
+      "title": "Morning stretches, water, and evening wind-down",
+      "rows": [
+        "Do a gentle stretch routine on waking",
+        "Drink a glass of water after waking",
+        "Take a 10-minute walk after lunch",
+        "Turn off screens and read a book for 15 minutes before bed",
+        "Write down three things you're grateful for before sleep"
+      ]
+    },
+    {
+      "goal": "stress-exams",
+      "title": "Morning stretches, midday walks, focused study blocks, and evening reading",
+      "rows": [
+        "Do a gentle stretch and breathing routine for five minutes",
+        "Take a short walk outside after lunch",
+        "Study for 25 minutes, then stand up and stretch for two minutes",
+        "Turn off screens and read a book for thirty minutes"
+      ]
+    },
+    {
+      "goal": "social-isolation",
+      "title": "Morning walks and weekend meetups",
+      "rows": [
+        "Take a short walk around the neighborhood",
+        "Sit at a nearby cafe for a coffee and a brief chat",
+        "Join a local community meetup or hobby group"
+      ]
+    },
+    {
+      "goal": "meds-routine",
+      "title": "Evening tablet reminder routine",
+      "rows": [
+        "Set a phone alarm for tablet time",
+        "Place tablets next to toothbrush",
+        "Log taken tablets in a notebook"
+      ]
+    },
+    {
+      "goal": "knee-injury",
+      "title": "Knee bends, afternoon walks, and calf stretch",
+      "rows": [
+        "Gentle knee bend while seated",
+        "Short walk around the house or garden",
+        "Standing calf stretch"
+      ]
+    },
+    {
+      "goal": "cooking-budget",
+      "title": "Quick home meals and budget checks",
+      "rows": [
+        "Set a reminder to check your budget before dinner",
+        "Prepare a simple home dinner (e.g., sandwich, salad, or boiled eggs)",
+        "Spend 10 minutes planning tomorrow's meals"
+      ]
+    },
+    {
+      "goal": "screen-evening",
+      "title": "Phone-free wind-down routine",
+      "rows": [
+        "Set phone to Do Not Disturb",
+        "Read a book or magazine",
+        "Do a short stretch or breathing break",
+        "Prepare a cup of herbal tea",
+        "Turn off lights and go to bed"
+      ]
+    }
+  ]
+}

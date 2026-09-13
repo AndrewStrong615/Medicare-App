@@ -188,6 +188,54 @@ what an activity will do for someone. Those are the lines judged to be a
 clinician's call rather than a plan. Whether they are the right lines, and
 whether a prompt is an acceptable place to put them, is question 2 below.
 
+## 2026-09-13: it produced the same plan for every goal
+
+Reported by the owner: a goal of losing one pound and a goal of losing a
+hundred returned the same plan, and the plans were vague generally.
+
+The direct cause is worth repeating because it is now the second bug of its
+kind here: **`WHAT TO PROPOSE` illustrated the shape of a row** with "Walk
+after lunch", "Go to bed at the same time each night" and "Cook dinner at
+home", and the model returned those three as the plan. An example in a prompt
+is a suggestion, not an illustration — the same thing that happened to "Daily
+routine" and "Movement and meals" in the title rules a few weeks earlier.
+Every example left in this prompt is now either named as a failure or built so
+it cannot be lifted without the goal matching.
+
+The prompt also never asked the model to read the goal, and told it to assume
+everyone was starting from nothing — a uniform floor produces a uniform first
+step. Three sections were added: `READ THE GOAL BEFORE YOU PLAN IT`, `SCALE
+CHANGES THE PLAN, AND IN ONE DIRECTION ONLY`, and `BEFORE YOU ANSWER, READ THE
+PLAN BACK`. The planner also stopped decoding greedily
+(`goal_structuring.PLAN_TEMPERATURE`); `llm.chat` still defaults to 0 and
+triage still takes that default.
+
+⛔ **The safety half.** Scale may change how many rows a plan has, which days
+they sit on, and how long a rhythm is meant to last. It may never raise an
+amount, add intensity, lengthen a session or set a figure to reach. A reviewer
+should read the new sections with that distinction in mind, because it is the
+one a careless reading collapses.
+
+**Responsiveness is now measurable**: `backend/scripts/goal_plan_eval/` runs a
+corpus of synthetic contrast pairs against a live endpoint and counts shared
+rows, pair overlap, reused titles and whether a plan uses any word of its own
+goal. It says nothing about whether a plan is safe or good.
+
+### "Proven to work through medical research"
+
+Asked for at the same time, and it cannot be answered by this feature as
+built. Labelling a plan evidence-based, citing a guideline under a row, or
+linking a study beside one each makes a health claim about text a language
+model wrote under a prompt no clinician has read — a stronger claim than the
+benefit sentence the prompt already forbids, not a weaker one.
+
+Two routes reach it, both procurement rather than engineering: licensed,
+professionally reviewed behaviour-change content loaded through an empty
+container (the `protocol_content.py` shape), or question 2 below answered
+along with a clinician's read of the plans themselves. Until then the honest
+position is the one `GoalCreateScreen` already states.
+
+
 ## For the reviewer
 
 1. Is "structuring only" a line that holds on the fallback path? Splitting
@@ -211,6 +259,10 @@ whether a prompt is an acceptable place to put them, is question 2 below.
    it is the most natural thing to type into an empty box?
 7. Does a goal reminder on a lock screen need different copy from a medication
    one?
+8. **Added 2026-09-13.** Now that plans are specific to the goal rather than a
+   template, they are far more likely to be acted on. Does that change the
+   answer to 2, 3 or 4 — and is the "scale may change the plan but never make
+   it harder" rule the right line to have drawn?
 
 
 ## Diagnosing "MedHelp has no suggestions right now"

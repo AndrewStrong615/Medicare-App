@@ -12,6 +12,7 @@ import { Glyph } from "@/components/Glyph";
 import { MedicationCard } from "@/components/MedicationCard";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { ScreenBand } from "@/components/ScreenBand";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -89,13 +90,18 @@ export function MedicationListScreen({ navigation }: Props) {
         needingRefill.length > 0 ? { Medications: needingRefill.length } : undefined
       }
     >
-    <Screen wide page={isExpanded}>
-      <TextColumn>
-        <PageHeader
-          icon="pill"
-          title="My medications"
-          subtitle="A list you keep yourself. MedHelp does not prescribe or change anything here."
+    <Screen
+      wide
+      page={isExpanded}
+      band={
+        <ScreenBand
+          title="Medications"
+          meta="A list you keep yourself. MedHelp does not prescribe or change anything here."
+          page={isExpanded}
         />
+      }
+    >
+      <TextColumn>
 
         {/*
           What you take and when you take it are two views of one list, not two

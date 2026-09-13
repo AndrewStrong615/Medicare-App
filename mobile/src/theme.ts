@@ -103,10 +103,18 @@ export const colors = {
  * ## One hue per destination
  *
  * The five places a signed-in person can be each own a colour, and the five
- * sit on a single ramp from cyan to magenta. They are **luminance-matched on
- * purpose** — white on each lands between 7.2:1 and 7.6:1 — which is what
- * makes five hues read as one system rather than as five brands competing.
- * Change one and re-measure the set, not just the one.
+ * sit on a single ramp from teal to magenta.
+ *
+ * **They are saturated on purpose.** An earlier pass matched all five to the
+ * same contrast against white, on the theory that equal weight is what makes
+ * a set read as one system. It did — and it also made every one of them the
+ * same muted mid-dark, so the ramp was systematic and completely forgettable.
+ * What holds this set together is that it is one continuous sweep of hue at
+ * the edge of what sRGB will give, not that the five are interchangeable.
+ *
+ * Each still clears AA in both of its jobs: white on the fill lands between
+ * 5.6:1 and 7.1:1, and the ink on the porcelain ground between 5.0:1 and
+ * 6.3:1. Change one and re-measure the set, not just the one.
  *
  * ### ⛔ A hue means a *place*, never a state and never a health fact
  *
@@ -130,39 +138,39 @@ export const colors = {
  */
 export const domains = {
   today: {
-    ink: "#0B5E73",
-    fill: "#0B5E73",
-    pressed: "#084A5B",
-    surface: "#E3EFF3",
-    border: "#BBD6DF",
+    ink: "#00707F",
+    fill: "#00707F",
+    pressed: "#005965",
+    surface: "#DFEFF1",
+    border: "#A9D6DB",
   },
   symptoms: {
-    ink: "#1D51A3",
-    fill: "#1D51A3",
-    pressed: "#163F80",
-    surface: "#E6ECF7",
-    border: "#BFCEE8",
+    ink: "#1150D6",
+    fill: "#1150D6",
+    pressed: "#0D3FA8",
+    surface: "#E3EAFB",
+    border: "#B4C6F3",
   },
   medications: {
-    ink: "#4B41B8",
-    fill: "#4B41B8",
-    pressed: "#3B3392",
-    surface: "#EAE8F8",
-    border: "#CBC7EC",
+    ink: "#5B2BEA",
+    fill: "#5B2BEA",
+    pressed: "#4720B8",
+    surface: "#E9E3FD",
+    border: "#C6B6F8",
   },
   care: {
-    ink: "#7A34AD",
-    fill: "#7A34AD",
-    pressed: "#612989",
-    surface: "#F0E7F7",
-    border: "#DDC9EB",
+    ink: "#9B1FD0",
+    fill: "#9B1FD0",
+    pressed: "#7B18A6",
+    surface: "#F2E2FA",
+    border: "#DCB6F0",
   },
   goals: {
-    ink: "#94247F",
-    fill: "#94247F",
-    pressed: "#761C65",
-    surface: "#F7E6F3",
-    border: "#EBC7E0",
+    ink: "#C40B8A",
+    fill: "#C40B8A",
+    pressed: "#9C096E",
+    surface: "#FBDFF0",
+    border: "#F2AFD8",
   },
 } as const;
 
@@ -203,6 +211,7 @@ export const fonts = {
   sansMedium: "Archivo_500Medium",
   sansSemibold: "Archivo_600SemiBold",
   sansBold: "Archivo_700Bold",
+  sansExtrabold: "Archivo_800ExtraBold",
 } as const;
 
 export const spacing = {
@@ -242,11 +251,22 @@ export const radius = {
 const TABULAR = { fontVariant: ["tabular-nums"] as "tabular-nums"[] };
 
 export const typography = {
+  /**
+   * The band title — the app's one typographic moment. Heavy, tight, and
+   * knocked out of a field of the destination's colour, which is how a
+   * department is named on a hospital wall.
+   */
+  band: {
+    fontFamily: fonts.sansExtrabold,
+    fontSize: 34,
+    lineHeight: 37,
+    letterSpacing: -1.2,
+  },
   displayLarge: {
-    fontFamily: fonts.sansBold,
+    fontFamily: fonts.sansExtrabold,
     fontSize: 36,
-    lineHeight: 42,
-    letterSpacing: -0.8,
+    lineHeight: 41,
+    letterSpacing: -1.1,
   },
   display: {
     fontFamily: fonts.sansBold,
@@ -395,6 +415,31 @@ export const elevation = {
  * faster route to it and never the first. Nothing may be encoded in it that
  * is not also written down.
  */
+/**
+ * ## The ground is measured paper
+ *
+ * Every clinical record is drawn on a ruled grid — ECG strips, growth charts,
+ * flowsheets, telemetry. `assets/chart-grid.png` is a 40pt tile of it: a rule
+ * every 8pt and a heavier one every 40, baked opaque over `colors.background`
+ * so tiling it costs no alpha compositing.
+ *
+ * It is what makes the meter make sense. A coloured line down the edge of a
+ * flat white page is a brand device; the same line on ruled paper is a
+ * measurement, which is what this app is actually doing.
+ *
+ * ⛔ **It stays under the content, never behind text.** Cards, groups and
+ * notices are opaque and sit on top, exactly as a label sits on chart paper.
+ * Do not raise its contrast: it is at roughly 5% and 10% ink, which is enough
+ * to read as texture at arm's length and not enough to interfere with a word.
+ * This app is read by people who are unwell.
+ */
+export const chart = {
+  /** Edge of one tile, in points. Also the major rule interval. */
+  tile: 40,
+  /** Minor rule interval — and the unit the mark is drawn on. */
+  unit: 8,
+} as const;
+
 export const meter = {
   /** Width of the quiet edge on an ordinary screen. */
   width: 4,

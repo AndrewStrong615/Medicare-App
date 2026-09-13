@@ -10,6 +10,7 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Glyph } from "@/components/Glyph";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { ScreenBand } from "@/components/ScreenBand";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import { ApiError } from "@/services/apiClient";
 import {
@@ -150,12 +151,15 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
 
   return (
     <AppNav current="Goals" navigation={navigation}>
-    <Screen wide>
-      <PageHeader
-        icon="check"
-        title="Goals"
-        subtitle="Things you decided to do, and what you've ticked off today."
-      />
+    <Screen
+      wide
+      band={
+        <ScreenBand
+          title="Goals"
+          meta="Things you decided to do, and what you've ticked off today."
+        />
+      }
+    >
 
       {savedFor && <SuccessNotice message={`“${savedFor}” has been saved.`} />}
       {error && <ErrorNotice message={error} onRetry={load} retryLabel="Try again" />}

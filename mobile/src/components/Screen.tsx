@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,23 +12,40 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DomainProvider, useDomain } from "@/hooks/useDomain";
-import { CONTENT_WIDTH, colors, meter, spacing, type DomainName } from "@/theme";
+import {
+  CONTENT_WIDTH,
+  chart,
+  colors,
+  meter,
+  spacing,
+  type DomainName,
+} from "@/theme";
 
 /**
- * Shared page frame: consistent background and padding, keeps content clear of
- * the keyboard, and scrolls when content doesn't fit.
+ * Shared page frame: the chart-paper ground, consistent padding, clear of the
+ * keyboard, scrolling when content doesn't fit.
  *
  * Scrolling matters for accessibility as much as for small screens — at large
  * system font sizes these screens overflow even on a big phone, and a
  * non-scrolling View would put the submit button permanently out of reach.
  *
- * It also draws **the meter**: the measured colour edge down the leading side
- * of the page that says which part of the app this is. See the note on
- * `meter` in `theme.ts` for why that mark earns its place, and `useDomain`
- * for how a screen declares which colour it takes.
+ * It draws two of the three things that make this app look like itself:
+ *
+ * - **The ground**, a tile of ruled paper. See `chart` in `theme.ts`.
+ * - **The meter**, a measured colour edge down the leading side, saying which
+ *   part of the app this is. See `meter`, and `useDomain` for how a screen
+ *   declares its colour.
+ *
+ * The third is `ScreenBand`, passed in as `band` so this component can bleed
+ * it to the full width while the content below it stays in a readable column.
  */
 interface ScreenProps {
   children: ReactNode;
+  /**
+   * The destination plate at the top of the page. Rendered outside the
+   * content column so it runs edge to edge; pass a `ScreenBand`.
+   */
+  band?: ReactNode;
   /** Vertically centres content — for short screens like sign-in. */
   centerContent?: boolean;
   /**
@@ -64,6 +82,8 @@ interface ScreenProps {
   innerStyle?: StyleProp<ViewStyle>;
 }
 
+const GRID = require("../../assets/chart-grid.png");
+
 export function Screen({ domain, children, ...rest }: ScreenProps) {
   if (domain) {
     return (
@@ -78,6 +98,7 @@ export function Screen({ domain, children, ...rest }: ScreenProps) {
 
 function ScreenBody({
   children,
+  band,
   centerContent = false,
   wide = false,
   page = false,
@@ -96,45 +117,61 @@ function ScreenBody({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       {/*
-        Decoration and orientation, never information on its own — whatever
-        this edge says, the screen's own title says in words. So it is hidden
-        from assistive technology rather than given a label that would be read
-        out before every screen.
+        The ruled ground. A 40pt tile repeated rather than a hundred Views or
+        an SVG — it is 132 bytes, it composites as an opaque image, and it
+        needs no library this repository has deliberately avoided adding.
       */}
-      {meterless ? null : (
-        <View
-          style={[styles.meter, { backgroundColor: ink }]}
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
-      )}
-
-      <ScrollView
+      <ImageBackground
+        source={GRID}
+        resizeMode="repeat"
+        imageStyle={styles.grid}
         style={styles.flex}
-        contentContainerStyle={[
-          styles.content,
-          centerContent && styles.centered,
-          meterless && styles.contentMeterless,
-          // The navigator draws the header, so only the bottom inset (home
-          // indicator / gesture bar) needs adding here.
-          { paddingBottom: spacing.xl + insets.bottom },
-          contentStyle,
-        ]}
-        keyboardShouldPersistTaps="handled"
-        alwaysBounceVertical={false}
       >
-        <View
-          style={[
-            styles.inner,
-            wide && styles.innerWide,
-            page && styles.innerPage,
-            innerStyle,
-          ]}
+        {/*
+          Decoration and orientation, never information on its own — whatever
+          this edge says, the screen's own title says in words. So it is hidden
+          from assistive technology rather than given a label that would be read
+          out before every screen.
+        */}
+        {meterless ? null : (
+          <View
+            style={[styles.meter, { backgroundColor: ink }]}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
+        )}
+
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[styles.scroll, centerContent && styles.centered]}
+          keyboardShouldPersistTaps="handled"
+          alwaysBounceVertical={false}
         >
-          {children}
-        </View>
-      </ScrollView>
+          {band}
+
+          <View
+            style={[
+              styles.content,
+              meterless && styles.contentMeterless,
+              band ? styles.contentUnderBand : null,
+              { paddingBottom: spacing.xl + insets.bottom },
+              contentStyle,
+            ]}
+          >
+            <View
+              style={[
+                styles.inner,
+                wide && styles.innerWide,
+                page && styles.innerPage,
+                innerStyle,
+              ]}
+            >
+              {children}
+            </View>
+          </View>
+        </ScrollView>
+      </ImageBackground>
     </KeyboardAvoidingView>
   );
 }
@@ -143,6 +180,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  grid: {
+    // The tile is baked over `colors.background`, so it needs no tint and no
+    // opacity — see the note on `chart` in theme.ts.
+    width: chart.tile,
+    height: chart.tile,
   },
   meter: {
     position: "absolute",
@@ -154,6 +197,12 @@ const styles = StyleSheet.create({
     // rather than as something printed on the page.
     zIndex: 1,
   },
+  scroll: {
+    flexGrow: 1,
+  },
+  centered: {
+    justifyContent: "center",
+  },
   content: {
     flexGrow: 1,
     padding: spacing.xl,
@@ -163,8 +212,10 @@ const styles = StyleSheet.create({
   contentMeterless: {
     paddingLeft: spacing.xl,
   },
-  centered: {
-    justifyContent: "center",
+  contentUnderBand: {
+    // The band has already paid the top margin, and doubling it leaves the
+    // first card floating away from the plate it belongs to.
+    paddingTop: spacing.lg,
   },
   inner: {
     // Keeps line lengths readable on tablets and in the browser preview

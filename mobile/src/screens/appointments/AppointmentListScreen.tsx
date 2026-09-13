@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { ScreenBand } from "@/components/ScreenBand";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { TextColumn } from "@/components/TextColumn";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -179,17 +180,22 @@ export function AppointmentListScreen({ navigation }: Props) {
 
   return (
     <AppNav current="Care" navigation={navigation}>
-    <Screen wide page={isExpanded}>
+    <Screen
+      wide
+      page={isExpanded}
+      band={
+        <ScreenBand
+          title="Care"
+          meta="Visits you have recorded. MedHelp does not book appointments and has not contacted anyone."
+          page={isExpanded}
+        />
+      }
+    >
       {/*
         The header and the notices stay in a readable column; only the cards
         use the whole window, and only where there is one to use.
       */}
       <TextColumn>
-        <PageHeader
-          icon="calendar"
-          title="Care"
-          subtitle="Visits you have recorded. MedHelp does not book appointments and has not contacted anyone."
-        />
 
         {/*
           Searching the directory is the other half of this tab, not a separate

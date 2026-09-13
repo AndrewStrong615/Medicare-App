@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppButton } from "@/components/AppButton";
 import { Glyph, type GlyphName } from "@/components/Glyph";
+import { Wordmark } from "@/components/Mark";
 import { DomainProvider } from "@/hooks/useDomain";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
@@ -189,10 +190,7 @@ export function AppNav({
         <View style={styles.shell}>
           <View style={styles.rail}>
             <View style={styles.wordmark}>
-              <View style={styles.mark}>
-                <Glyph name="symptom" size={16} color={colors.textOnAccent} />
-              </View>
-              <Text style={styles.wordmarkText}>MedHelp</Text>
+              <Wordmark size={26} />
             </View>
 
             <View style={styles.railItems}>

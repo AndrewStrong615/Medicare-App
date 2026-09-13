@@ -10,6 +10,8 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Glyph, GlyphTile } from "@/components/Glyph";
 import { InfoPanel } from "@/components/InfoPanel";
 import { Screen } from "@/components/Screen";
+import { ScreenBand } from "@/components/ScreenBand";
+import { Wordmark } from "@/components/Mark";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { logout } from "@/services/authService";
 import { listAppointments, type Appointment } from "@/services/appointmentService";
@@ -378,23 +380,37 @@ export function TodayScreen({ navigation }: Props) {
         needingRefill.length > 0 ? { Medications: needingRefill.length } : undefined
       }
     >
-      <Screen page={isExpanded} wide innerStyle={styles.screen}>
+      <Screen
+        page={isExpanded}
+        wide
+        innerStyle={styles.screen}
+        band={
+          <ScreenBand
+            title="Today"
+            /*
+              The date, and nothing else. The band is signage: it says where
+              you are and one plain fact. It may never carry a count of
+              anything about the person's health — see the fence on
+              `ScreenBand` and the one at the top of this file.
+            */
+            meta={now.toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+            page={isExpanded}
+          />
+        }
+      >
         {/*
           The rail carries the wordmark on a wide window, so repeating it here
           would name the app twice on one screen.
         */}
         {isExpanded ? null : (
           <View style={styles.topBar}>
-            <View style={styles.mark}>
-              <Glyph name="symptom" size={15} color={colors.textOnAccent} />
-            </View>
-            <Text style={styles.wordmark}>MedHelp</Text>
+            <Wordmark size={22} />
           </View>
         )}
-
-        <Text style={styles.title} accessibilityRole="header">
-          Today
-        </Text>
 
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
 

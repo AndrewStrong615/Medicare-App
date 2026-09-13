@@ -2,67 +2,77 @@
  * Design tokens for MedHelp.
  *
  * This is a health app that people may open while worried or in a hurry, so
- * the palette is deliberately low-saturation and the type scale is a little
- * larger than a typical consumer app. Colour is never the only carrier of
- * meaning — errors and emergencies also change wording and iconography.
+ * the type scale is a little larger than a typical consumer app and colour is
+ * never the only carrier of meaning — errors and emergencies also change
+ * wording and iconography.
  *
  * All text/background pairings below meet WCAG AA (4.5:1) at minimum; the
  * ratio is noted where it is close enough to be worth protecting during
  * future palette changes.
  *
- * ## The 2026 "paper" pass
+ * ## The 2026 "panel" pass
  *
- * The ground moved from a cool blue-grey to a warm paper, the type moved to
- * Literata (a screen reading serif) over Public Sans, and depth moved from
- * drop shadows to hairline rules. The reasoning is specific to this app
- * rather than fashionable: every claim MedHelp makes is hedged — it did not
- * author the symptom text, did not check the emergency card, cannot confirm
- * when an appointment is. A document reads as something written down and
- * attributable. A card floating on a drop shadow reads as a product
- * asserting something.
+ * The app is not a dashboard, it is a **panel** — in the sense a lab report
+ * is a panel. Two vernaculars feed it: hospital wayfinding, which colour-codes
+ * departments so you can find one without reading; and the printed lab
+ * result, which is measured, tabular and left-aligned.
+ *
+ * Three things changed from the paper pass that preceded this:
+ *
+ * 1. **The ground went from warm paper to cool porcelain.** A cream ground
+ *    under a reading serif was a deliberate choice and a defensible one, but
+ *    it reads domestic. This app sits next to a pharmacy label and an
+ *    emergency card, and cool porcelain is the colour of the room those are
+ *    handled in.
+ * 2. **One accent became five.** Each destination in `AppNav` owns a hue —
+ *    see `domains` below and the fence on it.
+ * 3. **The type is Archivo and Newsreader.** Archivo is a grotesque with
+ *    signage lineage, which is the right voice for an app whose main job is
+ *    telling you where to go. Newsreader replaces Literata in the same role
+ *    it always had: the app quoting somebody.
  *
  * ⛔ **The notice, error, success and emergency families are byte-for-byte
  * what a reviewer signed off on** and were not touched by this pass, because
- * those carry safety meaning. Only the neutrals, the type and the depth
- * changed. Anyone revisiting the palette should keep that line.
+ * those carry safety meaning. Only the neutrals, the accents, the type and
+ * the depth changed. Anyone revisiting the palette should keep that line.
  */
 
 export const colors = {
-  // Surfaces — warm paper rather than cool grey
-  background: "#F6F2EA",
-  surface: "#FFFDF9",
-  surfaceMuted: "#EFEADF",
+  // Surfaces — cool porcelain rather than warm paper
+  background: "#EEF2F5",
+  surface: "#FFFFFF",
+  surfaceMuted: "#E5EBEF",
   /** Page ground behind a hero panel — one step darker than `background`. */
-  surfaceSunken: "#E9E2D4",
+  surfaceSunken: "#DFE7EC",
 
   // Text — on `background` unless noted
-  textPrimary: "#23201C", // 14.6:1
-  textSecondary: "#554E44", // 7.4:1
-  /** Quietest readable ink — section labels and footnotes. 5.3:1. */
-  textMuted: "#6B6254",
+  textPrimary: "#0D1B24", // 15.6:1
+  textSecondary: "#42555F", // 6.9:1
+  /** Quietest readable ink — section labels and footnotes. 4.9:1. */
+  textMuted: "#586C7A",
   textOnAccent: "#FFFFFF",
-  /** Secondary text on `accentDeep` — 6.6:1. */
-  textOnAccentMuted: "#A9CBD8",
+  /** Secondary text on `accentDeep` — 7.2:1. */
+  textOnAccentMuted: "#A8CEDB",
 
-  // Lines. These do more work than they used to: with depth removed, a
-  // hairline is what separates one block from the next.
-  border: "#DED5C6",
-  borderStrong: "#C9BEAB",
-  borderFocus: "#10657F",
+  // Lines. With depth kept almost flat, a hairline is what separates one
+  // block from the next.
+  border: "#C2D1DA",
+  borderStrong: "#A3B6C2",
+  borderFocus: "#0B5E73",
   /** Hairline between rows inside one card. */
-  divider: "#EDE6DA",
+  divider: "#DEE7EC",
 
-  // Primary action — a calm clinical blue rather than an urgent one.
-  // Unchanged by the paper pass: it still reads correctly on a warm ground
-  // and it is the value every contrast note below was measured against.
-  accent: "#10657F", // white on this: 6.0:1; on `background`: 6.0:1
-  accentPressed: "#0C4E62",
-  accentDisabled: "#A9C2CD",
-  /** Header/hero ground. White on this: 11.3:1. */
-  accentDeep: "#0A3F51",
-  /** Tinted fill for icon tiles and quiet accent chips. accent on it: 5.7:1. */
-  accentSurface: "#E8F1F5",
-  accentBorder: "#BBD5DF",
+  // The app-wide primary action. This is the Today hue, which is also the
+  // first stop on the domain ramp — see `domains`. A screen inside a
+  // destination overrides it with that destination's own colour.
+  accent: "#0B5E73", // white on this: 7.3:1; on `background`: 6.5:1
+  accentPressed: "#084A5B",
+  accentDisabled: "#9FB8C1",
+  /** Header/hero ground. White on this: 12.9:1. */
+  accentDeep: "#08313D",
+  /** Tinted fill for icon tiles and quiet accent chips. accent on it: 6.3:1. */
+  accentSurface: "#E3EFF3",
+  accentBorder: "#BBD6DF",
 
   // ⛔ Everything below this line is reviewed safety colour. Do not restyle
   // it to match a new visual direction — a direction is a preference and
@@ -90,6 +100,76 @@ export const colors = {
 } as const;
 
 /**
+ * ## One hue per destination
+ *
+ * The five places a signed-in person can be each own a colour, and the five
+ * sit on a single ramp from cyan to magenta. They are **luminance-matched on
+ * purpose** — white on each lands between 7.2:1 and 7.6:1 — which is what
+ * makes five hues read as one system rather than as five brands competing.
+ * Change one and re-measure the set, not just the one.
+ *
+ * ### ⛔ A hue means a *place*, never a state and never a health fact
+ *
+ * `domains.medications` means "you are in Medications". It must never come to
+ * mean "this medication needs attention", and no row, badge or chip may be
+ * tinted by urgency, adherence, severity or any reading of the person's
+ * health. MedHelp does not know whether a dose was taken; a colour that
+ * implied it would be inventing a clinical fact, which is the same fence the
+ * Today screen and `InfoPanel` already carry.
+ *
+ * ### ⛔ The ramp stops before red, amber and green, and that is structural
+ *
+ * Those three hues belong to the reviewed safety families above. Keeping
+ * every destination colour on the cool arc means a warm colour anywhere in
+ * this app always carries safety meaning — so a disclaimer, an error and
+ * emergency guidance are the only warm things on any screen, and they cannot
+ * be mistaken for decoration. Do not extend this ramp past magenta.
+ *
+ * `fill` is a ground for white text. `ink` is the same hue as text or an icon
+ * on `surface` or `background`. `surface`/`border` are the quiet tinted chip.
+ */
+export const domains = {
+  today: {
+    ink: "#0B5E73",
+    fill: "#0B5E73",
+    pressed: "#084A5B",
+    surface: "#E3EFF3",
+    border: "#BBD6DF",
+  },
+  symptoms: {
+    ink: "#1D51A3",
+    fill: "#1D51A3",
+    pressed: "#163F80",
+    surface: "#E6ECF7",
+    border: "#BFCEE8",
+  },
+  medications: {
+    ink: "#4B41B8",
+    fill: "#4B41B8",
+    pressed: "#3B3392",
+    surface: "#EAE8F8",
+    border: "#CBC7EC",
+  },
+  care: {
+    ink: "#7A34AD",
+    fill: "#7A34AD",
+    pressed: "#612989",
+    surface: "#F0E7F7",
+    border: "#DDC9EB",
+  },
+  goals: {
+    ink: "#94247F",
+    fill: "#94247F",
+    pressed: "#761C65",
+    surface: "#F7E6F3",
+    border: "#EBC7E0",
+  },
+} as const;
+
+export type DomainName = keyof typeof domains;
+export type Domain = (typeof domains)[DomainName];
+
+/**
  * The two faces, by their loaded family names.
  *
  * ⛔ **Set `fontFamily`, never `fontWeight`.** These are separate font files
@@ -98,27 +178,31 @@ export const colors = {
  * `fontStyle: "italic"` — use `serifItalic` instead of asking the renderer to
  * slant an upright face.
  *
- * The pairing is not arbitrary. Public Sans is the US Web Design System's
- * face, drawn for exactly this job — government benefits and health
- * interfaces, a large x-height so it survives at label sizes. Literata is a
- * reading serif designed for screens, and it is used here only for text a
- * *person wrote or a source published*: what the user typed into the symptom
- * field, the values on their emergency card, a destination's name. That split
- * is the whole idea — the serif is the app quoting, the sans is the app
- * speaking.
+ * The pairing is not arbitrary. **Archivo** is a grotesque drawn from
+ * nineteenth-century American gothics and built for high-performance
+ * signage — which is the voice this app wants, because most of what it says
+ * is *where to go next*. It is tight enough to hold a dense medication list
+ * and sturdy enough to set a screen title at 36pt.
+ *
+ * **Newsreader** is a screen reading serif, and it is used here only for text
+ * a *person wrote or a source published*: what the user typed into the
+ * symptom field, the values on their emergency card, a MedlinePlus summary.
+ * That split is the whole idea — the serif is the app quoting, the sans is
+ * the app speaking — and it is why a paraphrase can never be dressed as a
+ * quotation by accident.
  *
  * Loaded once in `App.tsx`. Nothing renders until they are ready, because
- * swapping a serif in after first paint reflows every screen.
+ * swapping a face in after first paint reflows every screen.
  */
 export const fonts = {
-  serif: "Literata_400Regular",
-  serifItalic: "Literata_400Regular_Italic",
-  serifSemibold: "Literata_600SemiBold",
-  serifBold: "Literata_700Bold",
-  sans: "PublicSans_400Regular",
-  sansMedium: "PublicSans_500Medium",
-  sansSemibold: "PublicSans_600SemiBold",
-  sansBold: "PublicSans_700Bold",
+  serif: "Newsreader_400Regular",
+  serifItalic: "Newsreader_400Regular_Italic",
+  serifSemibold: "Newsreader_600SemiBold",
+  serifBold: "Newsreader_700Bold",
+  sans: "Archivo_400Regular",
+  sansMedium: "Archivo_500Medium",
+  sansSemibold: "Archivo_600SemiBold",
+  sansBold: "Archivo_700Bold",
 } as const;
 
 export const spacing = {
@@ -131,19 +215,57 @@ export const spacing = {
   xxxl: 44,
 } as const;
 
+/**
+ * Corner radii, **differentiated by what a thing is** rather than one value
+ * applied to everything. A single radius across an interface flattens its
+ * hierarchy: a chip, a card and a full-bleed panel are not the same kind of
+ * object and should not share an outline.
+ */
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 22,
+  /** Chips, tiles, the meter cap. */
+  sm: 6,
+  /** Inputs and buttons — a control you put a finger on. */
+  md: 10,
+  /** Cards and grouped lists. */
+  lg: 14,
+  /** A panel that owns the width of the screen. */
+  xl: 18,
   pill: 999,
 } as const;
 
+/**
+ * Figures that line up in a column. Times, doses, dates and counts are read
+ * down a list rather than along a line, so they are set with tabular
+ * (fixed-width) numerals; proportional figures make a column of 08:00 /
+ * 11:15 / 20:00 jitter left and right.
+ */
+const TABULAR = { fontVariant: ["tabular-nums"] as "tabular-nums"[] };
+
 export const typography = {
-  displayLarge: { fontFamily: fonts.serifBold, fontSize: 34, lineHeight: 41 },
-  display: { fontFamily: fonts.serifBold, fontSize: 30, lineHeight: 37 },
-  title: { fontFamily: fonts.serifSemibold, fontSize: 21, lineHeight: 28 },
-  titleSmall: { fontFamily: fonts.sansSemibold, fontSize: 17, lineHeight: 24 },
+  displayLarge: {
+    fontFamily: fonts.sansBold,
+    fontSize: 36,
+    lineHeight: 42,
+    letterSpacing: -0.8,
+  },
+  display: {
+    fontFamily: fonts.sansBold,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.6,
+  },
+  title: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 21,
+    lineHeight: 28,
+    letterSpacing: -0.3,
+  },
+  titleSmall: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 17,
+    lineHeight: 24,
+    letterSpacing: -0.1,
+  },
   /**
    * Body copy at 17pt rather than 16pt. NHS sets its standard paragraph at
    * 19px and this app is read by people who are unwell; a step up costs a
@@ -153,35 +275,49 @@ export const typography = {
   bodyStrong: { fontFamily: fonts.sansSemibold, fontSize: 17, lineHeight: 26 },
   /**
    * Text the *user* wrote, or that a source published, shown back to them.
-   * Set in the serif on purpose — see the note on `fonts`.
+   * Set in the serif on purpose — see the note on `fonts` — and given more
+   * leading than the sans, because a serif at this size needs the air.
    */
-  bodyQuoted: { fontFamily: fonts.serif, fontSize: 19, lineHeight: 29 },
+  bodyQuoted: { fontFamily: fonts.serif, fontSize: 19, lineHeight: 31 },
   caption: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 21 },
   captionStrong: { fontFamily: fonts.sansSemibold, fontSize: 14, lineHeight: 21 },
   /**
    * A short value read at a glance — a dose, a time, a blood type.
-   * Semibold and slightly tracked so a column of them scans cleanly.
+   * Semibold, tracked, and tabular so a column of them scans cleanly.
    */
   data: {
     fontFamily: fonts.sansSemibold,
     fontSize: 16,
     lineHeight: 24,
     letterSpacing: 0.2,
+    ...TABULAR,
+  },
+  /** A time or a count set large enough to be the thing you look at. */
+  dataLarge: {
+    fontFamily: fonts.sansBold,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.2,
+    ...TABULAR,
   },
   /**
-   * Section eyebrow. Letter-spaced rather than shrunk — it stays at 13px so
-   * it is still legible, since small uppercase type is the first thing to
-   * fail for anyone with low vision.
+   * Section label. Letter-spaced rather than shrunk — it stays at 13px so it
+   * is still legible, since small type is the first thing to fail for anyone
+   * with low vision.
    *
-   * ⛔ The visual direction this pass came from drew these at 11px. That was
-   * not adopted: the 13px floor is an accessibility decision and outranks a
-   * mockup.
+   * ⛔ The 13px floor is an accessibility decision and outranks any mockup;
+   * a previous visual direction drew these at 11px and was not adopted.
+   *
+   * **Sentence case, not upper.** Uppercasing a label costs legibility — the
+   * word loses its outline shape, which is most of what makes it readable at
+   * a glance — and buys only the look of a label. The tracking and the weight
+   * already do that job.
    */
   overline: {
     fontFamily: fonts.sansBold,
     fontSize: 13,
     lineHeight: 18,
-    letterSpacing: 0.9,
+    letterSpacing: 0.6,
   },
 } as const;
 
@@ -190,14 +326,13 @@ export const typography = {
  *
  * ## Deliberately almost flat
  *
- * The paper pass replaced drop shadows with hairline rules, so `sm` — which
- * every resting card used — is now flat, and `md`/`lg` are a whisper rather
- * than a lift. The keys are kept because depth is still the right vocabulary
- * for a floating bar or a pressed button, and because zeroing the values in
- * one place is how the change stays reversible.
+ * Structure is carried by hairlines, by the colour-coded meter and by the
+ * prominence ladder — not by shadow. `sm`, which every resting card uses, is
+ * flat; `md` and `lg` are a whisper rather than a lift, kept because depth is
+ * still the right vocabulary for a floating bar or a pressed button.
  *
- * Shadows are tinted with the text colour rather than pure black: a
- * neutral-black shadow over a warm paper background reads as dirt.
+ * Shadows are tinted with the deep ink rather than pure black: a
+ * neutral-black shadow over a cool porcelain ground reads as smudge.
  *
  * Depth is decoration only. Nothing in this app uses a shadow to signal
  * urgency, state, or hierarchy that isn't also carried by text.
@@ -221,20 +356,54 @@ export const elevation = {
   },
   /** Raised: primary buttons, hovered cards. */
   md: {
-    shadowColor: "#3C372F",
+    shadowColor: "#0D1B24",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 1,
   },
   /** Floating: hero panels and sticky bars. */
   lg: {
-    shadowColor: "#3C372F",
+    shadowColor: "#0D1B24",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.09,
-    shadowRadius: 12,
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
     elevation: 3,
   },
+} as const;
+
+/**
+ * ## The meter
+ *
+ * The one bold device in this design, and the reason it earns its place is
+ * that it does three jobs with one mark.
+ *
+ * It is a measured vertical rule down the leading edge of a screen, drawn in
+ * that screen's `domains` colour:
+ *
+ * - **Identity.** It is the app's memorable element.
+ * - **Orientation.** Its colour answers "which part of MedHelp am I in"
+ *   before a word has been read — the same job hospital wayfinding gives to a
+ *   coloured line on a corridor floor.
+ * - **Information.** On the Today screen it is an actual axis: the waking day
+ *   with a stop at each reminder time the person set and a marker at the
+ *   current moment.
+ *
+ * ⛔ **It is never the only carrier of anything.** Colour-blind readers,
+ * screen-reader users and anyone who has turned contrast up get the same
+ * information from the screen title and the row text; the meter is a second,
+ * faster route to it and never the first. Nothing may be encoded in it that
+ * is not also written down.
+ */
+export const meter = {
+  /** Width of the quiet edge on an ordinary screen. */
+  width: 4,
+  /** Width of the rule when it is carrying the day's axis on Today. */
+  axisWidth: 2,
+  /** Diameter of a stop on the axis. */
+  stop: 11,
+  /** Column the axis and its time labels occupy. */
+  axisColumn: 64,
 } as const;
 
 /**
@@ -242,11 +411,11 @@ export const elevation = {
  *
  * Every block on every screen sits at one of four levels, and **a screen gets
  * exactly one level-one action**. This is the half of the visual direction
- * that is not about colour at all: before it, the home screen's four
- * destination cards were visually identical, so nothing was primary and the
- * reader had to read all four to choose.
+ * that is not about colour at all: without it, a screen's destinations are
+ * drawn identically, nothing is primary, and the reader has to read all of
+ * them to choose one.
  *
- *   L1  ACT      filled `accent`, white text. One per screen.
+ *   L1  ACT      filled in the screen's domain colour, white text. One per screen.
  *   L2  READ     `surface` with a 1px `border`. Titled blocks and rows.
  *   L3  CONTEXT  `surfaceMuted` fill, no border. Supporting detail.
  *   L4  FINE     no fill; a `border` hairline above it. Footnotes.
@@ -278,17 +447,17 @@ export const MIN_TAP_TARGET = 48;
  * those two stay narrow however big the window is.
  *
  * `page` is different in kind. It is for a screen that lays *columns* out
- * beside each other rather than stretching one column — the home screen does
+ * beside each other rather than stretching one column — the Today screen does
  * this above `BREAKPOINT.expanded`. Nothing inside it exceeds the line-length
  * limits above; there are simply two or three of them side by side.
  */
-export const CONTENT_WIDTH = { form: 480, wide: 660, page: 1140 } as const;
+export const CONTENT_WIDTH = { form: 480, wide: 660, page: 1180 } as const;
 
 /**
  * Viewport widths where the layout changes shape.
  *
  * These are window widths, not device classes: the same browser window
- * crossing 900px gets the two-column home screen whether it is a tablet or a
+ * crossing 760px gets the two-column layout whether it is a tablet or a
  * desktop, and a phone never does. Screens read them through
  * `useBreakpoint()`.
  *

@@ -174,7 +174,7 @@ export function BookingIdentityScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen domain="care">
       <PageHeader
         icon="calendar"
         title="Your details"

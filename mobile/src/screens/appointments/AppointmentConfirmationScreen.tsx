@@ -47,7 +47,7 @@ export function AppointmentConfirmationScreen({ navigation, route }: Props) {
   }, []);
 
   return (
-    <Screen wide>
+    <Screen wide domain="care">
       <View style={notified ? styles.savedBooked : styles.saved}>
         <Text style={notified ? styles.savedHeadingBooked : styles.savedHeading}>
           {notified ? "Appointment booked" : "Saved to your appointments"}

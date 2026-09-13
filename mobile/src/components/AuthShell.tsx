@@ -1,11 +1,20 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { GlyphTile, type GlyphName } from "@/components/Glyph";
+import { Glyph } from "@/components/Glyph";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { colors, elevation, radius, spacing, typography } from "@/theme";
+import {
+  colors,
+  domains,
+  elevation,
+  meter,
+  radius,
+  spacing,
+  typography,
+  type DomainName,
+} from "@/theme";
 
 /**
  * The frame around sign-in and sign-up.
@@ -17,28 +26,29 @@ import { colors, elevation, radius, spacing, typography } from "@/theme";
  * sees, and a 480pt form floating in the middle of a 1400pt window told a
  * first-time visitor nothing at all about what they had just opened.
  *
- * ⛔ The left panel is a description of the software, not a pitch and not
- * health content. Every line in `FEATURES` restates a sentence the app already
- * shows on the home screen, so signing in makes no claim that using the app
- * then contradicts. Nothing here may name a condition, suggest what a symptom
- * means, or imply the app decides anything clinical — see CLAUDE.md, App Scope.
+ * ## The panel is the app's index, and it teaches the colour code
+ *
+ * The five rows are the five places `AppNav` navigates between, each carrying
+ * the hue it will have once you are inside. So the first screen a person sees
+ * is also the legend for the wayfinding they are about to use — a lab report
+ * prints its reference panel for the same reason.
+ *
+ * That is why the panel sits on white rather than on a dark ground: the
+ * colours are the thing worth looking at here, and a dark panel would mute
+ * every one of them.
+ *
+ * ⛔ The panel is a description of the software, not a pitch and not health
+ * content. Every line restates a sentence the app already shows on the home
+ * screen, so signing in makes no claim that using the app then contradicts.
+ * Nothing here may name a condition, suggest what a symptom means, or imply
+ * the app decides anything clinical — see CLAUDE.md, App Scope.
  */
-const FEATURES: { icon: GlyphName; title: string; text: string }[] = [
-  {
-    icon: "symptom",
-    title: "Check my symptoms",
-    text: "Describe what's wrong and get an estimate of how soon you may need care.",
-  },
-  {
-    icon: "pill",
-    title: "Medications and reminders",
-    text: "Scan a prescription label or type it in, then set your own reminder times.",
-  },
-  {
-    icon: "calendar",
-    title: "Providers and appointments",
-    text: "Search a public directory of providers and keep your visits in one place.",
-  },
+const INDEX: { domain: DomainName; name: string; text: string }[] = [
+  { domain: "today", name: "Today", text: "The reminder times and appointments you have recorded." },
+  { domain: "symptoms", name: "Symptoms", text: "Describe what is wrong and get an estimate of how soon you may need care." },
+  { domain: "medications", name: "Medications", text: "Scan a prescription label or type it in, then set your own reminder times." },
+  { domain: "care", name: "Care", text: "Search a public directory of providers and keep your visits in one place." },
+  { domain: "goals", name: "Goals", text: "Write down what you intend to do, and tick it off." },
 ];
 
 interface AuthShellProps {
@@ -52,45 +62,55 @@ export function AuthShell({ title, subtitle, children }: AuthShellProps) {
 
   const form = (
     <View style={[styles.form, isExpanded && styles.formCard]}>
-      <PageHeader eyebrow="MEDHELP" title={title} subtitle={subtitle} />
+      <PageHeader title={title} subtitle={subtitle} />
       {children}
     </View>
   );
 
-  if (!isExpanded) return <Screen centerContent>{form}</Screen>;
+  if (!isExpanded) {
+    return (
+      <Screen centerContent meterless>
+        {form}
+      </Screen>
+    );
+  }
 
   return (
-    <Screen page centerContent innerStyle={styles.split}>
+    <Screen page centerContent meterless innerStyle={styles.split}>
       {/*
         The panel holds no focusable element — it is text and decorative
-        glyphs — so putting it first costs a returning user no keyboard steps
+        marks — so putting it first costs a returning user no keyboard steps
         on the way to the email field, while a first-time visitor reads it in
         the order it is laid out.
       */}
       <View style={styles.brand}>
-        <Text style={styles.brandEyebrow}>YOUR HEALTH COMPANION</Text>
-        <Text style={styles.brandTitle} accessibilityRole="header">
-          MedHelp
-        </Text>
+        <View style={styles.wordmark}>
+          <View style={styles.mark}>
+            <Glyph name="symptom" size={17} color={colors.textOnAccent} />
+          </View>
+          <Text style={styles.brandTitle} accessibilityRole="header">
+            MedHelp
+          </Text>
+        </View>
+
+        <Text style={styles.brandEyebrow}>Your health companion</Text>
         <Text style={styles.brandSubtitle}>
           General health information and medication reminders.
         </Text>
 
-        <View style={styles.features}>
-          {FEATURES.map((feature) => (
-            <View key={feature.title} style={styles.feature}>
-              <GlyphTile
-                name={feature.icon}
-                size={40}
-                tint={colors.accent}
-                color={colors.textOnAccent}
-              />
-              <View style={styles.featureBody}>
-                <Text style={styles.featureTitle}>{feature.title}</Text>
-                <Text style={styles.featureText}>{feature.text}</Text>
+        <View style={styles.index}>
+          {INDEX.map((entry) => {
+            const hue = domains[entry.domain];
+            return (
+              <View key={entry.name} style={styles.indexRow}>
+                <View style={[styles.indexBar, { backgroundColor: hue.fill }]} />
+                <View style={styles.indexBody}>
+                  <Text style={[styles.indexName, { color: hue.ink }]}>{entry.name}</Text>
+                  <Text style={styles.indexText}>{entry.text}</Text>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         <Text style={styles.brandNote}>
@@ -113,52 +133,70 @@ const styles = StyleSheet.create({
   brand: {
     flex: 5,
     minWidth: 0,
-    backgroundColor: colors.accentDeep,
+    backgroundColor: colors.surface,
     borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.xxl,
-    gap: spacing.xs,
-    ...elevation.lg,
   },
-  brandEyebrow: {
-    ...typography.overline,
-    color: colors.textOnAccentMuted,
-    marginBottom: spacing.xs,
+  wordmark: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  mark: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentDeep,
+    alignItems: "center",
+    justifyContent: "center",
   },
   brandTitle: {
     ...typography.displayLarge,
-    color: colors.textOnAccent,
+    color: colors.textPrimary,
+  },
+  brandEyebrow: {
+    ...typography.overline,
+    color: colors.textMuted,
+    marginTop: spacing.lg,
   },
   brandSubtitle: {
     ...typography.body,
-    color: colors.textOnAccentMuted,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
-  features: {
-    gap: spacing.lg,
+  index: {
     marginTop: spacing.xl,
     marginBottom: spacing.xl,
+    gap: spacing.lg,
   },
-  feature: {
+  indexRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
+    gap: spacing.lg,
   },
-  featureBody: {
+  indexBar: {
+    width: meter.width,
+    alignSelf: "stretch",
+    borderRadius: meter.width / 2,
+  },
+  indexBody: {
     flex: 1,
-    gap: 2,
+    minWidth: 0,
+    gap: 1,
   },
-  featureTitle: {
+  indexName: {
     ...typography.bodyStrong,
-    color: colors.textOnAccent,
   },
-  featureText: {
+  indexText: {
     ...typography.caption,
-    color: colors.textOnAccentMuted,
+    color: colors.textSecondary,
   },
   brandNote: {
     ...typography.caption,
-    color: colors.textOnAccentMuted,
+    color: colors.textMuted,
     borderTopWidth: 1,
-    borderTopColor: colors.accent,
+    borderTopColor: colors.divider,
     paddingTop: spacing.lg,
   },
   formColumn: {

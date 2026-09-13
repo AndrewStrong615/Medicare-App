@@ -234,7 +234,7 @@ describe("IntakeFollowUpScreen", () => {
   it("names the round so a second set does not read as a repeat", () => {
     renderScreen(SECOND_ROUND, { location: "my lower back" });
 
-    expect(screen.getByText("STEP 2 OF 2")).toBeTruthy();
+    expect(screen.getByText("Step 2 of 2")).toBeTruthy();
     expect(screen.getByText("Just a couple more")).toBeTruthy();
   });
 });

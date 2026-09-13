@@ -138,7 +138,7 @@ export function ReminderEditScreen({ navigation, route }: Props) {
 
   if (loading) {
     return (
-      <Screen>
+      <Screen domain="medications">
         <View style={styles.loading} accessibilityLiveRegion="polite">
           <ActivityIndicator color={colors.accent} />
           <Text style={styles.loadingText}>Loading…</Text>
@@ -148,7 +148,7 @@ export function ReminderEditScreen({ navigation, route }: Props) {
   }
 
   return (
-    <Screen>
+    <Screen domain="medications">
       <PageHeader icon="clock" title={medicationName} subtitle="Choose the times you want to be reminded. Nothing is set until you save." />
 
       {/*

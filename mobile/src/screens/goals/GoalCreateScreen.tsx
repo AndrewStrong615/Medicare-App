@@ -243,7 +243,7 @@ export function GoalCreateScreen({ navigation }: Props) {
 
   return (
     <AppNav current="Goals" navigation={navigation}>
-    <Screen wide>
+    <Screen wide domain="goals">
       <PageHeader
         title="Add a goal"
         subtitle="Write what you want to work towards. MedHelp will suggest a plan and a weekly schedule you can change."

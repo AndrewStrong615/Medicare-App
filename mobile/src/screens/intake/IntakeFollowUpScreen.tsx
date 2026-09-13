@@ -100,7 +100,7 @@ export function IntakeFollowUpScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen domain="symptoms">
       {/* Unconditional: answering is required for a tier, never for help. */}
       <EmergencyCallBar />
 
@@ -109,7 +109,7 @@ export function IntakeFollowUpScreen({ navigation, route }: Props) {
         // Named by round so a second set does not read as the first set
         // repeating — the complaint that prompted this was that the app kept
         // asking the same four things.
-        eyebrow={followUp.round > 1 ? `STEP ${followUp.round} OF 2` : undefined}
+        eyebrow={followUp.round > 1 ? `Step ${followUp.round} of 2` : undefined}
         title={followUp.round > 1 ? "Just a couple more" : "A few more details"}
         subtitle={followUp.intro}
       />

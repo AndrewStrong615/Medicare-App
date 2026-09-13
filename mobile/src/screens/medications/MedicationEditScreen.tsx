@@ -176,7 +176,7 @@ export function MedicationEditScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen domain="medications">
       <PageHeader
         icon="pill"
         title={isEditing ? "Edit medication" : "Add a medication"}

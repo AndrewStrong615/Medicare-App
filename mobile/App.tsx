@@ -13,14 +13,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
   If you add a weight, add the token in `theme.ts` and the subpath here.
 */
-import { Literata_400Regular } from "@expo-google-fonts/literata/400Regular";
-import { Literata_400Regular_Italic } from "@expo-google-fonts/literata/400Regular_Italic";
-import { Literata_600SemiBold } from "@expo-google-fonts/literata/600SemiBold";
-import { Literata_700Bold } from "@expo-google-fonts/literata/700Bold";
-import { PublicSans_400Regular } from "@expo-google-fonts/public-sans/400Regular";
-import { PublicSans_500Medium } from "@expo-google-fonts/public-sans/500Medium";
-import { PublicSans_600SemiBold } from "@expo-google-fonts/public-sans/600SemiBold";
-import { PublicSans_700Bold } from "@expo-google-fonts/public-sans/700Bold";
+import { Archivo_400Regular } from "@expo-google-fonts/archivo/400Regular";
+import { Archivo_500Medium } from "@expo-google-fonts/archivo/500Medium";
+import { Archivo_600SemiBold } from "@expo-google-fonts/archivo/600SemiBold";
+import { Archivo_700Bold } from "@expo-google-fonts/archivo/700Bold";
+import { Newsreader_400Regular } from "@expo-google-fonts/newsreader/400Regular";
+import { Newsreader_400Regular_Italic } from "@expo-google-fonts/newsreader/400Regular_Italic";
+import { Newsreader_600SemiBold } from "@expo-google-fonts/newsreader/600SemiBold";
+import { Newsreader_700Bold } from "@expo-google-fonts/newsreader/700Bold";
 
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { colors } from "./src/theme";
@@ -31,7 +31,7 @@ export default function App() {
    *
    * Every type token in `theme.ts` names a family rather than a weight, so a
    * screen painted before the fonts land is painted in the system font at
-   * Literata's metrics and then reflows under the reader. On the screen where
+   * Archivo's metrics and then reflows under the reader. On the screen where
    * someone is describing chest pain, that is not a cosmetic problem.
    *
    * A *failure* is different from a wait: if the faces cannot load at all,
@@ -39,14 +39,14 @@ export default function App() {
    * Blocking the emergency card behind a font download would be indefensible.
    */
   const [fontsLoaded, fontError] = useFonts({
-    Literata_400Regular,
-    Literata_400Regular_Italic,
-    Literata_600SemiBold,
-    Literata_700Bold,
-    PublicSans_400Regular,
-    PublicSans_500Medium,
-    PublicSans_600SemiBold,
-    PublicSans_700Bold,
+    Archivo_400Regular,
+    Archivo_500Medium,
+    Archivo_600SemiBold,
+    Archivo_700Bold,
+    Newsreader_400Regular,
+    Newsreader_400Regular_Italic,
+    Newsreader_600SemiBold,
+    Newsreader_700Bold,
   });
 
   if (!fontsLoaded && !fontError) {

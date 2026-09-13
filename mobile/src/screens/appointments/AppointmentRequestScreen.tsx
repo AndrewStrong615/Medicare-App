@@ -70,7 +70,7 @@ export function AppointmentRequestScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen domain="care">
       <View style={styles.provider}>
         <Text style={styles.providerLabel}>Requesting an appointment with</Text>
         <Text style={styles.providerName}>{provider.name}</Text>

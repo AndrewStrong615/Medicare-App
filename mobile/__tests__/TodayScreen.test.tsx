@@ -153,7 +153,7 @@ describe("TodayScreen", () => {
   it("shows the medication times the user set", async () => {
     renderToday();
 
-    await waitFor(() => expect(screen.getByText("YOUR MEDICATION TIMES")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Your medication times")).toBeTruthy());
     expect(screen.getAllByText("Lisinopril").length).toBeGreaterThan(0);
   });
 
@@ -232,6 +232,6 @@ describe("TodayScreen", () => {
     renderToday();
 
     await waitFor(() => expect(screen.getByText(/Some of today couldn't be loaded/)).toBeTruthy());
-    expect(screen.getByText("YOUR MEDICATION TIMES")).toBeTruthy();
+    expect(screen.getByText("Your medication times")).toBeTruthy();
   });
 });

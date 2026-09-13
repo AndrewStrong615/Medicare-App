@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { useDomain } from "@/hooks/useDomain";
 import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 
 /**
@@ -27,6 +28,13 @@ import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "
  * - `outline` (L2) — a real control, but not the thing the screen is for.
  * - `secondary` (L3) — borderless text, for an action that sits beside
  *   something else rather than ending a task.
+ *
+ * ## The colour comes from the screen, not from here
+ *
+ * A filled button takes the current destination's hue (`useDomain`), so the
+ * one action on the medications form is indigo and the one on the care form
+ * is violet. That is what keeps five colours feeling like a system: the
+ * colour is always answering "where am I", never "how urgent is this".
  */
 type Variant = "primary" | "outline" | "secondary";
 
@@ -58,6 +66,7 @@ export function AppButton({
   style,
 }: AppButtonProps) {
   const [hovered, setHovered] = useState(false);
+  const domain = useDomain();
   const isPrimary = variant === "primary";
   // A button mid-request must not fire again: double-taps would send a second
   // signup/login request.
@@ -67,6 +76,24 @@ export function AppButton({
     onHoverIn: () => setHovered(true),
     onHoverOut: () => setHovered(false),
   };
+
+  // Rest, hover and pressed in the destination's own hue. Written out rather
+  // than kept in the stylesheet because the value is only known at render.
+  const tinted: StyleProp<ViewStyle> = isInactive
+    ? null
+    : isPrimary
+      ? {
+          backgroundColor: hovered ? domain.pressed : domain.fill,
+          borderColor: hovered ? domain.pressed : domain.fill,
+        }
+      : variant === "outline"
+        ? {
+            borderColor: domain.ink,
+            backgroundColor: hovered ? domain.surface : colors.surface,
+          }
+        : hovered
+          ? { backgroundColor: domain.surface }
+          : null;
 
   return (
     <Pressable
@@ -80,8 +107,12 @@ export function AppButton({
       style={({ pressed }) => [
         styles.base,
         SURFACE[variant],
-        hovered && !isInactive && HOVER[variant],
-        pressed && !isInactive && PRESSED[variant],
+        tinted,
+        pressed &&
+          !isInactive &&
+          (isPrimary
+            ? { backgroundColor: domain.pressed, borderColor: domain.pressed, ...elevation.sm }
+            : { backgroundColor: domain.surface }),
         isInactive && INACTIVE[variant],
         style,
       ]}
@@ -90,11 +121,17 @@ export function AppButton({
         {loading && (
           <ActivityIndicator
             size="small"
-            color={isPrimary ? colors.textOnAccent : colors.accent}
+            color={isPrimary ? colors.textOnAccent : domain.ink}
             style={styles.spinner}
           />
         )}
-        <Text style={[styles.label, LABEL[variant], isInactive && LABEL_INACTIVE[variant]]}>
+        <Text
+          style={[
+            styles.label,
+            isPrimary ? styles.labelPrimary : { color: domain.ink },
+            isInactive && LABEL_INACTIVE[variant],
+          ]}
+        >
           {label}
         </Text>
       </View>
@@ -125,15 +162,6 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
     ...elevation.md,
   },
-  primaryHover: {
-    backgroundColor: colors.accentPressed,
-    borderColor: colors.accentPressed,
-  },
-  primaryPressed: {
-    backgroundColor: colors.accentPressed,
-    borderColor: colors.accentPressed,
-    ...elevation.sm,
-  },
   primaryInactive: {
     backgroundColor: colors.accentDisabled,
     borderColor: colors.accentDisabled,
@@ -145,13 +173,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderColor: colors.accent,
   },
-  outlineHover: {
-    backgroundColor: colors.accentSurface,
-  },
-  outlinePressed: {
-    backgroundColor: colors.accentSurface,
-    borderColor: colors.accentPressed,
-  },
   outlineInactive: {
     backgroundColor: colors.surfaceMuted,
     borderColor: colors.borderStrong,
@@ -160,12 +181,6 @@ const styles = StyleSheet.create({
   secondary: {
     backgroundColor: "transparent",
     borderColor: "transparent",
-  },
-  secondaryHover: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  secondaryPressed: {
-    backgroundColor: colors.surfaceMuted,
   },
   secondaryInactive: {
     backgroundColor: "transparent",
@@ -181,9 +196,6 @@ const styles = StyleSheet.create({
   labelPrimaryInactive: {
     color: colors.textOnAccent,
   },
-  labelAccent: {
-    color: colors.accent,
-  },
   labelAccentInactive: {
     color: colors.textSecondary,
   },
@@ -195,28 +207,10 @@ const SURFACE = {
   secondary: styles.secondary,
 } as const;
 
-const HOVER = {
-  primary: styles.primaryHover,
-  outline: styles.outlineHover,
-  secondary: styles.secondaryHover,
-} as const;
-
-const PRESSED = {
-  primary: styles.primaryPressed,
-  outline: styles.outlinePressed,
-  secondary: styles.secondaryPressed,
-} as const;
-
 const INACTIVE = {
   primary: styles.primaryInactive,
   outline: styles.outlineInactive,
   secondary: styles.secondaryInactive,
-} as const;
-
-const LABEL = {
-  primary: styles.labelPrimary,
-  outline: styles.labelAccent,
-  secondary: styles.labelAccent,
 } as const;
 
 const LABEL_INACTIVE = {

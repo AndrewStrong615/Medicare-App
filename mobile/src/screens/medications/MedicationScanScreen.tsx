@@ -72,7 +72,7 @@ export function MedicationScanScreen({ navigation }: Props) {
   };
 
   return (
-    <Screen>
+    <Screen domain="medications">
       <PageHeader
         icon="search"
         title="Scan a label"

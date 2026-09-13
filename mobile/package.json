@@ -14,8 +14,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo-google-fonts/literata": "^0.4.3",
-    "@expo-google-fonts/public-sans": "^0.4.2",
+    "@expo-google-fonts/archivo": "^0.4.2",
+    "@expo-google-fonts/newsreader": "^0.4.1",
     "@expo/metro-runtime": "~3.2.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",

@@ -1714,11 +1714,55 @@ and says nothing about whether a plan is safe, achievable or good.
 `tests/test_goal_plan_eval.py`, including the reported pair coming back
 identical and registering as a 100% overlap.
 
-⛔ **The numbers have not been taken.** There is no model key in the working
-copy this fix was written in, so the fix is so far a prompt change reasoned
-about rather than counted — which is the very thing the title-bug note says not
-to settle for. Run `measure.py` with the deployment's key before treating this
-as closed.
+#### The BEFORE numbers, taken against the deployment on 2026-09-13
+
+Collected with `--api` against `medhelp-api-as615.onrender.com`, which runs
+`main` — so these measure **the bug**, not the fix. All 16 goals planned.
+
+| | before |
+|---|---|
+| rows shared across goals, exact | 9.5% |
+| plans using any word of their own goal | **53.3%** (threshold 70%) |
+| `weight-scale` pair overlap (the reported one) | **33%** |
+| `quit-scale` pair overlap, counting rewordings | **80%** |
+
+The run is committed at
+`backend/scripts/goal_plan_eval/runs/2026-09-13-before-deployed-main.json` and
+`--load` re-measures it without calling anything, which is what makes the
+comparison an actual comparison rather than two runs of different code against
+different quotas.
+
+⛔ **THE FIRST METRIC REPORTED THE REPORTED BUG AS ABSENT.** Exact row matching
+scored the two smoking goals at **0%** overlap while both plans were walk /
+water / breathing break / call a friend, reworded. `near()` therefore matches
+on **containment of the shorter row**, not Jaccard: Jaccard punishes a row for
+carrying extra context, which is precisely how a template row disguises itself.
+That took `quit-scale` from 0% to 80%, and `--strict` reads the soft figure.
+A first attempt at it folded "walk the dog" into "walk around the office for
+five minutes" — two shared tokens, one of them "the" — so a fold also needs two
+shared non-function words.
+
+⛔ **The AFTER numbers have not been taken**, because they need this branch
+deployed and the branch is not deployed. Until then the fix is a prompt change
+reasoned about rather than counted, which is the exact thing the title-bug note
+above says not to settle for.
+
+**What the baseline shows qualitatively**, and it is sharper than the numbers:
+the planner is responsive whenever the person **names the activity** —
+`sleep-baby` got phone-and-scrolling rows, `meds-routine` got "place tablets
+next to toothbrush", `knee-injury` got seated knee bends. It collapses to the
+template exactly where it has to **originate** one: both weight goals, both
+smoking goals, and "I have no energy" all came back as some ordering of stretch
+on waking / glass of water / walk after lunch / screens off before bed. That
+split is the argument for the prompt change: the old prompt had plenty to say
+about what a good plan looks like and nothing about reading the goal.
+
+⛔ **A live finding that is not about this bug.** The first baseline attempt
+lost **8 of 16 goals** to "MedHelp is busy right now" at four seconds apart.
+That is the Groq free-tier quota, and it means a person trying two or three
+goals in a minute is told the app has nothing to suggest about half the time.
+The `Busy` path is working as designed; there is simply not much quota behind
+it. Separate decision, separate fix.
 
 ### ⛔ "Proven to work through medical research" is not a claim this app may make
 

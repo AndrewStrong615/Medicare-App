@@ -264,6 +264,127 @@ class Deployment:
         return outcome
 
 
+# How much of the SHORTER row has to appear in the longer one for the two to
+# count as the same row reworded.
+#
+# ⛔ Containment, not Jaccard, and that is not a detail. "Take a 10-minute walk
+# after breakfast" and "Take a 5-minute walk outside" share three words out of
+# a combined eight — a Jaccard of 0.38, under any threshold loose enough to be
+# safe — while the shorter row is 60% inside the longer. Jaccard punishes a row
+# for carrying extra context, which is exactly how a template row disguises
+# itself: same instruction, more trimmings.
+NEAR_DUPLICATE = 0.6
+
+# Below this many words a row is too short for containment to mean anything:
+# "Walk the dog" is two content words and would match half the corpus.
+MIN_TOKENS_FOR_NEAR = 3
+
+# ⛔ CONTAINMENT ALONE FOLDED "walk the dog" INTO "walk around the office for
+# five minutes" — two shared tokens out of three, and one of them was "the".
+# So a fold also needs this many shared words that are not function words.
+# The list is short on purpose: dropping function words from the containment
+# ratio itself was tried and broke the real matches, because a short row is
+# mostly function words and the ratio then has almost nothing left to divide.
+MIN_SHARED_CONTENT = 2
+
+_FUNCTION_WORDS = frozenset(
+    {"a", "an", "the", "of", "to", "for", "and", "or", "your", "you", "then"}
+)
+
+
+def tokens(text: str) -> frozenset[str]:
+    return frozenset(normalise(text).split())
+
+
+def near(a: str, b: str) -> bool:
+    """Whether two rows are the same row reworded."""
+    left, right = tokens(a), tokens(b)
+    if not left or not right:
+        return False
+
+    shorter = min(len(left), len(right))
+    if shorter < MIN_TOKENS_FOR_NEAR:
+        return left == right
+
+    shared = left & right
+    if len(shared - _FUNCTION_WORDS) < MIN_SHARED_CONTENT:
+        return False
+    return (len(shared) / shorter) >= NEAR_DUPLICATE
+
+
+def soft_overlap(rows_a: set[str], rows_b: set[str]) -> float:
+    """
+    Jaccard, counting a row as present in both sets when it has a near-match.
+
+    ⛔ THE EXACT FIGURE UNDERSTATED THE BUG THIS HARNESS WAS BUILT FOR. The
+    first clean baseline scored the two smoking goals at 0% overlap while
+    their plans were walk / water / breathing break / call a friend on both
+    sides, reworded. A metric that reports the reported bug as absent is worse
+    than no metric, so both numbers are now printed and the soft one is what
+    --strict reads.
+    """
+    shared = sum(1 for row in rows_a if any(near(row, other) for other in rows_b))
+    union = len(rows_a) + len(rows_b) - shared
+    return (shared / union) if union else 0.0
+
+
+def save(outcomes: list[Outcome], path: Path, label: str, source: str) -> None:
+    """
+    The collected plans, so a run costs its quota once.
+
+    ⛔ Collecting is the expensive, rate-limited, non-reproducible half and
+    measuring is the cheap half. Keeping them apart is what let the metric be
+    corrected after a baseline had already been taken, without paying for the
+    baseline twice.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "label": label,
+                "source": source,
+                "outcomes": [
+                    {
+                        "goal": o.goal.id,
+                        "title": o.title,
+                        "rows": list(o.rows),
+                        "failure": o.failure,
+                    }
+                    for o in outcomes
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def load(path: Path) -> tuple[list[Outcome], str, str]:
+    """Plans collected earlier, read back as Outcomes."""
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    by_id = {goal.id: goal for goal in CORPUS}
+
+    outcomes = []
+    for entry in saved["outcomes"]:
+        goal = by_id.get(entry["goal"])
+        if goal is None:
+            # The corpus has moved on. Dropping it silently would change a
+            # metric without anything saying so.
+            raise SystemExit(
+                f"{path.name} names a goal the corpus no longer has: "
+                f"{entry['goal']!r}"
+            )
+        outcomes.append(
+            Outcome(
+                goal,
+                title=entry.get("title") or "",
+                rows=tuple(entry.get("rows") or ()),
+                failure=entry.get("failure") or "",
+            )
+        )
+    return outcomes, saved.get("label", ""), saved.get("source", "")
+
+
 def measure(outcomes: list[Outcome]) -> dict:
     planned = [o for o in outcomes if o.planned]
 
@@ -288,7 +409,14 @@ def measure(outcomes: list[Outcome]) -> dict:
         union = a | b
         pair_overlaps[pair_id] = {
             "overlap": (len(a & b) / len(union)) if union else 0.0,
+            "soft_overlap": soft_overlap(a, b),
             "shared_rows": sorted(a & b),
+            "near_rows": sorted(
+                f"{row}  ~  {other}"
+                for row in a
+                for other in b
+                if row not in b and near(row, other)
+            ),
             "goals": [h.goal.id for h in halves],
             "note": members[0].note + " / " + members[1].note,
         }
@@ -296,8 +424,18 @@ def measure(outcomes: list[Outcome]) -> dict:
     anchored = [o for o in planned if o.goal.anchors]
     anchor_hits = [o for o in anchored if o.anchors_hit]
 
+    near_repeats = sorted(
+        {
+            row
+            for row, ids in goals_per_row.items()
+            for other, other_ids in goals_per_row.items()
+            if row < other and not (ids & other_ids) and near(row, other)
+        }
+    )
+
     return {
         "goals": len(outcomes),
+        "near_repeat_rows": near_repeats,
         "planned": len(planned),
         "failures": [
             {"goal": o.goal.id, "why": o.failure} for o in outcomes if not o.planned
@@ -329,10 +467,12 @@ def breaches(report: dict) -> list[str]:
             f"(threshold {MAX_REPEAT_SHARE:.0%})"
         )
     for pair_id, data in report["pairs"].items():
-        if data["overlap"] > MAX_PAIR_OVERLAP:
+        # The soft figure, because the exact one scored the reported bug 0%.
+        if data["soft_overlap"] > MAX_PAIR_OVERLAP:
             found.append(
-                f"contrast pair {pair_id} overlaps {data['overlap']:.0%} "
-                f"(threshold {MAX_PAIR_OVERLAP:.0%}): {data['note']}"
+                f"contrast pair {pair_id} overlaps {data['soft_overlap']:.0%} "
+                f"counting rewordings (exact {data['overlap']:.0%}, threshold "
+                f"{MAX_PAIR_OVERLAP:.0%}): {data['note']}"
             )
     if report["title_collisions"]:
         found.append(
@@ -375,10 +515,21 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
 
     print("  CONTRAST PAIRS  (two goals that must not get one plan)")
     for pair_id, data in report["pairs"].items():
-        print(f"    {pair_id:<16} overlap {data['overlap']:.0%}   {data['note']}")
+        print(
+            f"    {pair_id:<16} overlap {data['soft_overlap']:.0%} counting "
+            f"rewordings, {data['overlap']:.0%} exact   {data['note']}"
+        )
         for row in data["shared_rows"]:
-            print(f"        shared: {row}")
+            print(f"        shared:   {row}")
+        for row in data["near_rows"]:
+            print(f"        reworded: {row}")
     print()
+
+    if report["near_repeat_rows"]:
+        print("  ROWS REWORDED ONTO ANOTHER GOAL  (the exact matcher misses these)")
+        for row in report["near_repeat_rows"]:
+            print(f"    {row}")
+        print()
 
     if report["title_collisions"]:
         print("  TITLES REUSED")
@@ -448,50 +599,73 @@ def main() -> int:
         help="seconds to wait before such a re-attempt",
     )
     parser.add_argument(
+        "--save",
+        metavar="PATH",
+        help="write the collected plans to a JSON file for later --load",
+    )
+    parser.add_argument(
+        "--load",
+        metavar="PATH",
+        help=(
+            "measure plans collected by an earlier --save instead of calling "
+            "a model at all"
+        ),
+    )
+    parser.add_argument(
         "--label",
         default="",
         help="a name for this run, printed above the numbers",
     )
     args = parser.parse_args()
 
-    if args.api:
-        if not (args.email and args.password):
-            print("--api needs --email and --password.", file=sys.stderr)
-            return 2
-        source = f"{args.api} (the DEPLOYED code, not this working copy)"
-        collect = Deployment(
-            args.api,
-            args.email,
-            args.password,
-            args.pause,
-            retries=args.retries,
-            retry_pause=args.retry_pause,
-        ).draft
+    if args.load:
+        outcomes, saved_label, source = load(Path(args.load))
+        label = args.label or saved_label
     else:
-        if not goal_structuring.available():
-            print(
-                "No goals model endpoint is configured, so there is nothing "
-                "to measure. Set GROQ_API_KEY (or the GOALS_LLM_* settings) "
-                "- see docs/free-model-setup.md - or measure a deployment "
-                "with --api.",
-                file=sys.stderr,
+        if args.api:
+            if not (args.email and args.password):
+                print("--api needs --email and --password.", file=sys.stderr)
+                return 2
+            source = f"{args.api} (the DEPLOYED code, not this working copy)"
+            collect = Deployment(
+                args.api,
+                args.email,
+                args.password,
+                args.pause,
+                retries=args.retries,
+                retry_pause=args.retry_pause,
+            ).draft
+        else:
+            if not goal_structuring.available():
+                print(
+                    "No goals model endpoint is configured, so there is "
+                    "nothing to measure. Set GROQ_API_KEY (or the GOALS_LLM_* "
+                    "settings) - see docs/free-model-setup.md - or measure a "
+                    "deployment with --api, or re-measure a saved run with "
+                    "--load.",
+                    file=sys.stderr,
+                )
+                return 2
+            endpoint = llm.goals_endpoint()
+            local = "local" if llm.endpoint_is_local(endpoint) else "REMOTE"
+            source = (
+                f"in process: {endpoint.model} ({local}), "
+                f"temperature {goal_structuring.PLAN_TEMPERATURE}"
             )
-            return 2
-        endpoint = llm.goals_endpoint()
-        local = "local" if llm.endpoint_is_local(endpoint) else "REMOTE"
-        source = (
-            f"in process: {endpoint.model} ({local}), "
-            f"temperature {goal_structuring.PLAN_TEMPERATURE}"
-        )
-        collect = plan
+            collect = plan
+
+        label = args.label
+        outcomes = [collect(goal) for goal in CORPUS]
+
+        if args.save:
+            save(outcomes, Path(args.save), label, source)
 
     if not args.json:
         print()
-        if args.label:
-            print(f"run: {args.label}")
+        if label:
+            print(f"run: {label}")
         print(f"source: {source}")
 
-    outcomes = [collect(goal) for goal in CORPUS]
     report = measure(outcomes)
     found = breaches(report)
 

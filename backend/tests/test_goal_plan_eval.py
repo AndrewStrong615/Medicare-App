@@ -270,3 +270,110 @@ def test_an_http_error_is_a_failure_and_never_an_empty_plan():
 
     assert not outcome.planned
     assert outcome.failure == "HTTP 503"
+
+
+# ---------------------------------------------------------------------------
+# ⛔ THE EXACT MATCHER REPORTED THE REPORTED BUG AS ABSENT.
+#
+# The first clean baseline scored the two smoking goals at 0% overlap. Their
+# plans were walk / water / breathing break / call a friend on both sides, in
+# slightly different words. A metric that misses the thing it was built to
+# catch is worse than no metric, so rewordings are counted too.
+# ---------------------------------------------------------------------------
+
+
+def test_a_reworded_row_is_recognised_as_the_same_row():
+    assert measure.near(
+        "Call or text a friend for a quick chat",
+        "Call a friend or family member for a quick chat",
+    )
+    assert measure.near(
+        "Take a 10-minute walk after breakfast", "Take a 5-minute walk outside"
+    )
+
+
+def test_two_genuinely_different_rows_are_not_folded_together():
+    """
+    The loose threshold has to stay on the right side of this, or every plan
+    would look like every other one and the metric would be useless the other
+    way round.
+    """
+    assert not measure.near("Walk the dog before work", "Set a phone alarm for tablet time")
+    assert not measure.near("Do seated knee bends", "Prepare a simple home-cooked dinner")
+
+
+def test_the_soft_overlap_catches_a_pair_the_exact_one_scores_at_zero():
+    a = {"take a 10minute walk after breakfast", "drink a glass of water when you feel the urge to smoke"}
+    b = {"take a 5minute walk outside", "drink a glass of water"}
+
+    assert not (a & b), "precondition: nothing matches exactly"
+    assert measure.soft_overlap(a, b) > 0
+
+
+def test_strict_reads_the_soft_overlap():
+    """
+    A pair whose halves are the same plan reworded must breach, even though
+    not one row matches character for character.
+    """
+    outcomes = [
+        _outcome(
+            "quit-today",
+            "Walks and water",
+            ("Take a 10-minute walk after breakfast", "Drink a glass of water now"),
+        ),
+        _outcome(
+            "quit-year",
+            "Water and walks",
+            ("Take a 5-minute walk outside", "Drink a glass of water"),
+        ),
+    ]
+
+    report = measure.measure(outcomes)
+
+    assert report["pairs"]["quit-scale"]["overlap"] == 0.0
+    assert report["pairs"]["quit-scale"]["soft_overlap"] > measure.MAX_PAIR_OVERLAP
+    assert any("quit-scale" in breach for breach in measure.breaches(report))
+
+
+# ---------------------------------------------------------------------------
+# Collecting and measuring are separable, which is what let the metric above
+# be corrected without paying for the baseline a second time.
+# ---------------------------------------------------------------------------
+
+
+def test_a_saved_run_measures_identically_when_loaded_back(tmp_path):
+    outcomes = [
+        _outcome("walk-dog", "Mornings with the dog", ("Walk the dog before work",)),
+        measure.Outcome(_goal("vague-healthier"), failure="rate limited"),
+    ]
+    path = tmp_path / "run.json"
+
+    measure.save(outcomes, path, "a label", "a source")
+    loaded, label, source = measure.load(path)
+
+    assert label == "a label"
+    assert source == "a source"
+    assert measure.measure(loaded) == measure.measure(outcomes)
+
+
+def test_the_committed_baseline_still_loads_and_still_shows_the_reported_bug():
+    """
+    ⛔ THE BEFORE NUMBERS, PINNED.
+
+    This is the run quoted in CLAUDE.md, taken against the deployment on
+    2026-09-13. If the corpus changes under it the load fails loudly rather
+    than quietly reporting a different baseline — and the two weight goals
+    must still come back sharing rows, because that is the bug that was
+    reported and this file is the evidence of it.
+    """
+    path = _EVAL_DIR / "runs" / "2026-09-13-before-deployed-main.json"
+    outcomes, _, source = measure.load(path)
+
+    assert "onrender.com" in source
+    report = measure.measure(outcomes)
+
+    assert report["goals"] == 16
+    assert report["planned"] == 16
+    assert report["pairs"]["weight-scale"]["overlap"] > 0.3
+    assert report["anchor_share"] < measure.MIN_ANCHOR_SHARE
+    assert measure.breaches(report), "the baseline is the failing state"

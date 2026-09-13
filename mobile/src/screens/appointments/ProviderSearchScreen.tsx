@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { TextField } from "@/components/TextField";
 import { Screen } from "@/components/Screen";
+import { InfoPanel } from "@/components/InfoPanel";
 import {
   ApiError,
   searchProviders,
@@ -158,6 +159,44 @@ function ProviderRow({
   );
 }
 
+/**
+ * ⛔ Statements about the *software*, beside the search that does them. Each
+ * restates a rule this repository already enforces — the outbound parameter
+ * set, the distance method, the absence of ranking — rather than adding a new
+ * claim. See the fence at the top of `InfoPanel`.
+ */
+const PROVIDER_ASIDE = (
+  <>
+    <InfoPanel
+      title="What this search sends"
+      items={[
+        {
+          icon: "search",
+          title: "A ZIP code and a care setting",
+          text: "Never what you wrote about your symptoms, and never your exact location.",
+        },
+        {
+          icon: "alert",
+          title: "The directory is CMS's, not MedHelp's",
+          text: "It is authoritative for who providers are and where they practise, and for nothing else.",
+        },
+      ]}
+      footnote="On a phone your coordinates never leave the device. In a browser they reach MedHelp's own backend, are turned into a ZIP code, and are discarded."
+    />
+    <InfoPanel
+      title="What MedHelp cannot tell you"
+      bullet="none"
+      tone="muted"
+      items={[
+        { text: "Whether a provider is accepting patients." },
+        { text: "Whether they are open now, or in your network." },
+        { text: "When they have an appointment free — no source for that exists." },
+        { text: "Which of them is the right one for you. Results are ordered by distance only." },
+      ]}
+    />
+  </>
+);
+
 export function ProviderSearchScreen({ navigation, route }: Props) {
   const intake = route.params?.intake;
 
@@ -280,7 +319,7 @@ export function ProviderSearchScreen({ navigation, route }: Props) {
     locationStatus !== "insecure";
 
   return (
-    <Screen wide domain="care">
+    <Screen wide domain="care" aside={PROVIDER_ASIDE}>
       {intake && (
         <View style={styles.context}>
           <Text style={styles.contextHeading}>

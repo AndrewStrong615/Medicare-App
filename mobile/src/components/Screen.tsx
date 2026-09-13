@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { DomainProvider, useDomain } from "@/hooks/useDomain";
 import {
   CONTENT_WIDTH,
@@ -46,6 +47,28 @@ interface ScreenProps {
    * content column so it runs edge to edge; pass a `ScreenBand`.
    */
   band?: ReactNode;
+  /**
+   * A companion column beside the content on a wide window, stacked under it
+   * on a narrow one.
+   *
+   * ## Why this exists
+   *
+   * Every screen but Today was a single 480–660pt column in the middle of a
+   * browser window, which left roughly half the width as bare ground. On the
+   * ruled paper that reads emptier than it did on a flat one, because the grid
+   * makes the emptiness measurable.
+   *
+   * ⛔ **This is not a slot for filler, and above all not for health
+   * content.** It takes the same content `InfoPanel` takes and is bound by the
+   * same fence: statements about the *software* — what it does with what you
+   * just typed, what it will not do, where the data goes. No clinical text, no
+   * numbers about the person's health, nothing a reviewer has not read. Read
+   * the note at the top of `InfoPanel` before putting anything here.
+   *
+   * The content column keeps its own `wide`/`form` cap, so nothing here
+   * lengthens a line of body text.
+   */
+  aside?: ReactNode;
   /** Vertically centres content — for short screens like sign-in. */
   centerContent?: boolean;
   /**
@@ -99,6 +122,7 @@ export function Screen({ domain, children, ...rest }: ScreenProps) {
 function ScreenBody({
   children,
   band,
+  aside,
   centerContent = false,
   wide = false,
   page = false,
@@ -107,7 +131,13 @@ function ScreenBody({
   innerStyle,
 }: Omit<ScreenProps, "domain">) {
   const insets = useSafeAreaInsets();
+  const { isExpanded } = useBreakpoint();
   const { ink } = useDomain();
+
+  // Two columns only where there is room for two. Below `expanded` the aside
+  // is still rendered, stacked under the content — it is real information, not
+  // decoration that can be dropped because the window is small.
+  const split = Boolean(aside) && isExpanded;
 
   return (
     <KeyboardAvoidingView
@@ -164,10 +194,22 @@ function ScreenBody({
                 styles.inner,
                 wide && styles.innerWide,
                 page && styles.innerPage,
+                split && styles.innerSplit,
                 innerStyle,
               ]}
             >
-              {children}
+              <View
+                style={[
+                  styles.column,
+                  split && styles.columnMain,
+                  split && (wide ? styles.columnMainWide : styles.columnMainForm),
+                ]}
+              >
+                {children}
+              </View>
+              {aside ? (
+                <View style={[styles.column, split && styles.columnAside]}>{aside}</View>
+              ) : null}
             </View>
           </View>
         </ScrollView>
@@ -231,5 +273,33 @@ const styles = StyleSheet.create({
   // Listed after innerWide so it wins when a screen passes both.
   innerPage: {
     maxWidth: CONTENT_WIDTH.page,
+  },
+  // Wins over innerWide/innerPage: a split screen always gets the page width
+  // to divide, whatever the content column asked for on its own.
+  innerSplit: {
+    maxWidth: CONTENT_WIDTH.page,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xl,
+  },
+  column: {
+    width: "100%",
+    minWidth: 0,
+    gap: spacing.lg,
+  },
+  columnMain: {
+    flex: 3,
+  },
+  // The content column keeps its own line-length cap inside the split, so
+  // widening the page never lengthens a line of body text.
+  columnMainForm: {
+    maxWidth: CONTENT_WIDTH.form,
+  },
+  columnMainWide: {
+    maxWidth: CONTENT_WIDTH.wide,
+  },
+  columnAside: {
+    flex: 2,
+    maxWidth: 400,
   },
 });

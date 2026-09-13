@@ -6,6 +6,7 @@ import { AppButton } from "@/components/AppButton";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { InfoPanel } from "@/components/InfoPanel";
 import { TextField } from "@/components/TextField";
 import {
   MedicationError,
@@ -26,6 +27,46 @@ function todayIso(): string {
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, "MedicationEdit">;
+
+/**
+ * ⛔ Statements about the *software*, beside the form that collects the data.
+ * Each restates a rule the code already enforces — the verbatim directions
+ * rule, on-device OCR, the refill estimate's provenance. No dosing advice, no
+ * interaction text, nothing clinical: see the fence on `InfoPanel`.
+ */
+const MEDICATION_FORM_ASIDE = (
+  <>
+    <InfoPanel
+      title="What MedHelp does with this"
+      items={[
+        {
+          icon: "pill",
+          title: "It stores it, and nothing else",
+          text: "No dosing advice, no interaction checks, no correcting a name against a drug list.",
+        },
+        {
+          icon: "alert",
+          title: "Directions are kept word for word",
+          text: "MedHelp does not expand BID or TWICE DAILY into times — a wrong expansion changes when you take a medicine.",
+        },
+        {
+          icon: "clock",
+          title: "A count and a doses-per-day give a refill estimate",
+          text: "Arithmetic on what you entered, assuming every dose is taken on schedule. Leave them blank and there is no estimate.",
+        },
+      ]}
+    />
+    <InfoPanel
+      title="Scanning a label instead"
+      bullet="none"
+      tone="muted"
+      items={[
+        { text: "The photograph is read on your device and never uploaded." },
+        { text: "The scan cannot save anything — it opens this same form, prefilled, for you to check." },
+      ]}
+    />
+  </>
+);
 
 export function MedicationEditScreen({ navigation, route }: Props) {
   const existing = route.params?.medication;
@@ -176,7 +217,7 @@ export function MedicationEditScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen domain="medications">
+    <Screen domain="medications" aside={MEDICATION_FORM_ASIDE}>
       <PageHeader
         icon="pill"
         title={isEditing ? "Edit medication" : "Add a medication"}

@@ -1,6 +1,7 @@
 import { Dimensions } from "react-native";
 import { render, screen, waitFor } from "@testing-library/react-native";
 
+import { HealthGoalsScreen } from "@/screens/goals/HealthGoalsScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import { LoginScreen } from "@/screens/auth/LoginScreen";
 import { BREAKPOINT } from "@/theme";
@@ -24,6 +25,10 @@ jest.mock("@/services/reminderService", () => ({
 jest.mock("@/services/appointmentService", () => ({
   ...jest.requireActual("@/services/appointmentService"),
   listAppointments: jest.fn(async () => []),
+}));
+jest.mock("@/services/goalService", () => ({
+  ...jest.requireActual("@/services/goalService"),
+  listGoals: jest.fn(async () => []),
 }));
 jest.mock("@react-navigation/native", () => {
   const React = require("react");
@@ -54,6 +59,11 @@ afterEach(() => {
 function renderToday() {
   const navigation = { navigate: jest.fn(), reset: jest.fn() } as any;
   render(<TodayScreen navigation={navigation} route={{} as any} />);
+}
+
+function renderGoals() {
+  const navigation = { navigate: jest.fn(), reset: jest.fn() } as any;
+  render(<HealthGoalsScreen navigation={navigation} route={{} as any} />);
 }
 
 function renderLogin() {
@@ -135,5 +145,49 @@ describe("sign-in at different window widths", () => {
     expect(screen.getByText("Welcome back")).toBeTruthy();
     expect(screen.getByText("Your health companion")).toBeTruthy();
     expect(screen.getByText(/does not diagnose\s+conditions or recommend treatment/i)).toBeTruthy();
+  });
+});
+
+/**
+ * `Screen`'s companion column.
+ *
+ * Before it, every screen but Today was a 480–660pt strip in the middle of a
+ * browser window and roughly half the width was bare ground. The fix is not
+ * filler: the column carries statements about the *software*, under the same
+ * fence as `InfoPanel`.
+ *
+ * ⛔ It must not disappear on a phone. It is information, not decoration, and
+ * "the window is small" is not a reason to stop saying what MedHelp will not
+ * do — the same principle this file already applies to the Today panels.
+ */
+describe("the companion column beside a screen", () => {
+  it("fills the width beside the content on a wide window", async () => {
+    setWindowWidth(BREAKPOINT.expanded + 360);
+    renderGoals();
+
+    await waitFor(() => expect(screen.getByText("Who wrote this plan")).toBeTruthy());
+    expect(screen.getByText("What a tick is")).toBeTruthy();
+  });
+
+  it("keeps it on a phone rather than hiding it with the layout", async () => {
+    setWindowWidth(390);
+    renderGoals();
+
+    await waitFor(() => expect(screen.getByText("Who wrote this plan")).toBeTruthy());
+    expect(screen.getByText("What a tick is")).toBeTruthy();
+  });
+
+  it("says nothing about the person's health in it", async () => {
+    setWindowWidth(BREAKPOINT.expanded + 360);
+    renderGoals();
+
+    await waitFor(() => expect(screen.getByText("What a tick is")).toBeTruthy());
+
+    // The same fence the Today panels carry. This column is the obvious place
+    // someone would later add a streak or a completion percentage.
+    expect(screen.queryByText(/missed/i)).toBeNull();
+    expect(screen.queryByText(/streak/i)).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
+    expect(screen.queryByText(/\d+ of \d+/)).toBeNull();
   });
 });

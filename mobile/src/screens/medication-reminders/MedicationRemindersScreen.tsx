@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { InfoPanel } from "@/components/InfoPanel";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import {
@@ -62,6 +63,48 @@ type Props = NativeStackScreenProps<RootStackParamList, "MedicationReminders">;
  * MedHelp does not know whether the person took it, and implying it does would
  * be inventing a clinical fact about them.
  */
+/**
+ * ⛔ Statements about the *software*. Nothing here counts, scores or reports a
+ * dose — see the note on `InfoPanel`, and the adherence fence in CLAUDE.md.
+ * The platform-delivery notice inside the screen is the required one and was
+ * not moved here; this restates why the on-screen list is the reliable part.
+ */
+const REMINDERS_ASIDE = (
+  <>
+    <InfoPanel
+      title="How a reminder is decided"
+      items={[
+        {
+          step: "1",
+          title: "MedHelp reads the printed directions",
+          text: "It proposes times, and declines far more readily than it guesses.",
+        },
+        {
+          step: "2",
+          title: "You check them against the label",
+          text: "The directions are shown unedited beside the draft.",
+        },
+        {
+          step: "3",
+          title: "You save them",
+          text: "Nothing is scheduled until you do. A suggestion on its own leaves you with no reminders.",
+        },
+      ]}
+    />
+    <InfoPanel
+      title="This is not an adherence record"
+      bullet="none"
+      tone="muted"
+      items={[
+        { text: "MedHelp has no idea whether you took a dose, so it never says you missed one." },
+        { text: "A time that has gone by reads “earlier today”, and that is all it means." },
+        { text: "Nothing here is counted, scored, or reported to anyone." },
+      ]}
+      footnote="Reminders stay on this device. No push token is registered and nothing about them is sent anywhere."
+    />
+  </>
+);
+
 export function MedicationRemindersScreen({ navigation, route }: Props) {
   const savedFor = route.params?.savedFor;
 
@@ -180,7 +223,7 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
 
   return (
     <AppNav current="Medications" navigation={navigation}>
-    <Screen wide domain="medications">
+    <Screen wide domain="medications" aside={REMINDERS_ASIDE}>
       <PageHeader
         icon="clock"
         title="Medication reminders"

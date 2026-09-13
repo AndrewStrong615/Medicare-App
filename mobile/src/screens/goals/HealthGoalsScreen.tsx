@@ -10,6 +10,7 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Glyph } from "@/components/Glyph";
 import { PageHeader } from "@/components/PageHeader";
 import { Screen } from "@/components/Screen";
+import { InfoPanel } from "@/components/InfoPanel";
 import { ScreenBand } from "@/components/ScreenBand";
 import { SuccessNotice } from "@/components/SuccessNotice";
 import { ApiError } from "@/services/apiClient";
@@ -48,6 +49,52 @@ type Props = NativeStackScreenProps<RootStackParamList, "HealthGoals">;
  * The activity text is the person's own words. MedHelp does not comment on it,
  * rank it, or explain what it might do for them.
  */
+/**
+ * ⛔ Statements about the *software*. No streaks, no percentages, no "3 of 4
+ * done" — `GoalScreens.test.tsx` asserts those words never appear, and this
+ * column is the obvious place someone would try to add them.
+ *
+ * ⛔ **Do not write that MedHelp only tracks what you decide to do.** That
+ * sentence was true until 2026-09-12 and CLAUDE.md now forbids its return:
+ * the app proposes a plan for any goal typed in, so describing itself as a
+ * passive tracker would be a false statement about the instrument. This panel
+ * says who wrote the plan instead, which is the thing a reader needs.
+ */
+const GOALS_ASIDE = (
+  <>
+    <InfoPanel
+      title="Who wrote this plan"
+      items={[
+        {
+          icon: "alert",
+          title: "MedHelp suggested these activities",
+          text: "Not a doctor or a nurse. Nobody medically qualified has checked them.",
+        },
+        {
+          icon: "check",
+          title: "A suggested row says so, until you edit it",
+          text: "Changing the words clears the label, because it has become your own.",
+        },
+        {
+          icon: "symptom",
+          title: "Speak to a professional first",
+          text: "Before acting on a goal about a medical condition, a medicine, or a big change to eating or exercise.",
+        },
+      ]}
+    />
+    <InfoPanel
+      title="What a tick is"
+      bullet="none"
+      tone="muted"
+      items={[
+        { text: "A note you made for yourself, on a day you chose." },
+        { text: "An unticked activity means nothing was ticked, and nothing beyond that." },
+        { text: "Nothing here is scored, counted, or shown to anyone else." },
+      ]}
+    />
+  </>
+);
+
 export function HealthGoalsScreen({ navigation, route }: Props) {
   const [goals, setGoals] = useState<HealthGoal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +200,7 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
     <AppNav current="Goals" navigation={navigation}>
     <Screen
       wide
+      aside={GOALS_ASIDE}
       band={
         <ScreenBand
           title="Goals"

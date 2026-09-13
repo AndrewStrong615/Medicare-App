@@ -681,21 +681,33 @@ The last one matters most and is the easiest to break. A plan that only
 proposes activities is a plan; the moment it explains what those activities
 will do to a person's illness, it has become advice nobody qualified wrote.
 
-THE TITLE IS HELD TO THE SAME RULE
+THE TITLE IS HELD TO THE SAME RULE, AND TO ONE MORE
 
-The title names the part of everyday life the plan is about. It must NOT name
-a medical result the plan is supposed to produce, because a title like that
-promises the outcome that the activities are forbidden from promising.
+Two rules. They pull in opposite directions, and a good title satisfies both.
 
-- Write: "Daily routine", "Evenings and sleep", "Getting outdoors", "Movement
-  and meals".
-- Never write: "Headache relief routine", "Blood pressure support routine",
-  "Cholesterol reduction plan", "Migraine fix". Words like relief, support,
-  reduction, management, treatment and improvement attach a clinical function
-  to the plan, and the plan does not have one.
+1. NO CLINICAL RESULT. The title must not name an outcome the plan is
+   supposed to produce. Never "Headache relief routine",
+   "Blood pressure support routine", "Cholesterol reduction plan" or
+   "Migraine fix". Words like relief, support, reduction, management,
+   treatment and improvement attach a clinical function to the plan, and the
+   plan does not have one.
+
+2. NO CATEGORY LABEL. The title must be specific to the plan you just wrote.
+   A title that would sit equally well on somebody else's plan is not a title,
+   it is a heading for the whole feature. Never "Daily routine", "Daily
+   habits", "Healthy habits", "Wellbeing plan", "Movement and meals", "Health
+   plan", or anything else you could put on top of any plan in this
+   application without reading it.
+
+Build the title out of the activities you actually proposed and the part of
+the day they sit in - "Walks and early nights", "Cooking and evening walks",
+"Screens off by nine", "Breathing breaks at the desk", "Mornings outdoors".
+Someone with three saved goals sees three titles in a list and has to be able
+to tell which is which; if two of your titles could be swapped without anyone
+noticing, both are wrong.
 
 A person reads the title first and it is the part they will repeat to
-themselves. It is the last place to be loose about this.
+themselves. It is the last place to be loose about either rule.
 
 WHEN TO REFUSE
 

@@ -1141,9 +1141,43 @@ def test_the_plan_prompt_forbids_a_title_that_promises_a_clinical_result():
     """
     prompt = goal_structuring.PLAN_SYSTEM_PROMPT
 
-    assert "THE TITLE IS HELD TO THE SAME RULE" in prompt
+    assert "NO CLINICAL RESULT" in prompt
     assert "Headache relief routine" in prompt
     assert "Blood pressure support routine" in prompt
+
+
+def test_the_plan_prompt_does_not_hand_the_model_a_generic_title_to_copy():
+    """
+    ⛔ THE FIRST FIX OVER-CORRECTED, AND THIS GUARDS AGAINST REPEATING IT.
+
+    The rule against clinical titles shipped with a list of approved examples
+    — "Daily routine", "Movement and meals" — and the model simply copied
+    them. Re-measured against the live deployment: of 16 plans in one run,
+    "Daily routine" came back 6 times and "Movement and meals" 4 times, for
+    goals as different as quitting smoking, lowering cholesterol and coming
+    off antidepressants. The clinical claims were gone, and so was any way to
+    tell one saved goal from another in a list.
+
+    An example in a prompt is not an illustration, it is a suggestion. The
+    generic ones are now named as forbidden rather than offered, and every
+    example that remains is built out of specific activities.
+
+    This asserts the shape of the instruction, not the model's output. The
+    output is measured by running it, which is how the bug was found in the
+    first place and how the fix was confirmed.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "NO CATEGORY LABEL" in prompt
+
+    # The two titles that were actually copied appear only as forbidden ones.
+    never = prompt.split("NO CATEGORY LABEL", 1)[1].split("Build the title", 1)[0]
+    for copied in ('"Daily routine"', '"Movement and meals"'):
+        assert copied in never, f"{copied} must be named as forbidden"
+
+    # And the prompt says what a title is *for*, which is what produces a
+    # specific one rather than merely a non-clinical one.
+    assert "three titles in a list" in prompt
 
 
 def test_the_plan_prompt_does_not_tell_the_model_to_refuse_health_goals():

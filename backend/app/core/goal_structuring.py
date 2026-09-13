@@ -78,6 +78,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from app.core import goal_evidence
 from app.services import llm
 from app.services.llm import LLMRateLimited, LLMUnavailable
 
@@ -344,6 +345,15 @@ class Activity:
     days: tuple[str, ...] = ()
     # Local wall clock "HH:MM", or None for no particular time.
     time_of_day: str | None = None
+    # One or two concrete sentences saying how to do this, added 2026-09-13
+    # because "very detailed" was asked for and a four-word row is not it.
+    # Suggested rows only: a `structure` row may not gain sentences nobody
+    # wrote, the same rule that keeps a clock time off it.
+    detail: str | None = None
+    # An id from `core/goal_evidence.py`, or None when the row could not be
+    # attributed. ⛔ None is a normal outcome and must render as no citation -
+    # never as the nearest-looking one. See that module.
+    evidence_domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -358,6 +368,11 @@ class GoalDraft:
 
     title: str
     activities: list[Activity]
+    # "small" | "moderate" | "major", or None on the `structure` path, which
+    # may not judge anything about the goal. Recorded so a reviewer can ask
+    # whether the reading was right; NOT rendered to the person as a verdict on
+    # their goal - the shape of the plan is how it shows.
+    complexity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -601,6 +616,34 @@ def _validate_activity(
 # out keeps to fifteen new habits.
 MAX_SUGGESTED = 5
 
+# How many rows a plan may have for each reading of the goal's size, added
+# 2026-09-13 when the owner asked for plans that "take into account the
+# complexity and difficultness of the goal".
+#
+# THIS BOUNDS SHAPE, NOT EFFORT. It says how many things a plan may contain,
+# which is a planning decision. It says nothing about how hard any one of them
+# is, because that is a clinician's call - see the prompt's "NEVER ANSWER A
+# BIGGER GOAL WITH A HARDER PLAN". A model that reads a goal as major and
+# answers with one punishing row is not caught here and cannot be: this check
+# is deliberately about arithmetic it can actually perform.
+ROWS_BY_COMPLEXITY = {
+    # One row is a real answer to a small goal. A floor of two would make the
+    # app pad a plan to look like a plan, which is the failure this whole
+    # change is against, only in the other direction.
+    "small": (1, 3),
+    "moderate": (3, 4),
+    "major": (4, 5),
+}
+
+# The reading is required, so a plan cannot come back without the model having
+# committed to one. An unrecognised value is a discard rather than a default:
+# silently treating an unknown reading as "moderate" would make the whole
+# feature look like it was working.
+COMPLEXITIES = tuple(ROWS_BY_COMPLEXITY)
+
+# A detail is a prompt on a card, not an article.
+MAX_DETAIL_CHARS = 400
+
 # ⛔ THE PLANNER IS THE ONE CALLER THAT DOES NOT DECODE GREEDILY, AND TRIAGE
 # MUST NOT FOLLOW IT. `llm.chat` still defaults to 0 and triage still takes
 # that default, because a tier that changed between two submissions of the
@@ -619,7 +662,7 @@ MAX_SUGGESTED = 5
 # downstream compares two plans for equality.
 PLAN_TEMPERATURE = 0.7
 
-PLAN_SYSTEM_PROMPT = """\
+_PLAN_PROMPT_TEMPLATE = """\
 You are proposing a plan inside a health application. A person has written
 down a goal, and your job is to turn it into something they can actually do:
 a few small everyday activities, and a daily schedule saying which days of the
@@ -700,6 +743,24 @@ came for: a plan with no schedule is a list.
 Do not set `cadence` or `times_per_week`. The application works those out
 from the days you give, so they can never disagree with the schedule.
 
+HOW BIG IS THIS GOAL? DECIDE BEFORE YOU WRITE A ROW
+
+Call `complexity` with one of these, and let it shape the plan:
+
+- "small"    - one thing, soon, or a habit with a single moving part.
+               Two or three rows. Do not hand somebody a whole programme for
+               something they meant to do once.
+- "moderate" - a change to an ordinary week, over weeks rather than days.
+               Three or four rows.
+- "major"    - a long, hard change with more than one part to it, or one the
+               person says they have tried before and not kept up. Four or
+               five rows, spread across the week rather than stacked on one
+               day, and built to still be there in a few months.
+
+A goal is major because it is LONG AND COMPLICATED, never because it is
+dangerous or because of anything about the person. Reread SCALE above: a
+bigger goal gets more parts and a longer rhythm, and never a harder day.
+
 WHAT TO PROPOSE
 
 - Between two and five small, ordinary, everyday activities.
@@ -717,6 +778,41 @@ WHAT TO PROPOSE
   dinner" and "get off the bus one stop early" are activities.
 - You may give a small, gentle amount of time where it helps - "ten minutes",
   "a short walk". Keep it easy.
+
+SAY HOW, NOT JUST WHAT
+
+Every row also carries `detail`: one or two plain sentences saying how the
+person actually does that row, on the day, in their own life. A row is the
+instruction; the detail is what makes it possible to follow without deciding
+anything else first.
+
+- Name the concrete step. Where it happens, what they need to hand, what the
+  first move is, what to do when it is awkward.
+- Build it out of THIS goal, exactly as the row is. The detail on a row for
+  somebody with a nine-hour desk job is different from the same row for
+  somebody at home.
+- Keep it to two sentences. This is a prompt on a card, not an article.
+- ⛔ NEVER say what it will do for them. No "this helps your heart", no
+  "this will bring your weight down", no "studies show". The detail explains
+  the DOING and stops. Everything under WHAT YOU MUST NEVER PROPOSE applies
+  to it word for word.
+
+WHERE THE ROW COMES FROM
+
+Each row also carries `evidence_domain`: the id of the published guidance
+that this KIND of activity belongs to, chosen from this fixed list and no
+other.
+
+{evidence_domains}
+
+- Choose the one that genuinely matches the activity. A walk is
+  aerobic_activity; standing up hourly at a desk is sit_less.
+- ⛔ If none of them matches, leave it out. Leaving it out is normal and
+  costs nothing. Picking the closest-looking one attaches a real government
+  document to a row it is not about, which is worse than no citation at all.
+- ⛔ You are choosing an ID, not writing a citation. Never write a
+  publisher, a URL, a quote, a study, a statistic or a date anywhere in a row
+  or its detail. The application holds the wording and the link.
 
 NO EXAMPLE IN THIS PROMPT IS A ROW TO COPY
 
@@ -809,6 +905,16 @@ There is no refusal code for "this goal is about health". That is not a
 reason to refuse.\
 """
 
+# The domain list is spliced in from the register rather than written out a
+# second time, so a domain cannot appear in the prompt without a source
+# behind it. Nothing else in this prompt is assembled at runtime.
+#
+# Substitution, not str.format: this prompt is prose, and a stray brace
+# anywhere in it would make format() raise at import time.
+PLAN_SYSTEM_PROMPT = _PLAN_PROMPT_TEMPLATE.replace(
+    "{evidence_domains}", goal_evidence.prompt_vocabulary()
+)
+
 SUGGEST_PLAN = {
     "type": "function",
     "function": {
@@ -860,13 +966,41 @@ SUGGEST_PLAN = {
                                     "'07:30' or '18:00'."
                                 ),
                             },
+                            "detail": {
+                                "type": "string",
+                                "description": (
+                                    "One or two plain sentences saying how to "
+                                    "do this on the day. Never what it will "
+                                    "do for them."
+                                ),
+                            },
+                            # ⛔ An enum, so a model cannot name a source that
+                            # does not exist. It may still choose the wrong
+                            # one, which is why `resolve` never guesses and an
+                            # unknown id becomes no citation.
+                            "evidence_domain": {
+                                "type": "string",
+                                "enum": list(goal_evidence.DOMAINS),
+                                "description": (
+                                    "Published guidance this kind of activity "
+                                    "belongs to. Omit if none matches."
+                                ),
+                            },
                         },
-                        "required": ["text", "days", "time_of_day"],
+                        "required": ["text", "days", "time_of_day", "detail"],
                         "additionalProperties": False,
                     },
                 },
+                "complexity": {
+                    "type": "string",
+                    "enum": ["small", "moderate", "major"],
+                    "description": (
+                        "How long and how complicated this goal is, which "
+                        "decides how many rows the plan has."
+                    ),
+                },
             },
-            "required": ["title", "activities"],
+            "required": ["title", "activities", "complexity"],
             "additionalProperties": False,
         },
     },
@@ -1047,6 +1181,21 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     if len(raw_activities) > MAX_SUGGESTED:
         return _discard("plan: more activities than MAX_SUGGESTED")
 
+    # The reading of how big the goal is, and the row count it implies. This
+    # is the only structural difference between a plan for "lose one pound"
+    # and a plan for "lose a hundred", so it is required rather than
+    # defaulted - a missing reading means the model never made one.
+    complexity = arguments.get("complexity")
+    if not isinstance(complexity, str) or complexity.strip().lower() not in COMPLEXITIES:
+        return _discard("plan: no recognised reading of the goal's complexity")
+    complexity = complexity.strip().lower()
+
+    fewest, most = ROWS_BY_COMPLEXITY[complexity]
+    if not fewest <= len(raw_activities) <= most:
+        # A model that calls a goal major and then writes two rows has not
+        # taken the size of the goal into account, whatever it declared.
+        return _discard(f"plan: row count does not match complexity {complexity!r}")
+
     activities: list[Activity] = []
     for raw in raw_activities:
         if not isinstance(raw, dict):
@@ -1062,6 +1211,21 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
         if time_of_day is None:
             return _discard("plan: an activity had no usable HH:MM time")
 
+        detail = raw.get("detail")
+        if not isinstance(detail, str) or not detail.strip():
+            return _discard("plan: an activity had no detail")
+        detail = re.sub(r"\s+", " ", detail).strip()
+        if len(detail) > MAX_DETAIL_CHARS:
+            # Long enough to be an essay is long enough to have started
+            # explaining what the activity does for them, which is the one
+            # thing the detail may never do.
+            return _discard("plan: an activity's detail was longer than the cap")
+
+        # An unknown or absent id is NOT an error and NOT a nearest match: it
+        # is a row with no citation, which is the honest rendering of a row
+        # this app cannot attribute. See core/goal_evidence.py.
+        source = goal_evidence.resolve(raw.get("evidence_domain"))
+
         # Derived, never asked for: a plan cannot say "three times a week"
         # beside four days, because nothing separately reports the count.
         cadence = "daily" if len(days) == len(DAYS) else "times_per_week"
@@ -1076,10 +1240,14 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
                 generated=True,
                 days=days,
                 time_of_day=time_of_day,
+                detail=detail,
+                evidence_domain=source.domain if source else None,
             )
         )
 
-    return GoalDraft(title=title.strip(), activities=activities)
+    return GoalDraft(
+        title=title.strip(), activities=activities, complexity=complexity
+    )
 
 
 def _comparable(value: str) -> str:

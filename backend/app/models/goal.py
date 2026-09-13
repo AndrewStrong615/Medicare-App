@@ -103,6 +103,24 @@ class GoalActivity(Base):
     days: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     time_of_day: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
+    # Added 2026-09-13, both nullable, both needing
+    # scripts/add_goal_detail_columns.py against any database created before
+    # that date - create_missing_tables.py creates tables and never alters
+    # them. Neither is backfilled with a guess: a goal saved before this does
+    # not acquire a detail or a citation.
+    #
+    # `detail` is one or two sentences saying HOW to do this activity, written
+    # by the planner and edited by the person like every other field. It is
+    # not a benefit, a reason or a claim - see PLAN_SYSTEM_PROMPT.
+    #
+    # `evidence_domain` is an id into core/goal_evidence.py and NOT a citation.
+    # Only the id is stored, so the publisher, the document, the quote and the
+    # link live in exactly one place and a stale copy of a government
+    # quotation cannot end up in a database row. An id that no longer resolves
+    # renders as no citation, which is the same thing an absent one does.
+    detail: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    evidence_domain: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     goal: Mapped["HealthGoal"] = relationship(back_populates="activities")

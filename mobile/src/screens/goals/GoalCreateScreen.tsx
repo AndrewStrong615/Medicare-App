@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
@@ -18,6 +18,7 @@ import {
   type ActivityInput,
   type Day,
   type EmergencyGuidance,
+  type Evidence,
 } from "@/services/goalService";
 import { MIN_TAP_TARGET, colors, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
@@ -74,6 +75,9 @@ export function GoalCreateScreen({ navigation }: Props) {
   const [sources, setSources] = useState<(string | null)[]>([]);
   // Which rows MedHelp proposed rather than read out of the person's text.
   const [suggested, setSuggested] = useState<boolean[]>([]);
+  // The published guidance behind each row, for rendering only. The id that
+  // gets saved lives on the activity itself.
+  const [evidences, setEvidences] = useState<(Evidence | null)[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [emergency, setEmergency] = useState<EmergencyGuidance | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +92,8 @@ export function GoalCreateScreen({ navigation }: Props) {
     preferredTime: "unspecified",
     days: [],
     timeOfDay: null,
+    detail: null,
+    evidenceDomain: null,
   });
 
   const suggest = async () => {
@@ -108,8 +114,15 @@ export function GoalCreateScreen({ navigation }: Props) {
               preferredTime: activity.preferredTime,
               days: activity.days,
               timeOfDay: activity.timeOfDay,
+              detail: activity.detail,
+              evidenceDomain: activity.evidenceDomain,
             }))
           : [blank()]
+      );
+      setEvidences(
+        draft.activities.length > 0
+          ? draft.activities.map((activity) => activity.evidence)
+          : [null]
       );
       setSources(
         draft.activities.length > 0
@@ -131,6 +144,7 @@ export function GoalCreateScreen({ navigation }: Props) {
       setActivities([blank()]);
       setSources([null]);
       setSuggested([false]);
+      setEvidences([null]);
     } finally {
       setDrafting(false);
     }
@@ -138,8 +152,22 @@ export function GoalCreateScreen({ navigation }: Props) {
 
   const updateActivity = (index: number, text: string) => {
     setActivities((current) =>
-      current.map((activity, at) => (at === index ? { ...activity, text } : activity))
+      current.map((activity, at) =>
+        at === index
+          ? // ⛔ REWRITING A ROW DROPS ITS DETAIL AND ITS CITATION.
+            //
+            // Both were written for the row as MedHelp proposed it. A citation
+            // is a claim that published guidance is about THIS activity, and
+            // the moment the person changes what the activity is, nobody has
+            // checked that any more — the same reason `sources` and
+            // `suggested` are cleared one line below. Keeping a government
+            // quotation under a row somebody rewrote would be the app
+            // attributing a person's own idea to the CDC.
+            { ...activity, text, detail: null, evidenceDomain: null }
+          : activity
+      )
     );
+    setEvidences((current) => current.map((was, at) => (at === index ? null : was)));
     // Once edited it is the person's line, not a quote of anything.
     setSources((current) => current.map((source, at) => (at === index ? null : source)));
     // Edited by hand, so it is the person's line now and stops being labelled.
@@ -177,12 +205,14 @@ export function GoalCreateScreen({ navigation }: Props) {
     setActivities((current) => current.filter((_, at) => at !== index));
     setSources((current) => current.filter((_, at) => at !== index));
     setSuggested((current) => current.filter((_, at) => at !== index));
+    setEvidences((current) => current.filter((_, at) => at !== index));
   };
 
   const addActivity = () => {
     setActivities((current) => [...current, blank()]);
     setSources((current) => [...current, null]);
     setSuggested((current) => [...current, false]);
+    setEvidences((current) => [...current, null]);
   };
 
   const filled = activities.filter((activity) => activity.text.trim().length > 0);
@@ -302,6 +332,43 @@ export function GoalCreateScreen({ navigation }: Props) {
                 <Text style={styles.suggested}>
                   Suggested by MedHelp — edit it or remove it
                 </Text>
+              ) : null}
+
+              {/*
+                How to do it. Never why: a claim about what an activity does
+                for someone is a health claim MedHelp may not make, and the
+                planner is forbidden from writing one.
+              */}
+              {activity.detail ? (
+                <Text style={styles.detail}>{activity.detail}</Text>
+              ) : null}
+
+              {/*
+                ⛔ THE CITATION, AND THE SENTENCE THAT KEEPS IT A CITATION.
+
+                `caveat` comes from the server and is rendered every time. A
+                publisher's name under a MedHelp-written row reads as approval
+                of that row unless something says otherwise, and nothing here
+                has been approved by anybody. Never render the quote without
+                it, and never reword it locally.
+              */}
+              {evidences[index] ? (
+                <View style={styles.evidence}>
+                  <Text style={styles.evidenceQuote}>
+                    “{evidences[index]!.quote}”
+                  </Text>
+                  <Text style={styles.evidenceSource}>
+                    {evidences[index]!.publisher} — {evidences[index]!.document}
+                  </Text>
+                  <Text
+                    style={styles.evidenceLink}
+                    accessibilityRole="link"
+                    onPress={() => Linking.openURL(evidences[index]!.url)}
+                  >
+                    Read it at the source
+                  </Text>
+                  <Text style={styles.evidenceCaveat}>{evidences[index]!.caveat}</Text>
+                </View>
               ) : null}
 
               {/*
@@ -432,6 +499,33 @@ const styles = StyleSheet.create({
   activityRow: { gap: spacing.xs },
   source: { ...typography.caption, color: colors.textSecondary },
   suggested: { ...typography.caption, color: colors.accent },
+  // How to do it, set close under the row it belongs to.
+  detail: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  // ⛔ The citation is drawn as a quotation, deliberately: a ruled block with
+  // the publisher under it reads as somebody else's words, which is exactly
+  // what it is. It must never be styled to look like MedHelp speaking.
+  evidence: {
+    marginTop: spacing.xs,
+    paddingLeft: spacing.sm,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
+    gap: 2,
+  },
+  evidenceQuote: { ...typography.bodyQuoted, color: colors.textSecondary },
+  evidenceSource: { ...typography.caption, color: colors.textSecondary },
+  evidenceLink: {
+    ...typography.caption,
+    color: colors.accent,
+    textDecorationLine: "underline",
+    minHeight: MIN_TAP_TARGET / 2,
+  },
+  // The sentence that stops the block above reading as an endorsement. Same
+  // size as the rest rather than shrunk into a footnote.
+  evidenceCaveat: { ...typography.caption, color: colors.textSecondary },
   scheduleLabel: {
     ...typography.caption,
     color: colors.textSecondary,

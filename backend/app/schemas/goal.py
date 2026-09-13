@@ -52,6 +52,11 @@ class ActivityIn(BaseModel):
     # schedule set on it, is still a valid thing to save.
     days: list[str] = Field(default_factory=list, max_length=7)
     time_of_day: str | None = Field(None)
+    # Editable like everything else here. `evidence_domain` is an id and never
+    # a citation: an unrecognised one is dropped on the way in rather than
+    # rejected, because a row is still a row without an attribution.
+    detail: str | None = Field(None, max_length=400)
+    evidence_domain: str | None = Field(None, max_length=60)
 
     @field_validator("cadence")
     @classmethod
@@ -109,6 +114,29 @@ class GoalCreateIn(BaseModel):
     activities: list[ActivityIn] = Field(..., min_length=1, max_length=MAX_ACTIVITIES)
 
 
+class EvidenceOut(BaseModel):
+    """
+    The published guidance a row is attributed to, ready to render.
+
+    Assembled server-side from `core/goal_evidence.py` rather than stored
+    anywhere, so there is one copy of every quotation and link in this app and
+    a database row cannot hold a stale version of a government sentence.
+
+    WHAT THIS CLAIMS: that this KIND of activity is the subject of this
+    published recommendation. Not that the plan works, not that the publisher
+    endorses it, not that it applies to this person. The client is required to
+    say so beside it - see `caveat`, which is sent rather than left to each
+    screen to word for itself, for the same reason `_REFUSAL_NOTICES` lives on
+    the server: user-facing text in a health app is reviewed text.
+    """
+
+    publisher: str
+    document: str
+    url: str
+    quote: str
+    caveat: str
+
+
 class ActivityDraftOut(BaseModel):
     """
     A proposed activity.
@@ -134,6 +162,16 @@ class ActivityDraftOut(BaseModel):
     # time it invented would be a quantity they never wrote.
     days: list[str] = []
     time_of_day: str | None = None
+    # One or two sentences on how to do this, and the guidance the kind of
+    # activity comes from. Both None on the `structure` path, and `evidence`
+    # is None for any row that could not be attributed - which is a normal
+    # outcome and must render as no citation rather than a nearest match.
+    detail: str | None = None
+    evidence: EvidenceOut | None = None
+    # The id behind `evidence`, sent alongside the rendered form because the
+    # client posts the plan back to /goals and only the id may travel. Without
+    # it a confirmed plan would lose every citation at the moment it was saved.
+    evidence_domain: str | None = None
 
 
 class GoalDraftOut(BaseModel):
@@ -154,6 +192,14 @@ class GoalDraftOut(BaseModel):
     activities: list[ActivityDraftOut]
     notice: str | None
     emergency: EmergencyGuidanceOut | None = None
+    # "small" | "moderate" | "major": how big the planner read the goal to be,
+    # which is what decided how many rows came back.
+    #
+    # Sent so the behaviour is inspectable and testable from outside, NOT so a
+    # screen can label somebody's goal. Rendering "major" beside what a person
+    # wrote is a verdict on their ambition, and this app does not judge whether
+    # a goal is realistic - the shape of the plan is how the reading shows.
+    complexity: str | None = None
 
 
 class ActivityOut(BaseModel):
@@ -167,6 +213,8 @@ class ActivityOut(BaseModel):
     # empty: an activity with no schedule is a valid activity.
     days: list[str] = []
     time_of_day: str | None = None
+    detail: str | None = None
+    evidence: EvidenceOut | None = None
     # Whether the person ticked this on the date they asked about. Not an
     # adherence figure - see the note in `models/goal.py`.
     completed_today: bool

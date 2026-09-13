@@ -236,6 +236,50 @@ along with a clinician's read of the plans themselves. Until then the honest
 position is the one `GoalCreateScreen` already states.
 
 
+## 2026-09-13, later: detailed, sourced, and sized to the goal
+
+The owner asked for "very detailed and proven plans ... take into account for
+the complexity and difficultness of the goal". Three separate builds.
+
+**Detail.** Every suggested row carries one or two sentences saying how to do
+it on the day. Required; a row without one discards the plan. It says how and
+never why — the no-benefit-claims rule applies to it word for word, and it is
+easier to break there than in a row title because a sentence has room to
+explain itself.
+
+**Evidence.** `app/core/goal_evidence.py` is a closed register of eight
+published recommendations from named public health bodies, each quoted verbatim
+with a link. The planner picks an **id** from it; it cannot write a publisher,
+a URL, a quote or a study, and there is no field in the tool schema where one
+could go. An unknown id becomes no citation rather than the nearest one.
+
+⛔ The reviewer's question is not whether the quotes are real — they are fetched
+and verbatim, and a test holds them to whole published sentences on `.gov`
+hosts. It is whether **the mapping is sound**. A model decides that a given row
+belongs to `aerobic_activity`, and nobody qualified checks that. A citation
+attached to the wrong row is a government document appearing to endorse
+something it is not about, and that failure is invisible to every check in the
+system.
+
+⛔ Two of the eight quotes are framed as benefits rather than recommendations —
+the vegetables one says "help you feel full longer", the water one "can help
+reduce caloric intake". They are the publisher's words, attributed and
+caveated, not MedHelp's. A reviewer should still say whether a benefit sentence
+quoted under a row in a weight-loss plan reads, to the person holding the
+phone, as the app making that claim. If the answer is yes, the fix is to prefer
+recommendation-shaped quotes and drop those two.
+
+**Complexity.** The planner declares `small` / `moderate` / `major` and the row
+count must agree (1–3 / 3–4 / 4–5). A missing or unrecognised reading discards
+the plan rather than defaulting. It bounds how many things a plan contains and
+says nothing about how hard any of them is — that distinction is the whole of
+the safety argument, and it is one careless edit from collapsing.
+
+The reading is returned by the API and deliberately not rendered: telling
+somebody their goal is "major" is a judgement about their ambition, and this
+app does not make one.
+
+
 ## For the reviewer
 
 1. Is "structuring only" a line that holds on the fallback path? Splitting
@@ -263,6 +307,11 @@ position is the one `GoalCreateScreen` already states.
    template, they are far more likely to be acted on. Does that change the
    answer to 2, 3 or 4 — and is the "scale may change the plan but never make
    it harder" rule the right line to have drawn?
+9. **Added 2026-09-13.** Is a model-chosen mapping from an activity to a
+   published guideline acceptable at all, given nobody checks it? And do the
+   two benefit-shaped quotes in the register belong there? See above.
+10. **Added 2026-09-13.** Are the `detail` sentences within bounds? They are
+    the newest place a benefit claim can appear and the roomiest.
 
 
 ## Diagnosing "MedHelp has no suggestions right now"

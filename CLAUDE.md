@@ -1764,38 +1764,116 @@ goals in a minute is told the app has nothing to suggest about half the time.
 The `Busy` path is working as designed; there is simply not much quota behind
 it. Separate decision, separate fix.
 
-### ⛔ "Proven to work through medical research" is not a claim this app may make
+### Detailed, sourced, and sized to the goal (2026-09-13)
 
-Asked for in the same breath as the fix above, and it is a different kind of
-request rather than a larger version of it.
+Asked for directly: *"very detailed and proven plans to solve or accomplish
+what the user wants to achieve; these plans should take into account for the
+complexity and difficultness of the goal"*. Three things, built three ways,
+because they fail differently.
 
-The plans are written by a language model under a prompt a software engineer
-wrote. Labelling them evidence-based, citing a guideline under a row, or
-linking a study beside one would each **make a health claim about content
-nobody qualified has read** — and a benefit claim is the one rule under "What
-still holds, and may not be removed" that survived the 2026-09-12 removals.
-Attribution does not dodge it: a guideline printed under "Walk after lunch"
-says that body endorses this row, which is a stronger claim than the sentence
-the prompt already forbids, not a weaker one. ⛔ **Do not add "evidence-based",
-"shown to", "research suggests", a citation, or a source link to a plan row.**
-That would make the claim without doing the work.
+#### 1. Detailed — every row says how, in `detail`
 
-Two routes actually reach what was asked for, and both are procurement
-decisions rather than engineering ones:
+A row is the instruction; `detail` is one or two plain sentences saying how to
+do it on the day, in this person's life. Required of every suggested row; a row
+without one discards the plan, the same as a row without a schedule.
 
-1. **Licensed, professionally reviewed behaviour-change content**, loaded
-   through a container that ships empty — the same shape as
-   `core/protocol_content.py` and the booking path behind
-   `delivery_available()`. The planner would then assemble reviewed material
-   instead of composing prose, and the citation would be true.
-2. **A clinician reads `PLAN_SYSTEM_PROMPT` and a corpus of the plans it
-   produces.** This file already calls that the most urgent of the three
-   outstanding prompt reviews; it is more urgent again now that the plans are
-   specific enough to be acted on.
+⛔ **It says how, never why.** "No benefit claims" is the rule that survived the
+2026-09-12 removals and it applies to the detail word for word — the moment a
+sentence explains what an activity will do for somebody's body or illness, the
+app is authoring a health claim. The length cap (`MAX_DETAIL_CHARS`) is a crude
+proxy for that and is honest about being one: long enough to be an article is
+long enough to have started explaining.
 
-Until one of those, the honest position is the one `GoalCreateScreen` already
-states: MedHelp wrote these, nobody medically qualified has checked them, and a
-goal about a medical condition is worth raising with a professional.
+⛔ **`structure` rows carry no detail**, the same rule that keeps a clock time
+off them. That path may only rearrange words the person actually wrote.
+
+#### 2. Proven — `core/goal_evidence.py`, attribution and never assertion
+
+The only form of "proven" this app may ship: a row is attributed to a
+**published recommendation from a named public health body, quoted verbatim,
+with a link**. The register holds eight entries, every one fetched from the URL
+beside it and reproduced exactly. It is the MedlinePlus rule applied to a new
+surface — render source text verbatim, always carry attribution and the link,
+never paraphrase.
+
+- ⛔ **A citation claims one thing: that this KIND of activity is the subject of
+  this published recommendation.** Not that the plan works, not that the
+  publisher endorses it, not that it applies to this person, not that anyone
+  reviewed it. `EVIDENCE_CAVEAT` in `api/goals.py` says exactly that and travels
+  with **every** citation; the client drops a citation that arrives without it
+  rather than showing a bare one. Tested on both sides.
+- ⛔ **The model picks an id from a closed list and can never write a citation.**
+  No URL, publisher, quote or study field exists anywhere in the tool schema,
+  and `additionalProperties` is false. A model asked for a citation invents a
+  plausible one; a model asked to choose from eight ids either chooses or does
+  not.
+- ⛔ **An unknown id becomes no citation, never the nearest one.** Same rule, and
+  the same reason, as the label parser refusing to snap a misread drug name to
+  the nearest real drug: a visible gap beats a plausible error.
+- ⛔ **Only the id is stored.** The quotation and link are assembled on the way
+  out, so a government sentence cannot go stale in a database row, and a client
+  cannot save an attribution the register does not know.
+- ⛔ **Rewriting a row drops its citation and its detail.** Both were written for
+  the row as proposed; once the person changes what the activity is, nobody has
+  checked that the guidance is about it. Keeping it would be MedHelp attributing
+  a person's own idea to the CDC.
+- ⛔ **Nothing that estimates urgency may read this register.** A test asserts
+  `triage.py`, `rules_triage.py`, `emergency.py` and `deduction.py` do not
+  import it. It is attribution for a lifestyle activity.
+- A sleep-duration entry was **dropped** rather than included: CDC publishes the
+  figure as a table cell ("7 or more hours"), so any sentence carrying it would
+  have been written here. Entries are whole published sentences or nothing.
+
+⛔ **What this still is not.** Nobody clinically qualified has read
+`PLAN_SYSTEM_PROMPT`, the plans, or the mapping from a row to a domain — and the
+mapping is made by the model. Real published guidance now sits under the rows,
+which is a genuine improvement on a model asserting things; it is not the
+clinical review this file has been asking for, and it does not lift any release
+blocker.
+
+#### 3. Sized to the goal — `complexity` and `ROWS_BY_COMPLEXITY`
+
+The planner must call `complexity` as `small`, `moderate` or `major`, and the
+row count has to agree with it (1–3 / 3–4 / 4–5). A missing or unrecognised
+reading **discards the plan** rather than defaulting to "moderate": a model that
+never made a reading has not taken the size of the goal into account, and
+defaulting would make the feature look like it was working.
+
+This is the first structural difference between a plan for "lose one pound" and
+a plan for "lose a hundred".
+
+- ⛔ **It bounds shape, not effort.** How many rows a plan has is a planning
+  decision. How hard any one of them is, is a clinician's — see the prompt's
+  `NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN`. A model that reads a goal as
+  major and answers with one punishing row is not caught here and cannot be;
+  the check is deliberately about arithmetic it can actually perform.
+- **The floor for a small goal is one row, not two.** Padding a plan so it looks
+  like a plan is the template failure pointing the other way.
+- ⛔ **`complexity` is returned by the API and must not be rendered.** It exists
+  so the behaviour is inspectable and testable, not so a screen can tell
+  somebody their goal is major. This app does not judge whether a goal is
+  realistic — the shape of the plan is how the reading shows.
+
+#### Deploying this needs the column script
+
+`detail` and `evidence_domain` went onto the existing `goal_activities` table.
+Run `scripts/add_goal_detail_columns.py` once against any database created
+before 2026-09-13 or `/goals` returns 500s. Idempotent, and the Render start
+command runs it. ⛔ Neither column is backfilled, and in particular **old rows
+are not mapped to a domain by matching words in their text** — an activity
+attributed to guidance nobody chose for it is a fabricated citation on a real
+person's plan.
+
+#### Both new properties are measured
+
+`goal_plan_eval` reports **rows saying how** and **rows with a citation**
+alongside the responsiveness figures. The committed 2026-09-13 baseline reads
+0.0% for both, which is correct — the deployed code has neither — so the
+before/after is clean when the branch is deployed.
+
+Neither number says a plan is good: a detail can be vague and a citation can be
+attached to the wrong row. They say whether the feature is doing the thing at
+all, which is the question a prompt cannot answer about itself.
 
 ### The structuring rule is checked, not trusted
 

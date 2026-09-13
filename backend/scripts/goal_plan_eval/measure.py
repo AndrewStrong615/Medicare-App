@@ -110,7 +110,7 @@ def normalise(text: str) -> str:
 class Outcome:
     """One goal, planned — or not."""
 
-    __slots__ = ("goal", "title", "rows", "failure")
+    __slots__ = ("goal", "title", "rows", "failure", "details", "cited")
 
     def __init__(
         self,
@@ -118,11 +118,18 @@ class Outcome:
         title: str = "",
         rows: tuple[str, ...] = (),
         failure: str = "",
+        details: tuple[str, ...] = (),
+        cited: tuple[bool, ...] = (),
     ):
         self.goal = goal
         self.title = title
         self.rows = rows
         self.failure = failure
+        # Parallel to `rows`. A run collected before 2026-09-13 has neither,
+        # which reads as 0% rather than as an error - the old baseline is
+        # still a valid measurement of the things it did measure.
+        self.details = details
+        self.cited = cited
 
     @property
     def planned(self) -> bool:
@@ -146,7 +153,9 @@ def plan(goal: Goal) -> Outcome:
         return Outcome(
             goal,
             title=result.title,
-            rows=tuple(activity.text for activity in result.activities),
+            rows=tuple(a.text for a in result.activities),
+            details=tuple((a.detail or "") for a in result.activities),
+            cited=tuple(bool(a.evidence_domain) for a in result.activities),
         )
     if isinstance(result, goal_structuring.Refusal):
         return Outcome(goal, failure=f"refused ({result.reason})")
@@ -171,9 +180,10 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
     if status_code != 200:
         return Outcome(goal, failure=f"HTTP {status_code}")
 
-    rows = tuple(
-        a["text"] for a in (payload.get("activities") or ()) if a.get("text")
-    )
+    activities = [a for a in (payload.get("activities") or ()) if a.get("text")]
+    rows = tuple(a["text"] for a in activities)
+    details = tuple((a.get("detail") or "") for a in activities)
+    cited = tuple(bool(a.get("evidence")) for a in activities)
     if not rows:
         # `notice` is the sentence the person would have read, and out here it
         # is the only thing separating a refusal from an outage from a rate
@@ -182,7 +192,13 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
             return Outcome(goal, failure="emergency guidance instead of a plan")
         return Outcome(goal, failure=payload.get("notice") or "no plan, no notice")
 
-    return Outcome(goal, title=payload.get("title") or "", rows=rows)
+    return Outcome(
+        goal,
+        title=payload.get("title") or "",
+        rows=rows,
+        details=details,
+        cited=cited,
+    )
 
 
 class Deployment:
@@ -348,6 +364,8 @@ def save(outcomes: list[Outcome], path: Path, label: str, source: str) -> None:
                         "goal": o.goal.id,
                         "title": o.title,
                         "rows": list(o.rows),
+                        "details": list(o.details),
+                        "cited": list(o.cited),
                         "failure": o.failure,
                     }
                     for o in outcomes
@@ -379,6 +397,8 @@ def load(path: Path) -> tuple[list[Outcome], str, str]:
                 goal,
                 title=entry.get("title") or "",
                 rows=tuple(entry.get("rows") or ()),
+                details=tuple(entry.get("details") or ()),
+                cited=tuple(entry.get("cited") or ()),
                 failure=entry.get("failure") or "",
             )
         )
@@ -424,6 +444,13 @@ def measure(outcomes: list[Outcome]) -> dict:
     anchored = [o for o in planned if o.goal.anchors]
     anchor_hits = [o for o in anchored if o.anchors_hit]
 
+    # "Very detailed and proven", counted. Neither says a plan is good: a
+    # detail can be vague and a citation can be attached to the wrong row.
+    # They say whether the feature is doing the thing at all, which is the
+    # question a prompt cannot answer about itself.
+    detailed = sum(1 for o in planned for d in o.details if d.strip())
+    with_citation = sum(1 for o in planned for flag in o.cited if flag)
+
     near_repeats = sorted(
         {
             row
@@ -453,6 +480,8 @@ def measure(outcomes: list[Outcome]) -> dict:
         ),
         "title_collisions": colliding_titles,
         "pairs": pair_overlaps,
+        "detail_share": (detailed / len(rows)) if rows else 0.0,
+        "citation_share": (with_citation / len(rows)) if rows else 0.0,
         "anchor_share": (len(anchor_hits) / len(anchored)) if anchored else 0.0,
         "anchor_misses": [o.goal.id for o in anchored if not o.anchors_hit],
     }
@@ -497,6 +526,8 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
         f" of {report['rows_total']}"
     )
     print(f"  rows shared across goals {report['repeat_share']:.1%}")
+    print(f"  rows saying how          {report['detail_share']:.1%}")
+    print(f"  rows with a citation     {report['citation_share']:.1%}")
     print(f"  plans using a goal word  {report['anchor_share']:.1%}")
     print()
 

@@ -9,6 +9,7 @@ import {
 } from "react-native";
 
 import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
+import { useDomain } from "@/hooks/useDomain";
 
 /**
  * A labelled input. The visible label stays put once typing starts (a
@@ -59,6 +60,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   ref
 ) {
   const [focused, setFocused] = useState(false);
+  const domain = useDomain();
   const describedBy = error ?? hint;
 
   return (
@@ -71,6 +73,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         style={[
           styles.input,
           focused && styles.inputFocused,
+          // The focus ring takes the destination's colour, so the active
+          // field on a medications form matches the meter down its edge.
+          focused && !error && { borderColor: domain.ink, backgroundColor: domain.surface },
           !!error && styles.inputError,
           !editable && styles.inputDisabled,
           multiline && styles.inputMultiline,

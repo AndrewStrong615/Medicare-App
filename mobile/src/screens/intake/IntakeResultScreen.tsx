@@ -76,7 +76,7 @@ export function IntakeResultScreen({ navigation, route }: Props) {
   */
   if (isEmergent) {
     return (
-      <Screen wide>
+      <Screen wide domain="symptoms">
         <EmergencyCallBar compact />
 
         <View
@@ -143,7 +143,7 @@ export function IntakeResultScreen({ navigation, route }: Props) {
   }
 
   return (
-    <Screen wide>
+    <Screen wide domain="symptoms">
       {/*
         Emergency access is unconditional — present on every tier, including
         SELF_CARE. The classification is a suggestion the user may override.

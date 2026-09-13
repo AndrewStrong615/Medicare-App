@@ -1,8 +1,19 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Glyph, GlyphTile, type GlyphName } from "@/components/Glyph";
-import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
+import { Glyph, type GlyphName } from "@/components/Glyph";
+import { useDomain } from "@/hooks/useDomain";
+import {
+  MIN_TAP_TARGET,
+  colors,
+  domains,
+  elevation,
+  meter,
+  radius,
+  spacing,
+  typography,
+  type DomainName,
+} from "@/theme";
 
 /**
  * A destination the user can press.
@@ -17,14 +28,26 @@ import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "
  *
  * ## The three variants are the prominence ladder
  *
- * See `PROMINENCE_LEVELS` in `theme.ts`. Before this, every destination on
- * the home screen was drawn identically, which meant nothing was primary and
- * a reader had to read all four to choose one.
+ * See `PROMINENCE_LEVELS` in `theme.ts`. Without it, every destination on a
+ * hub screen is drawn identically, which means nothing is primary and a
+ * reader has to read all of them to choose one.
  *
- * - `primary` (L1) — filled accent. **One per screen.**
- * - `card` (L2) — surface with a hairline border. A standalone destination.
+ * - `primary` (L1) — filled in the destination's colour. **One per screen.**
+ * - `card` (L2) — surface with a hairline border and a colour spine on its
+ *   leading edge. A standalone destination.
  * - `row` (L2) — the same thing with no edges of its own, for use inside a
  *   `NavGroup`, which draws one border around the set and rules between them.
+ *
+ * ## `to` is what makes the spine worth drawing
+ *
+ * A card's colour is the colour of the place it *goes*, which is why it takes
+ * a `to` rather than inheriting the screen it sits on. On a screen where every
+ * card leads somewhere different — the Today screen, mainly — the spine tells
+ * you which part of the app a press will land you in before you have read the
+ * title, and the colour matches the tab that lights up when you get there.
+ *
+ * Left unset, it falls back to the current screen's domain, which is the right
+ * answer for a list of destinations that all live in one place.
  */
 type NavCardVariant = "primary" | "card" | "row";
 
@@ -34,7 +57,12 @@ interface NavCardProps {
   onPress: () => void;
   icon?: GlyphName;
   variant?: NavCardVariant;
-  /** Small caps line above the title. Only meaningful on `primary`. */
+  /** The destination this leads to — see above. Defaults to this screen's. */
+  to?: DomainName;
+  /**
+   * A short line above the title. Only meaningful on `primary`, and only for
+   * something genuinely prior to it — not a restatement of the title.
+   */
   eyebrow?: string;
 }
 
@@ -46,9 +74,12 @@ export function NavCard({
   onPress,
   icon,
   variant = "card",
+  to,
   eyebrow,
 }: NavCardProps) {
   const [hovered, setHovered] = useState(false);
+  const current = useDomain();
+  const domain = to ? domains[to] : current;
   const isPrimary = variant === "primary";
 
   const hoverProps: HoverProps = {
@@ -69,24 +100,47 @@ export function NavCard({
         styles.base,
         variant === "card" && styles.card,
         variant === "row" && styles.row,
-        isPrimary && styles.primary,
-        hovered && !isPrimary && styles.hovered,
-        hovered && isPrimary && styles.primaryHovered,
-        pressed && !isPrimary && styles.pressed,
-        pressed && isPrimary && styles.primaryPressed,
+        isPrimary && [
+          styles.primary,
+          {
+            backgroundColor: hovered || pressed ? domain.pressed : domain.fill,
+            borderColor: hovered || pressed ? domain.pressed : domain.fill,
+          },
+          pressed && elevation.sm,
+        ],
+        !isPrimary && (hovered || pressed) && { backgroundColor: domain.surface },
       ]}
     >
+      {/*
+        The spine. On `card` it is the card's own leading edge; `row` leaves it
+        off, because a group of rows already shares one border and a stack of
+        five stripes inside it would be a pattern rather than a signal.
+      */}
+      {variant === "card" ? (
+        <View
+          style={[styles.spine, { backgroundColor: domain.fill }]}
+          pointerEvents="none"
+        />
+      ) : null}
+
       {icon &&
         (isPrimary ? (
           // No tile behind it: a tinted square on a filled ground is a third
           // colour doing nothing the fill does not already do.
           <Glyph name={icon} size={28} color={colors.textOnAccent} />
         ) : (
-          <GlyphTile
-            name={icon}
-            tint={hovered ? colors.accent : colors.accentSurface}
-            color={hovered ? colors.textOnAccent : colors.accent}
-          />
+          <View
+            style={[
+              styles.tile,
+              { backgroundColor: hovered ? domain.fill : domain.surface },
+            ]}
+          >
+            <Glyph
+              name={icon}
+              size={20}
+              color={hovered ? colors.textOnAccent : domain.ink}
+            />
+          </View>
         ))}
 
       <View style={styles.body}>
@@ -123,6 +177,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.lg,
+    // Room for the spine, so the icon tile does not sit on top of it.
+    paddingLeft: spacing.lg + meter.width,
+    overflow: "hidden",
     ...elevation.sm,
   },
   row: {
@@ -131,27 +188,24 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   primary: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
     borderWidth: 1,
     borderRadius: radius.lg,
     paddingVertical: spacing.xl,
     ...elevation.md,
   },
-  hovered: {
-    backgroundColor: colors.accentSurface,
+  spine: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: meter.width,
   },
-  pressed: {
-    backgroundColor: colors.accentSurface,
-  },
-  primaryHovered: {
-    backgroundColor: colors.accentPressed,
-    borderColor: colors.accentPressed,
-  },
-  primaryPressed: {
-    backgroundColor: colors.accentPressed,
-    borderColor: colors.accentPressed,
-    ...elevation.sm,
+  tile: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
   body: {
     flex: 1,
@@ -174,7 +228,7 @@ const styles = StyleSheet.create({
   },
   descriptionOnAccent: {
     // White rather than the muted tint: `textOnAccentMuted` is measured
-    // against `accentDeep`, and on `accent` it does not reach AA.
+    // against `accentDeep`, and on a domain fill it does not reach AA.
     color: colors.textOnAccent,
   },
   chevron: {

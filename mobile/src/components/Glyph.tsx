@@ -295,7 +295,7 @@ export function GlyphTile({
     <View
       style={[
         styles.box,
-        { width: size, height: size, borderRadius: size * 0.3, backgroundColor: tint },
+        { width: size, height: size, borderRadius: radius.sm, backgroundColor: tint },
       ]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"

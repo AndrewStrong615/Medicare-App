@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { GlyphTile, type GlyphName } from "@/components/Glyph";
-import { colors, spacing, typography } from "@/theme";
+import { Glyph, type GlyphName } from "@/components/Glyph";
+import { useDomain } from "@/hooks/useDomain";
+import { colors, radius, spacing, typography } from "@/theme";
 
 /**
  * The title block at the top of a screen.
@@ -15,22 +16,41 @@ import { colors, spacing, typography } from "@/theme";
  * `title` is always the screen's `accessibilityRole="header"`, which is what
  * a screen reader's "next heading" gesture jumps between — so the header
  * stays a real landmark, not just large text.
+ *
+ * The icon sits in a filled tile in the destination's colour, which makes the
+ * top of the screen the place the eye lands and ties the page to the meter
+ * down its edge and to the tab it came from.
  */
 interface PageHeaderProps {
   title: string;
   /** A ReactNode so a screen can keep inline emphasis in its own copy. */
   subtitle?: ReactNode;
-  /** Small caps line above the title, e.g. a step count. */
+  /**
+   * A short line above the title.
+   *
+   * ⛔ Only for something that is genuinely prior to the title — a step
+   * count in a sequence, a record this screen belongs to. It is not a slot
+   * for a category name: a label that merely restates the title in smaller
+   * type is noise above every heading in the app.
+   */
   eyebrow?: string;
   icon?: GlyphName;
 }
 
 export function PageHeader({ title, subtitle, eyebrow, icon }: PageHeaderProps) {
+  const domain = useDomain();
+
   return (
     <View style={styles.container}>
-      {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+      {eyebrow ? (
+        <Text style={[styles.eyebrow, { color: domain.ink }]}>{eyebrow}</Text>
+      ) : null}
       <View style={styles.titleRow}>
-        {icon ? <GlyphTile name={icon} size={44} /> : null}
+        {icon ? (
+          <View style={[styles.tile, { backgroundColor: domain.fill }]}>
+            <Glyph name={icon} size={22} color={colors.textOnAccent} />
+          </View>
+        ) : null}
         <Text style={styles.title} accessibilityRole="header">
           {title}
         </Text>
@@ -50,12 +70,18 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     ...typography.overline,
-    color: colors.accent,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
+  },
+  tile: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: {
     ...typography.display,
@@ -67,5 +93,6 @@ const styles = StyleSheet.create({
   subtitle: {
     ...typography.body,
     color: colors.textSecondary,
+    maxWidth: 62 * 8,
   },
 });

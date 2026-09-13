@@ -89,8 +89,8 @@ describe("today screen at different window widths", () => {
     setWindowWidth(BREAKPOINT.expanded + 360);
     renderToday();
 
-    await waitFor(() => expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy());
-    expect(screen.getByText("WHERE YOUR INFORMATION GOES")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("What MedHelp will not do")).toBeTruthy());
+    expect(screen.getByText("Where your information goes")).toBeTruthy();
     expect(screen.getByText(/It does not diagnose, and never names a condition/i)).toBeTruthy();
     expect(screen.getByText(/has not been reviewed by a clinician/i)).toBeTruthy();
   });
@@ -101,7 +101,7 @@ describe("today screen at different window widths", () => {
     setWindowWidth(390);
     renderToday();
 
-    await waitFor(() => expect(screen.getByText("WHAT MEDHELP WILL NOT DO")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("What MedHelp will not do")).toBeTruthy());
     expect(screen.getByText(/does not contact a clinic/i)).toBeTruthy();
   });
 
@@ -122,7 +122,7 @@ describe("sign-in at different window widths", () => {
     renderLogin();
 
     expect(screen.getByText("Welcome back")).toBeTruthy();
-    expect(screen.queryByText("YOUR HEALTH COMPANION")).toBeNull();
+    expect(screen.queryByText("Your health companion")).toBeNull();
   });
 
   it("explains what the app is beside the form in a wide window", () => {
@@ -133,7 +133,7 @@ describe("sign-in at different window widths", () => {
     renderLogin();
 
     expect(screen.getByText("Welcome back")).toBeTruthy();
-    expect(screen.getByText("YOUR HEALTH COMPANION")).toBeTruthy();
+    expect(screen.getByText("Your health companion")).toBeTruthy();
     expect(screen.getByText(/does not diagnose\s+conditions or recommend treatment/i)).toBeTruthy();
   });
 });

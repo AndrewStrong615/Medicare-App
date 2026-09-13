@@ -5,16 +5,19 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { AppButton } from "@/components/AppButton";
 import { AppNav } from "@/components/AppNav";
+import { DayAxis, type AxisStop } from "@/components/DayAxis";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Glyph, GlyphTile } from "@/components/Glyph";
 import { InfoPanel } from "@/components/InfoPanel";
 import { Screen } from "@/components/Screen";
+import { ScreenBand } from "@/components/ScreenBand";
+import { Wordmark } from "@/components/Mark";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { logout } from "@/services/authService";
 import { listAppointments, type Appointment } from "@/services/appointmentService";
 import { listMedications, type Medication } from "@/services/medicationService";
 import { listSchedules, type MedicationSchedule } from "@/services/reminderService";
-import { dueState, formatTimeOfDay, sortByTime } from "@/services/reminderTiming";
+import { dueState, formatTimeOfDay, sortByTime, todayAt } from "@/services/reminderTiming";
 import { MIN_TAP_TARGET, colors, elevation, radius, spacing, typography } from "@/theme";
 import type { RootStackParamList } from "@/types/navigation";
 
@@ -141,13 +144,54 @@ export function TodayScreen({ navigation }: Props) {
     .sort((a, b) => Number(b.status === "REQUESTED") - Number(a.status === "REQUESTED"))
     .slice(0, 2);
 
+  /**
+   * The day's reminder times as stops on the axis.
+   *
+   * ⛔ `standing` is the row's own words and is the only place a past time is
+   * described. "Earlier today", never "missed" — MedHelp does not know
+   * whether the dose was taken. The mark on the axis is identical for every
+   * stop for the same reason; see the note in `DayAxis`.
+   */
+  const shown = times.slice(0, 5);
+  const axisStops: AxisStop[] = shown.map((time) => {
+    const state = dueState(time.timeOfDay, now);
+    return {
+      key: time.key,
+      time: formatTimeOfDay(time.timeOfDay, now),
+      title: time.name,
+      detail: time.dosage ?? undefined,
+      standing:
+        state === "due"
+          ? "Due now"
+          : state === "passed"
+            ? "Earlier today"
+            : "Later today",
+      emphasis: state === "due",
+    };
+  });
+
+  /**
+   * Where the current moment sits among those stops. A time that cannot be
+   * parsed counts as not yet passed, which puts the marker earlier rather
+   * than later — the same direction of caution the rest of the app takes.
+   */
+  const nowMarker = {
+    label: formatTimeOfDay(
+      `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+      now
+    ),
+    after: shown.filter((time) => {
+      const at = todayAt(time.timeOfDay, now);
+      return at !== null && at.getTime() <= now.getTime();
+    }).length,
+  };
+
   const symptomAction = (
     <View style={[styles.hero, isExpanded && styles.heroExpanded]}>
       <View style={styles.heroText}>
-        <Text style={styles.heroEyebrow}>NOT FEELING WELL?</Text>
-        {isExpanded ? (
-          <Text style={styles.heroTitle}>Describe it in your own words</Text>
-        ) : null}
+        <Text style={styles.heroTitle} accessibilityRole="header">
+          Not feeling well?
+        </Text>
         <Text style={styles.heroBody}>
           MedHelp estimates how soon you may need care. It never names a
           condition and never recommends a treatment.
@@ -166,7 +210,7 @@ export function TodayScreen({ navigation }: Props) {
     <View style={styles.section}>
       <View style={styles.sectionHead}>
         <Text style={styles.sectionLabel} accessibilityRole="header">
-          YOUR MEDICATION TIMES
+          Your medication times
         </Text>
         <Pressable
           onPress={() => navigation.navigate("MedicationReminders")}
@@ -188,41 +232,7 @@ export function TodayScreen({ navigation }: Props) {
         </View>
       ) : (
         <>
-          <View style={styles.rowCard}>
-            {times.slice(0, 5).map((time, index) => {
-              const state = dueState(time.timeOfDay, now);
-              return (
-                <View key={time.key}>
-                  {index > 0 ? <View style={styles.divider} /> : null}
-                  <View style={[styles.timeRow, state === "due" && styles.timeRowDue]}>
-                    <Text style={[styles.time, state === "due" && styles.timeDue]}>
-                      {formatTimeOfDay(time.timeOfDay, now)}
-                    </Text>
-                    <View style={styles.timeBody}>
-                      <Text style={styles.timeName}>{time.name}</Text>
-                      {time.dosage ? (
-                        <Text style={styles.timeDosage}>{time.dosage}</Text>
-                      ) : null}
-                    </View>
-                    {state === "due" ? (
-                      <View style={styles.dueChip}>
-                        <Text style={styles.dueChipText}>Due now</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.timeState}>
-                        {/*
-                          "Earlier today", never "missed". MedHelp does not
-                          know whether the dose was taken, and saying so would
-                          invent a clinical fact about the user.
-                        */}
-                        {state === "passed" ? "Earlier today" : "Later today"}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+          <DayAxis stops={axisStops} now={nowMarker} />
 
           {times.length > 5 ? (
             <Pressable
@@ -270,7 +280,7 @@ export function TodayScreen({ navigation }: Props) {
     openVisits.length === 0 ? null : (
       <View style={styles.section}>
         <Text style={styles.sectionLabel} accessibilityRole="header">
-          YOUR APPOINTMENTS
+          Your appointments
         </Text>
         {openVisits.map((appointment) => (
           <Pressable
@@ -334,12 +344,12 @@ export function TodayScreen({ navigation }: Props) {
   const aside = (
     <View style={styles.aside}>
       <InfoPanel
-        title="WHERE YOUR INFORMATION GOES"
+        title="Where your information goes"
         items={WHERE_INFORMATION_GOES}
         footnote="MedHelp has not been reviewed by a clinician. It is a demonstration of the software rather than a medical service, and nothing in it should be relied on to decide whether you need care."
       />
       <InfoPanel
-        title="WHAT MEDHELP WILL NOT DO"
+        title="What MedHelp will not do"
         items={WHAT_IT_WILL_NOT_DO}
         bullet="none"
         tone="muted"
@@ -370,23 +380,37 @@ export function TodayScreen({ navigation }: Props) {
         needingRefill.length > 0 ? { Medications: needingRefill.length } : undefined
       }
     >
-      <Screen page={isExpanded} wide innerStyle={styles.screen}>
+      <Screen
+        page={isExpanded}
+        wide
+        innerStyle={styles.screen}
+        band={
+          <ScreenBand
+            title="Today"
+            /*
+              The date, and nothing else. The band is signage: it says where
+              you are and one plain fact. It may never carry a count of
+              anything about the person's health — see the fence on
+              `ScreenBand` and the one at the top of this file.
+            */
+            meta={now.toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+            page={isExpanded}
+          />
+        }
+      >
         {/*
           The rail carries the wordmark on a wide window, so repeating it here
           would name the app twice on one screen.
         */}
         {isExpanded ? null : (
           <View style={styles.topBar}>
-            <View style={styles.mark}>
-              <Glyph name="symptom" size={15} color={colors.textOnAccent} />
-            </View>
-            <Text style={styles.wordmark}>MedHelp</Text>
+            <Wordmark size={22} />
           </View>
         )}
-
-        <Text style={styles.title} accessibilityRole="header">
-          Today
-        </Text>
 
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
 
@@ -511,10 +535,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: spacing.xs,
-  },
-  heroEyebrow: {
-    ...typography.overline,
-    color: colors.textOnAccentMuted,
   },
   heroTitle: {
     ...typography.title,

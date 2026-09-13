@@ -19,7 +19,7 @@ export function ProviderDetailScreen({ navigation, route }: Props) {
   const distance = formatDistance(provider.distanceMiles);
 
   return (
-    <Screen wide>
+    <Screen wide domain="care">
       <PageHeader title={provider.name} subtitle={provider.specialty ?? undefined} />
 
       <View style={styles.card}>

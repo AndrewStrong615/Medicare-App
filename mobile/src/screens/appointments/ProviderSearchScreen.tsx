@@ -280,7 +280,7 @@ export function ProviderSearchScreen({ navigation, route }: Props) {
     locationStatus !== "insecure";
 
   return (
-    <Screen wide>
+    <Screen wide domain="care">
       {intake && (
         <View style={styles.context}>
           <Text style={styles.contextHeading}>

@@ -180,7 +180,7 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
 
   return (
     <AppNav current="Medications" navigation={navigation}>
-    <Screen wide>
+    <Screen wide domain="medications">
       <PageHeader
         icon="clock"
         title="Medication reminders"

@@ -183,6 +183,21 @@ class Settings(BaseSettings):
     # typed into the app.
     triage_log_classifications: bool = False
 
+    # Directory holding a LICENSED telephone-triage protocol set, loaded by
+    # `app.core.protocol_content`. Empty by default, which is the only state
+    # this repository ever ships in.
+    #
+    # ⛔ THIS IS NOT A FEATURE FLAG. It stands for a signed content licence,
+    # the way `request_delivery.delivery_available()` stands for a scheduling
+    # partnership and a BAA. Pointing it at a directory of protocols somebody
+    # wrote by hand would put unreviewed clinical content behind an interface
+    # whose whole purpose is to carry content a physician reviewed. The
+    # licence is the point, not the file format.
+    #
+    # No content may be committed to this repository — see the module
+    # docstring and `tests/test_protocol_content.py`, which asserts none is.
+    protocol_content_dir: str = ""
+
     @property
     def is_development(self) -> bool:
         return self.environment.strip().lower() in NON_PRODUCTION_ENVIRONMENTS

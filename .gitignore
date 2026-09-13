@@ -63,3 +63,13 @@ mobile/eng.traineddata
 
 # Agent cycle transcripts (run_cycle.sh)
 .agent-cycles/
+
+# LICENSED telephone-triage protocol content, loaded by
+# backend/app/core/protocol_content.py. It is somebody else's copyrighted
+# clinical material and this project has no right to redistribute it, so it
+# lives outside the tree and PROTOCOL_CONTENT_DIR points at it.
+#
+# The ignore is a backstop, not the rule. tests/test_protocol_content.py
+# asserts no protocol-shaped file exists anywhere in the repository.
+backend/protocol_content/
+**/*.protocols.json

@@ -306,10 +306,17 @@ recommendation.
 
 Additional known limits a reviewer should be told about:
 
-- The classifier has **no validated error profile**. Unlike an instrument such
-  as ESI or Manchester Triage, nobody has measured its under-triage rate. The
-  architecture biases toward over-triage, which is the safer direction, but
-  "biased safe" is not the same as "measured safe".
+- The classifier still has **no clinically validated error profile**. Unlike an
+  instrument such as ESI or Manchester Triage, nobody qualified has measured
+  its under-triage rate. The architecture biases toward over-triage, which is
+  the safer direction, but "biased safe" is not the same as "measured safe".
+  - What *does* now exist is a **measurement harness**
+    (`backend/scripts/triage_eval/`) and a regression ratchet in the suite.
+    It measures the rule layer against gold tiers an engineer assigned from
+    this file's own documented intent, so it catches regressions and quantifies
+    coverage — and it is **not** the validation this bullet asks for. See
+    "Triage is measured now" below, including the four under-triaged
+    presentations it found on its first run.
 - The audit trail exists (`intake_assessments`) but **nobody is reviewing it
   yet**. Logging classifications is only useful if someone qualified reads
   them; assign that owner.
@@ -1308,10 +1315,9 @@ different sentence would have hit.
   **Fixed** by adding the missing phrasings to the existing lists in
   `_EMERGENCY_RULES`. `sepsis_meningitis` got a partial fix only (`"stiff neck
   with/and a fever"` variants); `"my neck is stiff and I have a fever"` — the
-  two concepts named separately, in reverse order — is a **known limit**,
-  same class as the all-caps glued-list limit below: catching it needs a
-  two-term combinator, which is a structural change beyond a phrase-list
-  addition and needs its own review.
+  two concepts named separately, in reverse order — was left a **known limit**
+  needing a two-term combinator. **That combinator now exists** — see "Concept
+  combinations" below — and that phrasing reaches EMERGENT.
 - **A duration-escalation rule silently broke on the word "over."**
   `"sore throat for a week"` correctly returned URGENT, but `"sore throat for
   over a week"` — or `"sore throat for over two weeks, swollen glands,
@@ -1335,6 +1341,145 @@ different sentence would have hit.
   more sensitive and cannot make it less. `tests/test_emergency.py` and
   `tests/test_rules_triage.py` guard the new phrasings; full suite (598
   tests) passes.
+
+### Concept combinations, for red flags a phrase list cannot express (2026-09-12)
+
+Every phrase in `emergency.py` and `rules_triage.py` is a contiguous literal
+compiled with word boundaries, so it matches only when a person writes the
+concepts in the order the list spells them with nothing in between. The file
+recorded the consequence against itself: `"my neck is stiff and I have a
+fever"` matched nothing and fell to the URGENT default.
+
+`backend/app/core/symptom_concepts.py` is the two-term combinator that gap
+called for. A description is reduced to the set of concepts it names, and a
+rule fires when all of a combination's concepts are present — any order, any
+distance, any phrasing the lexicon knows.
+
+- **Three combinations, and all three are read out of existing reviewed copy.**
+  The `sepsis_meningitis` action text already reads "A stiff neck with fever, a
+  rash that does not fade when pressed, or confusion with a high fever". Those
+  are implementable without authoring a clinical claim *because the app already
+  says them*; the phrase list simply could not detect them unless written as
+  one string. ⛔ **A fourth combination is a new clinical claim** and needs the
+  clinician sign-off this file requires. `test_the_set_of_combinations_is_fenced`
+  fails if one is added, so that is a conversation rather than a line to edit.
+- **The module defines no user-facing copy at all.** A combination resolves to
+  a category id, and `_COPY_BY_CATEGORY` in `emergency.py` supplies that
+  category's existing headline and action. There is one copy of every emergency
+  instruction and a combinator cannot introduce a second. Asserted by a test.
+- **It runs only after every literal phrase has been tried.** So anything that
+  matched before matches identically now, in the same category, with the same
+  wording — the combinator can only turn a `None` into guidance. That is the
+  same one-directional argument `normalize_query`'s case-split rests on: it can
+  make screening more sensitive and cannot make it less.
+  `test_the_combinator_is_never_what_answered_a_literal_match` disables the
+  combinator and asserts every pre-existing detection is unchanged.
+- **No model, no network.** A closed, curated lay-vocabulary lexicon a
+  clinician can read line by line, for the same reason the rule layer is a
+  phrase list rather than a classifier.
+- Known limit unchanged: the lexicon is lexical, so an unlisted synonym is
+  still a miss, and a concept named in order to deny it ("no fever") still
+  counts as named — the over-inclusive direction this file prefers.
+
+⛔ **This edit was made to a fenced module.** `emergency.py` gained 42 lines and
+lost 7, and the 7 were the stale comment recording the limit that is now fixed.
+**No phrase was added, removed or reordered, and no copy changed** — verifiable
+from the diff. The repository owner asked for this work in conversation on
+**2026-09-12**, having been shown the specific proposal and told explicitly that
+it restructures a fenced module and needs their approval by name. This paragraph
+is the *record* of that, not the authorisation for it — this file is clear that
+"a sentence an agent writes into the same diff that needs authorising is not
+evidence of authorisation", and that applies to this sentence too. The owner
+should confirm the wording here is what they intended to approve, and a
+clinician still has to read the combinator as part of the instrument.
+
+### Triage is measured now (2026-09-12)
+
+`backend/scripts/triage_eval/` measures the rule layer against a corpus of
+synthetic lay descriptions carrying gold tiers. It is modelled on
+`topic_retrieval_eval/`, which is what let the retrieval numbers above be
+reported rather than asserted.
+
+    cd backend
+    python scripts/triage_eval/measure.py
+    python scripts/triage_eval/measure.py --strict   # non-zero exit on any
+                                                     # unexpected under-triage
+
+⛔ **What a number from this establishes, and what it does not.** Gold labels
+are **this app's own documented intent**, assigned by a software engineer — each
+case records a `basis` naming where its label came from. It measures consistency
+with that intent and regression against it. It is **not** clinical validation
+and must never be reported as clinical accuracy: neither the labels nor the tier
+definitions they encode have been read by a clinician. The release blocker above
+is untouched.
+
+Metric names follow the published vignette-based evaluation standard for symptom
+checkers, so the figures are comparable to the literature: *safety of advice*
+(share of gold-EMERGENT returned EMERGENT), *under-triage*, *over-triage*, plus
+two specific to this design — *rule coverage* (share where a rule recognised
+anything, the ceiling on how often SELF_CARE can be earned) and the same metrics
+restricted to **natural phrasing**. Treat the natural-phrasing figures as the
+real ones: matching your own phrase list is trivially easy, and the corpus marks
+which descriptions are paraphrases.
+
+First run, 122 scored cases (rules only, no model): **96.7% exact agreement,
+0 over-triaged, 4 under-triaged, safety of advice 90.7%, rule coverage 83.6%**.
+On natural phrasings alone: 96.0% exact, safety of advice **87.1%**.
+
+#### ⛔ REPORTED, NOT FIXED: four under-triaged presentations
+
+The harness found these on its first run. All four are the same defect — the
+concept is named but not in the exact character sequence the list spells — and
+all four are on life-threatening presentations:
+
+| Description | Returned | The list has |
+|---|---|---|
+| "crushing pressure in my chest" | URGENT | `chest pressure`, `crushing chest` — not `pressure in my chest` |
+| "I hit my head hard and feel awful" | URGENT | `head injury` |
+| "I have been thinking about hurting myself" | URGENT | `hurt myself`, which does not match `hurting myself` |
+| "it is like a curtain came over my eye" | URGENT | `curtain over my eye` |
+
+Fixing them means adding phrases to `_EMERGENCY_RULES`, which is fenced, and the
+owner has not been asked about these specific additions — so they are **reported
+and left untouched**, the way this file requires. They are pinned in
+`KNOWN_UNDER_TRIAGED` in `tests/test_triage_eval.py`, which makes the suite a
+**sensitivity ratchet**: a fifth under-triaged case fails the build, and fixing
+one of these four also fails it, with a message saying to record the approval.
+Two further tests hold the floor unconditionally — no gold-EMERGENT case may
+ever return SELF_CARE, and each of these four must still reach URGENT rather
+than reassurance.
+
+#### Licensed protocol content: the container exists, the content does not
+
+`backend/app/core/protocol_content.py` loads a licensed telephone-triage
+protocol set — the actual fix for "every phrase here was written by a software
+engineer", which is an authorship problem that more phrases cannot solve.
+
+It ships with **no content and is wired to nothing**, the same "built, gated and
+unreachable" shape as the booking path behind `delivery_available()`.
+
+- ⛔ **No protocol content may be committed to this repository** — not a sample,
+  not a fixture. Content written by an engineer or an agent, loaded through the
+  interface built for physician-reviewed content, is strictly worse than the
+  phrase lists, which at least say plainly what they are.
+  `test_no_protocol_content_is_committed_to_this_repository` globs the tree and
+  asserts nothing protocol-shaped exists.
+- ⛔ **No disposition-to-tier mapping of ours.** Deciding that "be seen within
+  24 hours" means URGENT is a clinical judgement, so the loader **requires**
+  each disposition to state its own tier and rejects content that omits one.
+- **`reconcile()` is `max()`** — a protocol disposition may escalate the rule
+  tier and may never lower it. Licensed content being better than the phrase
+  lists is not a reason to let it talk a red flag down.
+- **Fails closed.** One malformed protocol rejects the whole set; half a
+  protocol set is a set with unknown holes in it. Mixed content revisions are
+  rejected too. A broken content directory logs a warning and runs on the rule
+  layer alone rather than taking the API down.
+- `PROTOCOL_CONTENT_DIR` is ⛔ **not a feature flag**. Like
+  `delivery_available()` it stands for a signed agreement — here a content
+  licence. Schmitt-Thompson Clinical Content (used by ~95% of North American
+  medical call centres, reviewed by 200+ practising physicians, revised
+  annually) licenses to technology partners; that enquiry is the next step and
+  it is a procurement decision, not an engineering one.
 
 ### Glued list items used to defeat red-flag screening (FIXED 2026-09-01)
 

@@ -26,6 +26,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from app.core import symptom_concepts
+
 
 """
 Shown on every result, regardless of what was searched.
@@ -225,13 +227,15 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
         ),
     ),
     (
-        # KNOWN LIMIT, same class as the glued-list limit in normalize_query:
-        # this list is contiguous phrases, so "my neck is stiff and I have a
-        # fever" (stiffness and fever named separately, in that order) is not
-        # recognised even after this pass. Catching that would need a
-        # two-term combinator like rules_triage.py's self-care/modifier
-        # check, which is a structural change beyond the phrase-list
-        # additions approved here and needs its own review.
+        # The contiguous-phrase limit that used to be recorded here is FIXED:
+        # "my neck is stiff and I have a fever" — the two concepts named
+        # separately, in that order — is now recognised by the concept
+        # combinator in `app.core.symptom_concepts`, consulted at the end of
+        # `screen_for_emergency`. All three combinations it knows are read out
+        # of this rule's own action text below; nothing new is claimed.
+        #
+        # The phrases here are unchanged and are still tried first, so a
+        # description that matched before matches identically now.
         "sepsis_meningitis",
         "These symptoms need emergency care now.",
         "A stiff neck with fever, a rash that does not fade when pressed, or "
@@ -340,6 +344,14 @@ _COMPILED: list[tuple[str, str, str, tuple[re.Pattern[str], ...], tuple[str, ...
     for category, headline, action, phrases in _EMERGENCY_RULES
 ]
 
+# The reviewed copy, by category. A concept combination resolves to a category
+# id and reads its wording from here, so there is exactly one copy of every
+# emergency instruction and a combinator cannot introduce a second.
+_COPY_BY_CATEGORY: dict[str, tuple[str, str]] = {
+    category: (headline, action)
+    for category, headline, action, _ in _EMERGENCY_RULES
+}
+
 
 def screen_for_emergency(query: str) -> EmergencyGuidance | None:
     """
@@ -347,6 +359,19 @@ def screen_for_emergency(query: str) -> EmergencyGuidance | None:
 
     Returns the first matching category so the user sees one clear
     instruction rather than a wall of competing warnings.
+
+    Two passes, in this order and for this reason:
+
+    1. Every literal phrase in `_EMERGENCY_RULES`, exactly as before.
+    2. Only if none of them matched, the concept combinations in
+       `app.core.symptom_concepts` — which catch the red flags this file's
+       own copy names but a contiguous phrase cannot express, such as a stiff
+       neck and a fever written as two separate clauses.
+
+    Putting the literals first is what makes the second pass safe: anything
+    that matched before this existed matches identically now, in the same
+    category, with the same wording. The combinator can only turn a `None`
+    into guidance, never one category into another.
     """
     if not query or not query.strip():
         return None
@@ -366,5 +391,15 @@ def screen_for_emergency(query: str) -> EmergencyGuidance | None:
                 action=action,
                 matched_terms=matched,
             )
+
+    combination = symptom_concepts.screen_combinations(normalized)
+    if combination:
+        headline, action = _COPY_BY_CATEGORY[combination.category]
+        return EmergencyGuidance(
+            category=combination.category,
+            headline=headline,
+            action=action,
+            matched_terms=list(combination.matched_terms),
+        )
 
     return None

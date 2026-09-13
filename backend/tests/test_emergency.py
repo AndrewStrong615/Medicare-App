@@ -221,3 +221,51 @@ def test_the_same_words_are_screened_when_separated(category, description):
 @pytest.mark.parametrize("category, description", GLUED_RED_FLAGS)
 def test_glued_list_items_are_still_screened(category, description):
     assert screen_for_emergency(description) is not None
+
+
+# ---------------------------------------------------------------------------
+# Two-term red flags, caught by the concept combinator.
+#
+# The `sepsis_meningitis` action text has always named three combinations —
+# "A stiff neck with fever, a rash that does not fade when pressed, or
+# confusion with a high fever" — but the phrase list could only detect each
+# one written as a single contiguous string, so the ordinary way of writing
+# it ("my neck is stiff and I have a fever") matched nothing and fell to the
+# URGENT default. That limit was recorded in this module against itself.
+#
+# `app/core/symptom_concepts.py` closes it, consulted at the end of
+# `screen_for_emergency` AFTER every literal phrase has been tried — so it can
+# only turn a `None` into guidance, never change a category. The full set of
+# structural guarantees is tested in `test_symptom_concepts.py`; these are the
+# regression cases for the screening behaviour itself.
+# ---------------------------------------------------------------------------
+
+TWO_TERM_RED_FLAGS = [
+    "my neck is stiff and I have a fever",
+    "I have a fever and my neck has gone stiff",
+    "burning up and I can't turn my neck",
+    "I have a rash and it doesn't fade when I press it",
+    "he is confused and has a really high temperature",
+]
+
+
+@pytest.mark.parametrize("description", TWO_TERM_RED_FLAGS)
+def test_two_term_red_flags_are_screened(description):
+    guidance = screen_for_emergency(description)
+
+    assert guidance is not None, f"no emergency guidance for {description!r}"
+    assert guidance.category == "sepsis_meningitis"
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "my neck is stiff",
+        "I have a fever",
+        "a rash on my arm",
+        "I feel confused",
+    ],
+)
+def test_one_half_of_a_two_term_flag_is_not_enough(description):
+    """A combination is an AND. Half of one must not fire it."""
+    assert screen_for_emergency(description) is None

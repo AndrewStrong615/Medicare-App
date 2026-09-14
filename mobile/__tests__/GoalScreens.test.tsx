@@ -828,6 +828,41 @@ describe("HealthGoalsScreen", () => {
       expect(screen.getByText(/not advice about you/)).toBeTruthy();
     });
 
+    /*
+     * ⛔ A SCREEN READER HAS TO BE TOLD, IN WORDS, WHICH STATE THIS IS IN.
+     *
+     * Found by opening the screen in a real browser, with the whole suite
+     * green: React Native Web drops `accessibilityState={{ expanded }}` —
+     * the rendered button carries no `aria-expanded` at all — and
+     * `accessibilityLabel` overrides the visible text, so a reader heard one
+     * unchanging label while a sighted user watched "Where this comes from"
+     * become "Hide where this comes from".
+     *
+     * Same defect and same fix as the goal editor's day buttons. This test
+     * checks the LABEL rather than `accessibilityState`, because asserting
+     * the latter is what let the bug through: it passes in jsdom and means
+     * nothing in a browser.
+     */
+    it("⛔ says in the label whether the source is showing, not only in accessibilityState", async () => {
+      mockList.mockResolvedValue([cited()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      await waitFor(() =>
+        expect(screen.getByLabelText(/^Show where this kind of activity comes from/)).toBeTruthy()
+      );
+
+      fireEvent.press(screen.getByText("Where this comes from"));
+
+      // The accessible name changed with the state, so a reader who cannot
+      // see the caret is told what pressing it just did.
+      expect(
+        screen.getByLabelText(/^Hide where this kind of activity comes from/)
+      ).toBeTruthy();
+      expect(
+        screen.queryByLabelText(/^Show where this kind of activity comes from/)
+      ).toBeNull();
+    });
+
     it("offers nothing to open for a row with no citation", async () => {
       mockList.mockResolvedValue([goal()]);
 

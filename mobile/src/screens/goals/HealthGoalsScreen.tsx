@@ -282,12 +282,35 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
                 */}
                 {activity.evidence ? (
                   <View style={styles.evidence}>
+                    {/*
+                      ⛔ THE STATE IS IN THE LABEL, NOT ONLY IN accessibilityState.
+
+                      Found by opening this screen in a real browser: React
+                      Native Web drops `accessibilityState={{ expanded }}`
+                      entirely — the rendered control carries no
+                      `aria-expanded` at all. And `accessibilityLabel`
+                      overrides the visible text for a screen reader, so with
+                      a fixed label a reader heard exactly the same thing
+                      whether the citation was open or closed, while a sighted
+                      user saw "Where this comes from" become "Hide where this
+                      comes from".
+
+                      This is the same defect, and the same fix, as the goal
+                      editor's day buttons: say the state in words rather than
+                      leaving it to something the platform may not render.
+                      `expanded` is kept as well, so the fix survives a
+                      platform that does honour it.
+                    */}
                     <Pressable
                       onPress={() => toggleSource(activity.id)}
                       style={styles.sourceToggle}
                       accessibilityRole="button"
                       accessibilityState={{ expanded: openSources.has(activity.id) }}
-                      accessibilityLabel={`Where this kind of activity comes from: ${activity.text}`}
+                      accessibilityLabel={
+                        openSources.has(activity.id)
+                          ? `Hide where this kind of activity comes from: ${activity.text}`
+                          : `Show where this kind of activity comes from: ${activity.text}`
+                      }
                     >
                       <Text style={styles.sourceToggleText}>
                         {openSources.has(activity.id)

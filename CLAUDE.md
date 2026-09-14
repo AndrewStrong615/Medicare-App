@@ -2062,6 +2062,19 @@ citation open, because there it is part of deciding whether to accept a row.
   you ask once.
 - State held per activity in component state, not persisted: which sources
   somebody expanded yesterday is not a preference.
+- ⛔ **The open/closed state is said in the accessible label, not only in
+  `accessibilityState`.** Found by opening this screen in a real browser with
+  the whole suite green: React Native Web **drops
+  `accessibilityState={{ expanded }}` entirely** — the rendered control
+  carries no `aria-expanded` at all — and `accessibilityLabel` *overrides* the
+  visible text for a screen reader. So a reader heard one unchanging label
+  while a sighted user watched "Where this comes from" become "Hide where this
+  comes from". Same defect and same fix as the goal editor's day buttons.
+
+  The test asserts the **label**, not `accessibilityState`, because asserting
+  the latter is exactly what let this through: it passes in jsdom and means
+  nothing in a browser. ⛔ Anything else here that leans on
+  `accessibilityState` to convey state is suspect for the same reason.
 
 #### Not reviewed, and what this did not change
 

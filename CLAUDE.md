@@ -1621,11 +1621,31 @@ Two tests hold the shape:
 
 #### ⛔ A passing suite is evidence about the tests, not about the code
 
-`backend/scripts/goal_mutation_check.py` breaks each rule this feature claims
-to enforce and checks the suite notices. A mutation that **survives** is a rule
+`backend/scripts/mutation_check.py` breaks each rule these features claim to
+enforce and checks the suite notices. A mutation that **survives** is a rule
 nothing is actually testing.
 
-    python backend/scripts/goal_mutation_check.py
+    python backend/scripts/mutation_check.py            # everything
+    python backend/scripts/mutation_check.py goals
+    python backend/scripts/mutation_check.py triage
+
+⛔ **It never touches the working tree.** Every mutation is applied to a
+throwaway **copy** of `backend/`, and the suite runs there. The first version
+edited files in place and restored them in a `finally`, which leaves a window
+where an interrupted run strands a mutated source file — observed once, on a
+real run. Untidy for `goal_structuring.py`; unacceptable for `triage.py`, so
+the design changed rather than the reassurance.
+
+⛔ **The triage group reads fenced modules and changes none of them.** This
+file forbids modifying `triage.py`, `rules_triage.py` and `emergency.py`, and
+permits adding tests for them. This adds no test to them and modifies nothing:
+it copies, breaks the copy, and deletes it. `git status` after a run confirms
+it.
+
+**All three triage properties it probes are genuinely caught** — the rules
+defaulting to SELF_CARE instead of URGENT (the single most important rule
+here), `max()` becoming `min()`, and the model tier replacing the rule tier
+rather than reconciling with it.
 
 It exists because that failure happened **four times in one sitting**, on this
 feature, under a green suite:
@@ -1644,13 +1664,16 @@ feature, under a green suite:
   `test_the_fixture_those_two_rely_on_really_would_be_accepted` fails if that
   stops being true.
 
-All twelve mutations are caught as of 2026-09-13, including the ones covering
-the caveat, the evidence register refusing a nearest match, emergency
-screening running first, and a suggested row staying labelled `generated`.
+All fifteen mutations are caught as of 2026-09-14, including the caveat, the
+evidence register refusing a nearest match, emergency screening running first,
+and a suggested row staying labelled `generated`.
 
-- ⛔ **It edits source files in place** and restores them in a `finally`, with
-  `newline=""` so it cannot rewrite line endings as a side effect. Do not run
-  it over a dirty tree; check `git status` before and after.
+⛔ **An anchor that does not apply is reported, never counted as caught.** Two
+were wrong on their first run and the guard said so instead of printing a
+pass: a multi-line anchor written with bare line feeds matched nothing against
+CRLF files, and `screen_for_emergency` matched three places (the docstring,
+the import, the call). The in-place version had silently replaced all three.
+
 - ⛔ **A survivor is not fixed by deleting the mutation.** Fix the test.
 - Not part of `pytest` — it runs the suite once per mutation.
 

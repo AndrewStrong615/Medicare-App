@@ -2073,8 +2073,52 @@ citation open, because there it is part of deciding whether to accept a row.
 
   The test asserts the **label**, not `accessibilityState`, because asserting
   the latter is exactly what let this through: it passes in jsdom and means
-  nothing in a browser. ⛔ Anything else here that leans on
-  `accessibilityState` to convey state is suspect for the same reason.
+  nothing in a browser.
+- ⛔ **The tick itself had the same bug, and it is worse.** `HealthGoalsScreen`
+  labelled each checkbox with the activity text alone, so a ticked row and an
+  unticked one announced **identically** — on the one screen whose entire
+  purpose is ticking things off. Now fixed the same way: the label says
+  "ticked off for today" or "not ticked off". ⛔ Never "missed", "skipped" or
+  "incomplete", in the label any more than in the visible copy — an unticked
+  row means nothing was ticked, and this is not an adherence record. A test
+  asserts the forbidden words never appear in the accessible name.
+
+### ⛔ `accessibilityState` does nothing on web. Say state in the label.
+
+Not a quirk of one component — a property of the library. **React Native Web
+0.19.13 never reads `accessibilityState` at all**: it is absent from
+`forwardedProps` and from `createDOMProps`, which take `aria-checked`,
+`aria-expanded` and `aria-selected` instead. The only places it is read are
+the legacy `TouchableWithoutFeedback` and `isDisabled`, so on a `Pressable`
+it is silently dropped and the DOM carries no state attribute at all.
+
+It is still the right thing on native, so **keep it and add the state to
+`accessibilityLabel`** — that is the one thing that works on every platform
+regardless of what the library emits. `GoalCreateScreen`'s day chips,
+`HealthGoalsScreen`'s ticks and its source disclosure all do this.
+
+⛔ **A test that asserts `accessibilityState` is not evidence about a
+browser.** It passes in jsdom whether or not anything reaches the DOM, which
+is how both goals bugs survived a green suite. Assert the label.
+
+#### REPORTED, NOT FIXED: the other six
+
+Found by grepping `accessibilityState` across `mobile/src` after the two goals
+bugs. Each renders no state attribute on web, and none is in this feature, so
+they are reported rather than swept into a goals branch — CLAUDE.md asks for
+commits scoped to one feature:
+
+| File | State that is silently lost |
+|---|---|
+| `components/AppNav.tsx` | which tab is selected |
+| `components/SegmentedControl.tsx` | which segment is selected |
+| `components/AppButton.tsx` | disabled, and busy |
+| `components/TextField.tsx` | disabled |
+| `screens/intake/SymptomIntakeScreen.tsx` | whether the consent box is checked |
+| `screens/appointments/ProviderSearchScreen.tsx`, `BookingIdentityScreen.tsx`, `medication-reminders/MedicationRemindersScreen.tsx` | which option is selected |
+
+The consent checkbox on the intake screen is the one to do first: it is a
+consent control, and a reader cannot currently tell whether it is ticked.
 
 #### Not reviewed, and what this did not change
 

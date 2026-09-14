@@ -629,7 +629,7 @@ describe("HealthGoalsScreen", () => {
     render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
     await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
 
-    fireEvent.press(screen.getByLabelText("Walk in the mornings"));
+    fireEvent.press(screen.getByLabelText(/^Walk in the mornings,/));
     await waitFor(() =>
       expect(mockComplete).toHaveBeenCalledWith(
         "goal-1",
@@ -761,6 +761,77 @@ describe("HealthGoalsScreen", () => {
 
     await waitFor(() => expect(screen.getByText("No goals yet")).toBeTruthy());
     expect(screen.queryByText(/has been saved/i)).toBeNull();
+  });
+
+  /*
+   * ⛔ A SCREEN READER HAS TO BE TOLD WHICH ROWS ARE TICKED.
+   *
+   * This version of React Native Web never reads `accessibilityState` — it is
+   * absent from the forwarded props and from `createDOMProps`, which take
+   * `aria-checked` instead — so every row rendered with `aria-checked` null.
+   * A ticked row and an unticked one announced identically, on the one screen
+   * whose entire purpose is ticking things off.
+   *
+   * The goal editor's day chips were fixed for exactly this in September and
+   * carry a comment saying so; the tick itself was missed, because the test
+   * asserted `accessibilityState` and that passes in jsdom either way.
+   *
+   * ⛔ So these assert the LABEL. A test that reads `accessibilityState` is
+   * not evidence about a browser.
+   */
+  describe("a reader is told which rows are ticked", () => {
+    it("⛔ says the tick state in the label, not only in accessibilityState", async () => {
+      mockList.mockResolvedValue([goal()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      await waitFor(() =>
+        expect(screen.getByLabelText("Walk in the mornings, not ticked off")).toBeTruthy()
+      );
+
+      mockComplete.mockResolvedValue(
+        goal({
+          activities: [
+            {
+              id: "activity-1",
+              text: "Walk in the mornings",
+              cadence: "daily",
+              timesPerWeek: null,
+              quantityText: null,
+              preferredTime: "morning",
+              days: [...DAYS],
+              timeOfDay: "08:00",
+              completedToday: true,
+              detail: null,
+              evidence: null,
+            },
+          ],
+        })
+      );
+
+      fireEvent.press(screen.getByLabelText(/^Walk in the mornings,/));
+
+      await waitFor(() =>
+        expect(
+          screen.getByLabelText("Walk in the mornings, ticked off for today")
+        ).toBeTruthy()
+      );
+    });
+
+    it("⛔ never calls an unticked row missed, in the label either", async () => {
+      mockList.mockResolvedValue([goal()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      const row = await screen.findByLabelText(/^Walk in the mornings,/);
+
+      // The visible copy is already held to this. The accessible name is read
+      // instead of the visible text, so it is a second place the same claim
+      // could be made — MedHelp has no idea whether anybody did anything.
+      const label = row.props.accessibilityLabel as string;
+      for (const forbidden of ["missed", "skipped", "forgot", "incomplete", "failed"]) {
+        expect(label.toLowerCase()).not.toContain(forbidden);
+      }
+      expect(label).toContain("not ticked off");
+    });
   });
 
   /*

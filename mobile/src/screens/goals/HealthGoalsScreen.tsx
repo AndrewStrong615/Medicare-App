@@ -222,7 +222,31 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
                   disabled={busy === activity.id}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: activity.completedToday }}
-                  accessibilityLabel={activity.text}
+                  /*
+                    ⛔ THE TICK IS IN THE LABEL AS WELL, FOR THE REASON THE
+                    GOAL EDITOR'S DAY CHIPS ALREADY RECORD.
+
+                    This version of React Native Web never reads
+                    `accessibilityState` at all — it is absent from the
+                    forwarded props and from `createDOMProps`, which take
+                    `aria-checked` instead — so every row rendered with
+                    `aria-checked` null. Verified in a browser, and then in
+                    the library's own source.
+
+                    A ticked box and an unticked one looked different and
+                    announced identically, on the one screen whose entire
+                    purpose is ticking things off. The editor's day chips were
+                    fixed for this in September; the tick itself was missed.
+
+                    ⛔ "not ticked off", never "missed" or "incomplete". An
+                    unticked row means nothing was ticked — MedHelp has no
+                    idea whether the person did it, and this is not an
+                    adherence record. Same rule as the visible copy.
+                  */
+                  accessibilityLabel={
+                    `${activity.text}, ` +
+                    (activity.completedToday ? "ticked off for today" : "not ticked off")
+                  }
                   accessibilityHint="Ticks this off for today"
                 >
                   <View

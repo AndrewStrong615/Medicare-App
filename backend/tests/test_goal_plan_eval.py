@@ -666,3 +666,21 @@ def test_the_floor_the_harness_gates_on_is_the_one_the_application_enforces():
 
     fewest_days, _ = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY["major"]
     assert measure.MAJOR_FLOOR_DAYS == fewest_days
+
+
+def test_a_row_naming_a_day_of_the_week_is_situated():
+    """
+    A named day is a moment, and rows do name them — "cook a batch on Sunday".
+    These were false misses until the day names were added, which is the shape
+    of error a short keyword list makes: it under-reports rather than
+    over-reports, so the figure is a floor.
+
+    ⛔ This is about the row TEXT, which is what the person reads on the card.
+    The plan's own `days` field is a separate thing and is not consulted here.
+    """
+    assert measure.situated("Cook a batch for the week on Sunday")
+    assert measure.situated("Call your sister on Saturday")
+
+    # Still no false positives: an amount is not a moment and not a place.
+    assert not measure.situated("Do ten bodyweight squats")
+    assert not measure.situated("Stretch for five minutes")

@@ -149,6 +149,11 @@ _SITUATING = (
     "after", "before", "during", "while", "morning", "afternoon", "evening",
     "night", "breakfast", "lunch", "dinner", "bed", "bedtime", "waking",
     "wake", "lunchtime", "weekday", "weekend", "shift", "work",
+    # A named day is a moment, and rows do name them - "cook a batch on
+    # Sunday". The plan's own `days` field is a separate thing; this is about
+    # what the row TEXT says, which is what the person reads on the card.
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday",
     # where, and with what
     "office", "desk", "home", "kitchen", "stairs", "lift", "door", "outside",
     "outdoors", "garden", "park", "street", "block", "bus", "train", "car",

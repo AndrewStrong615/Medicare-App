@@ -1964,6 +1964,21 @@ daily habit is on all seven days and is a perfectly good small plan.
   own tests
   (`test_a_major_plan_of_one_daily_row_and_a_few_weekly_ones_is_kept`), and a
   new bound needs one too.
+- **The cost of the check is swept, not reasoned about.**
+  `test_no_plausible_plan_is_rejected_for_a_reason_its_band_does_not_enforce`
+  builds every plan from the day-patterns real plans use, at every allowed row
+  count — ~74,000 shapes, offline — and asserts each rejection is attributable
+  to that band's one working end. As shipped, **94.6% / 99.9% / 94.8%** of
+  plausible plans are kept, and every rejection is the intended kind.
+- ⛔ **Attribution alone is not enough, and that was checked rather than
+  assumed.** Both bugs above were re-introduced to see whether the test
+  catches them. Attribution catches the moderate ceiling. It does **not**
+  catch a floor expressed on day-slots: set the major floor to 14 days and
+  "touched < fewest_days" explains every rejection, because a days floor of 14
+  can never be met — so everything is refused and everything is
+  'attributable'. The test therefore also asserts each band **keeps** more
+  than half of the sweep, and that a floor never exceeds the length of a week.
+  With both checks in place each bug is caught.
 - **The eval harness gates on the same number**, records `days_touched`
   separately from the per-row counts because one cannot be derived from the
   other, and a test asserts `measure.MAJOR_FLOOR_DAYS` equals the table's.

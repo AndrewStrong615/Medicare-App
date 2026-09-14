@@ -9,6 +9,7 @@ that invents something and asserts the whole draft is discarded.
 """
 
 import inspect
+import itertools
 from datetime import date
 
 import pytest
@@ -1663,6 +1664,108 @@ def test_a_moderate_goal_on_one_day_of_the_week_is_still_a_discard(model):
     model(_plan(title="Mondays", activities=rows, complexity="moderate"))
 
     assert goal_structuring.suggest_plan("I want to change how my weeks go") is None
+
+
+def test_no_plausible_plan_is_rejected_for_a_reason_its_band_does_not_enforce():
+    """
+    ⛔ THE COST OF THIS CHECK, SWEPT RATHER THAN REASONED ABOUT.
+
+    A discard hands the person an empty editor, so the question that matters is
+    not "does the check catch the bug" but "what else does it catch". Two
+    versions of these bands shipped in this branch and BOTH rejected ordinary
+    plans — four daily habits for a moderate goal, and a daily walk plus three
+    weekend errands for a major one. Neither was visible from reading the
+    numbers.
+
+    So this enumerates every plan that can be built from the day-patterns real
+    plans actually use, at every allowed row count, and asserts that each
+    rejection is attributable to the one end that band is meant to enforce:
+
+        small     the CEILING on day-slots  - a week's programme for a one-off
+        moderate  the FLOOR on days touched - a plan that touches one day
+        major     the FLOOR on days touched - not present across a real week
+
+    A rejection that cannot be attributed is a plan somebody would have wanted
+    and did not get. The sweep is ~74,000 shapes and runs offline.
+    """
+    # Day-sets real plans use: daily, the working week, a couple of days, a
+    # single weekend task. Not every subset of the week — the point is
+    # plausible plans, not exhaustive ones.
+    patterns = (
+        tuple(goal_structuring.DAYS),
+        goal_structuring.DAYS[:5],
+        ("saturday", "sunday"),
+        ("sunday",),
+        ("saturday",),
+        ("monday", "wednesday", "friday"),
+        ("tuesday", "thursday"),
+        ("monday",),
+        ("monday", "tuesday", "wednesday", "thursday"),
+    )
+
+    unattributed: list[str] = []
+    counts: dict[str, tuple[int, int]] = {}
+
+    for name, (fewest_rows, most_rows) in goal_structuring.ROWS_BY_COMPLEXITY.items():
+        fewest_days, most_slots = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY[name]
+        kept = turned_away = 0
+        for rows in range(fewest_rows, most_rows + 1):
+            for combination in itertools.product(patterns, repeat=rows):
+                slots = sum(len(days) for days in combination)
+                touched = len({day for days in combination for day in days})
+                if touched >= fewest_days and slots <= most_slots:
+                    kept += 1
+                    continue
+                turned_away += 1
+                # Attribute it. Every band has exactly one working end, so a
+                # rejection has to be explained by that end.
+                if name == "small" and slots > most_slots:
+                    continue
+                if name in ("moderate", "major") and touched < fewest_days:
+                    continue
+                unattributed.append(
+                    f"{name}: {rows} rows, {touched} days, {slots} slots"
+                )
+        counts[name] = (turned_away, turned_away + kept)
+
+    assert unattributed == [], unattributed[:5]
+
+    # ⛔ ATTRIBUTION ALONE IS NOT ENOUGH, AND THIS IS NOT THEORY.
+    #
+    # Checked by re-introducing both bugs this branch shipped. Attribution
+    # catches the first (a moderate ceiling of 21 rejects "4 rows, 7 days, 28
+    # slots", which nothing explains). It does NOT catch the second: express
+    # the major floor on DAY-SLOTS instead of days touched and set it to 14,
+    # and the rule "touched < fewest_days" explains every rejection — because
+    # a days floor of 14 can never be met, so everything is rejected and
+    # everything is 'attributable'.
+    #
+    # A band that turns away almost every plausible plan is as broken as one
+    # that turns away the wrong ones, so the rate is checked too. As shipped
+    # these are 94.6% / 99.9% / 94.8% kept.
+    for name, (turned_away, total) in counts.items():
+        fewest_days, _ = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY[name]
+        # A floor above the length of a week cannot be satisfied by anything.
+        assert fewest_days <= len(goal_structuring.DAYS), name
+        assert (total - turned_away) / total > 0.5, (name, turned_away, total)
+
+    # And the sweep has to be big enough to mean something. A patterns list
+    # someone trimmed to two entries would pass the assertions above by
+    # testing almost nothing.
+    assert sum(total for _, total in counts.values()) > 50_000, counts
+
+
+def test_a_plan_with_one_daily_row_is_never_turned_away_for_being_thin():
+    """
+    The corollary worth stating on its own, because it is the case that broke
+    the first version of these bands: one row on every day puts the plan on
+    somebody's week seven days out of seven, whatever else is in it. It can
+    never fail a floor that counts days touched.
+    """
+    for name, (fewest_days, _) in goal_structuring.WEEK_SHAPE_BY_COMPLEXITY.items():
+        assert fewest_days <= len(goal_structuring.DAYS), name
+        # A single daily row already reaches every floor in the table.
+        assert len(goal_structuring.DAYS) >= fewest_days, name
 
 
 # ---------------------------------------------------------------------------

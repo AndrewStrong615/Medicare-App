@@ -1972,6 +1972,27 @@ name.
   mean of 0.0 would read as a finding about those plans rather than a fact
   about the run, and the before/after would compare two different things.
   `test_a_run_that_recorded_no_days_reports_no_coverage_at_all` pins it.
+- **Both new figures are gated by `--strict`**, not merely printed.
+  `MAJOR_FLOOR_SLOTS` fails a run containing a plan read as major on under
+  fourteen day-slots — the reported bug, by name. ⛔ **A metric nobody fails on
+  is a metric nobody reads**: the coverage figures were reported and ungated
+  when first added, which would have let exactly that plan pass a `--strict`
+  run in silence.
+- **Vagueness has a crude proxy too**, since it is the half no check enforces:
+  `situated_share`, the share of rows that say **when or where** they happen,
+  gated at 70%. Rows like "eat better" and "be more active" cannot score.
+  ⛔ **Read what it cannot see.** "Drink a glass of water after waking" — one
+  of the two rows actually reported — *passes*, because it does name a moment.
+  It measures whether a row is placed in a day, never whether it answers the
+  goal; that is what `repeat_share` and the contrast pairs are for, and it is
+  the same reason no deterministic vagueness check exists in
+  `goal_structuring`. A high figure here is necessary and nowhere near
+  sufficient; a low one is the finding worth acting on.
+  `test_a_concrete_row_that_answers_no_goal_still_counts_as_situated` pins the
+  limit so the number is not over-read.
+- **Re-measuring the committed baseline reports 54% situated**, which is a
+  real finding about the pre-fix plans and consistent with the report. It is
+  the only number on this change that exists today.
 - ⛔ **The AFTER numbers still have not been taken**, for the same reason as
   the section above: the branch is not deployed and there is no key on this
   machine. Both halves of this change are reasoned about rather than counted

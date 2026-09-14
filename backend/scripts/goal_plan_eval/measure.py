@@ -93,6 +93,10 @@ REPEATED_ON = 3
 MAX_REPEAT_SHARE = 0.20  # share of all rows that appear on more than one goal
 MAX_PAIR_OVERLAP = 0.34  # Jaccard between the two halves of a contrast pair
 MIN_ANCHOR_SHARE = 0.70  # goals whose plan uses at least one of their anchors
+MIN_SITUATED_SHARE = 0.70  # rows that say when or where they happen
+# A plan the model called major, on fewer day-slots than this, is the
+# reported failure: present on under half a week for a year-long goal.
+MAJOR_FLOOR_SLOTS = 14
 
 
 def normalise(text: str) -> str:
@@ -105,6 +109,61 @@ def normalise(text: str) -> str:
     ceiling.
     """
     return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
+
+
+# ---------------------------------------------------------------------------
+# Is a row situated in somebody's day, or is it a habit that fits any goal?
+#
+# Reported 2026-09-13 alongside the template plans: the rows were "a little too
+# vague". The prompt now asks for a row to be CHECKABLE, LOCATED and obvious to
+# start, and this is the crude proxy for the middle one.
+#
+# ⛔ READ WHAT THIS CAN AND CANNOT SEE BEFORE QUOTING IT.
+#
+# "Drink a glass of water after waking" is a perfectly CONCRETE row that
+# answers no goal in particular, and it scores as situated here, because it
+# names a moment in a day. That is not a defect in this measure so much as the
+# reason a deterministic vagueness check was not built at all: telling a row
+# that fits this goal from one that fits every goal is a judgement. Genericness
+# is what `repeat_share` and the contrast pairs measure; this measures only
+# whether a row says WHEN or WHERE it happens.
+#
+# So a high figure here is necessary and nowhere near sufficient. A low one is
+# the finding worth acting on: rows like "eat better" and "be more active" —
+# the goal restated — cannot score.
+# ---------------------------------------------------------------------------
+
+# Words that place an activity somewhere in a day or somewhere in a building.
+# Lay vocabulary only, and deliberately short: a long list would eventually
+# start matching the activity words themselves and report everything as
+# situated.
+_SITUATING = (
+    # when
+    "after", "before", "during", "while", "morning", "afternoon", "evening",
+    "night", "breakfast", "lunch", "dinner", "bed", "bedtime", "waking",
+    "wake", "lunchtime", "weekday", "weekend", "shift", "work",
+    # where, and with what
+    "office", "desk", "home", "kitchen", "stairs", "lift", "door", "outside",
+    "outdoors", "garden", "park", "street", "block", "bus", "train", "car",
+    "shop", "walk home", "phone", "kettle", "cupboard", "fridge", "plate",
+)
+
+
+def situated(row: str) -> bool:
+    """
+    True if the row says when or where it happens.
+
+    Word-boundary matching on a normalised row, so "workout" does not count as
+    "work" and "beforehand" does not count as "before".
+    """
+    words = set(normalise(row).split())
+    for term in _SITUATING:
+        if " " in term:
+            if term in normalise(row):
+                return True
+        elif term in words:
+            return True
+    return False
 
 
 class Outcome:
@@ -483,6 +542,7 @@ def measure(outcomes: list[Outcome]) -> dict:
     # question a prompt cannot answer about itself.
     detailed = sum(1 for o in planned for d in o.details if d.strip())
     with_citation = sum(1 for o in planned for flag in o.cited if flag)
+    in_a_day = sum(1 for row in rows if situated(row))
 
     # How much of a week each plan occupies, which is the half of "sized to
     # the goal" that a row count cannot see. The reported plan was four rows
@@ -530,6 +590,8 @@ def measure(outcomes: list[Outcome]) -> dict:
         "pairs": pair_overlaps,
         "detail_share": (detailed / len(rows)) if rows else 0.0,
         "citation_share": (with_citation / len(rows)) if rows else 0.0,
+        "situated_share": (in_a_day / len(rows)) if rows else 0.0,
+        "unsituated_rows": sorted({row for row in rows if not situated(row)}),
         "anchor_share": (len(anchor_hits) / len(anchored)) if anchored else 0.0,
         "anchor_misses": [o.goal.id for o in anchored if not o.anchors_hit],
         "scheduled": len(scheduled),
@@ -549,7 +611,9 @@ def measure(outcomes: list[Outcome]) -> dict:
         # `_validate_plan` discards it — so a name here means either an old
         # run or a deployment without the check.
         "thin_major_plans": [
-            o.goal.id for o in scheduled if o.complexity == "major" and o.slots < 14
+            o.goal.id
+            for o in scheduled
+            if o.complexity == "major" and o.slots < MAJOR_FLOOR_SLOTS
         ],
     }
 
@@ -580,6 +644,21 @@ def breaches(report: dict) -> list[str]:
             f"only {report['anchor_share']:.0%} of plans use any word from "
             f"their own goal (threshold {MIN_ANCHOR_SHARE:.0%})"
         )
+    if report["rows_total"] and report["situated_share"] < MIN_SITUATED_SHARE:
+        found.append(
+            f"only {report['situated_share']:.0%} of rows say when or where "
+            f"they happen (threshold {MIN_SITUATED_SHARE:.0%}); the vaguest: "
+            + ", ".join(report["unsituated_rows"][:4])
+        )
+    # ⛔ A metric nobody fails on is a metric nobody reads. The coverage figures
+    # were reported and not gated when they were added, which would have let
+    # the reported bug pass a --strict run in silence.
+    if report["thin_major_plans"]:
+        found.append(
+            f"plans read as major on under {MAJOR_FLOOR_SLOTS} day-slots "
+            f"(present on under half a week for a long goal): "
+            + ", ".join(report["thin_major_plans"])
+        )
     return found
 
 
@@ -596,6 +675,7 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
     print(f"  rows saying how          {report['detail_share']:.1%}")
     print(f"  rows with a citation     {report['citation_share']:.1%}")
     print(f"  plans using a goal word  {report['anchor_share']:.1%}")
+    print(f"  rows saying when/where   {report['situated_share']:.1%}")
     if report["scheduled"]:
         print(f"  day-slots per plan       {report['mean_slots']:.1f} mean")
     print()

@@ -498,3 +498,109 @@ def test_coverage_is_reported_per_reading_of_the_goals_size():
     assert report["scheduled"] == 2
     assert report["slots_by_complexity"]["small"]["mean"] == 3.0
     assert report["slots_by_complexity"]["major"]["mean"] == 10.0
+
+
+# ---------------------------------------------------------------------------
+# The --strict gates.
+#
+# ⛔ A METRIC NOBODY FAILS ON IS A METRIC NOBODY READS. Coverage and
+# situatedness were both reported before they were gated, which would have let
+# the reported bug pass a --strict run in silence. These tests are here so a
+# future metric is not added the same way.
+# ---------------------------------------------------------------------------
+
+
+def test_a_major_goal_on_four_day_slots_is_a_strict_breach():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Mondays to Thursdays",
+                (
+                    "Walk for ten minutes after breakfast",
+                    "Drink a glass of water after waking",
+                    "Go to bed at the same time each night",
+                    "Cook at home in the evening",
+                ),
+                (1, 1, 1, 1),
+                "major",
+            )
+        ]
+    )
+    found = measure.breaches(report)
+
+    assert any("day-slots" in line for line in found), found
+
+
+def test_a_plan_that_fills_the_week_raises_no_coverage_breach():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs, walks home and Sunday cooking",
+                (
+                    "Walk 30 minutes on the way home from work",
+                    "Cook a batch on Sunday morning",
+                    "Take the stairs at the office",
+                    "A bowl of vegetables at dinner",
+                ),
+                (5, 1, 5, 7),
+                "major",
+            )
+        ]
+    )
+
+    assert not any("day-slots" in line for line in measure.breaches(report))
+
+
+def test_rows_that_name_no_moment_and_no_place_are_a_strict_breach():
+    report = measure.measure(
+        [
+            _outcome(
+                "vague-healthier",
+                "Feeling better",
+                ("Eat better", "Be more active", "Manage stress"),
+            )
+        ]
+    )
+    found = measure.breaches(report)
+
+    assert any("when or where" in line for line in found), found
+    assert report["situated_share"] == 0.0
+
+
+def test_a_row_that_names_a_moment_counts_as_situated():
+    assert measure.situated("Walk 30 minutes on the way home from work")
+    assert measure.situated("Put a bowl of vegetables on the plate at dinner")
+    assert measure.situated("Take the stairs at the office")
+
+    # The goal restated, which is the thing the prompt's first test rejects.
+    assert not measure.situated("Eat better")
+    assert not measure.situated("Be more active")
+    assert not measure.situated("Drink more water")
+
+
+def test_word_boundaries_are_respected_so_an_activity_word_is_not_a_place():
+    """
+    "workout" is not "work" and "beforehand" is not "before". Without this the
+    list would creep into matching the activity words themselves and report
+    every plan as situated, which is the failure mode of a crude measure that
+    nobody notices.
+    """
+    assert not measure.situated("Do a workout")
+    assert not measure.situated("Stretch beforehand")
+
+
+def test_a_concrete_row_that_answers_no_goal_still_counts_as_situated():
+    """
+    ⛔ THE LIMIT, PINNED SO IT IS NOT OVER-READ.
+
+    "Drink a glass of water after waking" is one of the two rows that were
+    actually reported, and it scores as situated, because it does name a
+    moment. This measure sees whether a row says WHEN or WHERE; it cannot see
+    whether the row answers the goal. That is what `repeat_share` and the
+    contrast pairs are for, and it is why no deterministic vagueness check was
+    built in `goal_structuring`.
+    """
+    assert measure.situated("Drink a glass of water after waking")
+    assert measure.situated("Go to bed at the same time each night")

@@ -1619,6 +1619,41 @@ Two tests hold the shape:
   duplication is the point, not waste**, and a test fails if either copy goes.
   Verified by deleting the early copy and watching it fail.
 
+#### ⛔ A passing suite is evidence about the tests, not about the code
+
+`backend/scripts/goal_mutation_check.py` breaks each rule this feature claims
+to enforce and checks the suite notices. A mutation that **survives** is a rule
+nothing is actually testing.
+
+    python backend/scripts/goal_mutation_check.py
+
+It exists because that failure happened **four times in one sitting**, on this
+feature, under a green suite:
+
+- the goals screen's ticks asserted `accessibilityState`, which passes in jsdom
+  whether or not anything reaches the DOM;
+- the shape bands' attribution rule explained every rejection once the floor
+  was set to something unsatisfiable;
+- the prompt-ordering test matched a cross-reference instead of a heading, and
+  would have passed whatever the ordering was;
+- and **the two `complexity` tests, found by this script**. Both used a
+  one-row plan, so replacing the discard with `complexity = "moderate"` still
+  failed the moderate *row count*. They demonstrated "one row is not three
+  rows" while claiming to demonstrate "a missing reading is refused". They now
+  use a plan that moderate would accept, and
+  `test_the_fixture_those_two_rely_on_really_would_be_accepted` fails if that
+  stops being true.
+
+All twelve mutations are caught as of 2026-09-13, including the ones covering
+the caveat, the evidence register refusing a nearest match, emergency
+screening running first, and a suggested row staying labelled `generated`.
+
+- ⛔ **It edits source files in place** and restores them in a `finally`, with
+  `newline=""` so it cannot rewrite line endings as a side effect. Do not run
+  it over a dirty tree; check `git status` before and after.
+- ⛔ **A survivor is not fixed by deleting the mutation.** Fix the test.
+- Not part of `pytest` — it runs the suite once per mutation.
+
 ⛔ **Suggestions are not clinically reviewed, and they are what everyone
 sees.** They are written by a software engineer; no clinician has read
 `PLAN_SYSTEM_PROMPT`, and since 2026-09-12 it is the whole of the guard rather

@@ -1355,33 +1355,53 @@ def test_the_planner_does_not_decode_greedily_and_nothing_else_follows_it(
 # ---------------------------------------------------------------------------
 
 
+# ⛔ THESE TWO USE A PLAN THAT IS VALID UNDER THE DEFAULT, AND THAT IS THE
+# WHOLE POINT OF THEM.
+#
+# Both were written with a single activity, and both passed a mutation that
+# replaced the discard with `complexity = "moderate"` — because a one-row plan
+# fails the moderate ROW COUNT anyway. They demonstrated "one row is not three
+# to four rows" while claiming to demonstrate "a missing reading is refused".
+#
+# Three rows on five weekdays is 15 day-slots: comfortably inside moderate's
+# 3-4 rows and 6-28 slots. So nothing downstream can reject it, and the only
+# thing that can is the check these tests are about.
+def _plan_that_moderate_would_accept(**overrides):
+    rows = [
+        _walk_suggestion(text=f"Row {n}", days=list(goal_structuring.DAYS[:5]))
+        for n in range(3)
+    ]
+    return _plan(title="Walks after lunch", activities=rows, **overrides)
+
+
 def test_a_plan_must_commit_to_a_reading_of_how_big_the_goal_is(model):
     """
     The reading is required rather than defaulted. A model that never made one
     has not taken the size of the goal into account, and quietly calling it
     "moderate" would make the feature look like it was working.
     """
-    model(
-        _plan(
-            title="Walks after lunch",
-            activities=[_walk_suggestion()],
-            complexity=None,
-        )
-    )
+    model(_plan_that_moderate_would_accept(complexity=None))
 
     assert goal_structuring.suggest_plan("I want to walk more") is None
 
 
 def test_an_unrecognised_reading_is_a_discard_and_not_a_default(model):
-    model(
-        _plan(
-            title="Walks after lunch",
-            activities=[_walk_suggestion()],
-            complexity="enormous",
-        )
-    )
+    model(_plan_that_moderate_would_accept(complexity="enormous"))
 
     assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+def test_the_fixture_those_two_rely_on_really_would_be_accepted(model):
+    """
+    ⛔ The load-bearing half. If this plan stopped being valid under
+    "moderate", the two tests above would go back to passing for the wrong
+    reason and nothing would say so.
+    """
+    model(_plan_that_moderate_would_accept(complexity="moderate"))
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.complexity == "moderate"
 
 
 def test_a_major_goal_may_not_be_answered_with_a_two_row_plan(model):

@@ -181,6 +181,27 @@ MUTATIONS = [
     ),
     (
         "triage",
+        "2. an emergency red-flag match returns URGENT instead of EMERGENT",
+        RULES,
+        '            tier_name="EMERGENT",',
+        '            tier_name="URGENT",',
+    ),
+    (
+        "triage",
+        "4. the model supplies the reasoning even when its tier lost",
+        TRIAGE,
+        "    if model_tier is not None and model_tier >= rule_tier and model_reasoning:",
+        "    if model_reasoning:",
+    ),
+    (
+        "triage",
+        "5. a model outage produces SELF_CARE instead of the rule tier",
+        TRIAGE,
+        "    model_tier = verdict.tier if verdict else None",
+        "    model_tier = verdict.tier if verdict else Tier.SELF_CARE",
+    ),
+    (
+        "triage",
         "3b. the model tier simply replaces the rule tier",
         TRIAGE,
         "    return max(candidates)",

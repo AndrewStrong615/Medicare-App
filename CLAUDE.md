@@ -1642,10 +1642,28 @@ permits adding tests for them. This adds no test to them and modifies nothing:
 it copies, breaks the copy, and deletes it. `git status` after a run confirms
 it.
 
-**All three triage properties it probes are genuinely caught** — the rules
-defaulting to SELF_CARE instead of URGENT (the single most important rule
-here), `max()` becoming `min()`, and the model tier replacing the rule tier
-rather than reconciling with it.
+⛔ **All five of the properties listed under "How the safety architecture
+works" are probed, and all five are genuinely caught.** That section says they
+are "each asserted by tests"; this is the first time that claim has been
+checked rather than trusted, and it holds:
+
+| | mutation | |
+|---|---|---|
+| 1 | the rules default to SELF_CARE instead of URGENT | caught |
+| 2 | a red-flag match returns URGENT instead of EMERGENT | caught |
+| 3 | `max()` becomes `min()` in `_reconcile` | caught |
+| 3b | the model tier simply replaces the rule tier | caught |
+| 4 | the model supplies the reasoning even when its tier lost | caught |
+| 5 | a model outage produces SELF_CARE instead of the rule tier | caught |
+
+Property 1 is the one this file calls "the single most important rule here",
+and property 5 is the one that guarantees a broken model never reassures
+anybody. Both are load-bearing.
+
+⛔ **This is not clinical validation and does not touch the release blocker.**
+It says the tests fail when the code stops doing what this file says it does.
+Whether what this file says is clinically right is the question a clinician has
+to answer, and nothing here goes near it.
 
 It exists because that failure happened **four times in one sitting**, on this
 feature, under a green suite:
@@ -1664,7 +1682,7 @@ feature, under a green suite:
   `test_the_fixture_those_two_rely_on_really_would_be_accepted` fails if that
   stops being true.
 
-All fifteen mutations are caught as of 2026-09-14, including the caveat, the
+All eighteen mutations are caught as of 2026-09-14, including the caveat, the
 evidence register refusing a nearest match, emergency screening running first,
 and a suggested row staying labelled `generated`.
 

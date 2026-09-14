@@ -377,3 +377,124 @@ def test_the_committed_baseline_still_loads_and_still_shows_the_reported_bug():
     assert report["pairs"]["weight-scale"]["overlap"] > 0.3
     assert report["anchor_share"] < measure.MIN_ANCHOR_SHARE
     assert measure.breaches(report), "the baseline is the failing state"
+
+
+# ---------------------------------------------------------------------------
+# How much of a week a plan fills.
+#
+# Added 2026-09-13 with the coverage check in `_validate_plan`. A row count
+# cannot see the reported failure — four rows on four days answering a
+# year-long goal — so the harness could not have reported it either.
+# ---------------------------------------------------------------------------
+
+
+def _scheduled(goal_id: str, title: str, rows, day_counts, complexity: str):
+    goal = next(g for g in corpus.CORPUS if g.id == goal_id)
+    return measure.Outcome(
+        goal,
+        title=title,
+        rows=tuple(rows),
+        day_counts=tuple(day_counts),
+        complexity=complexity,
+    )
+
+
+def test_a_run_that_recorded_no_days_reports_no_coverage_at_all():
+    """
+    ⛔ ABSENT, NOT ZERO.
+
+    The committed BEFORE run predates the schedule being recorded. Reporting
+    it as a mean of 0.0 day-slots would read as a damning finding about those
+    plans rather than as a fact about the run, and the before/after comparison
+    this harness exists for would be a comparison of two different things.
+    """
+    report = measure.measure(
+        [
+            _outcome("weight-one-pound", "A walk before the wedding", ("Walk on Sunday",)),
+            _outcome("weight-hundred-pounds", "Steady weeks", ("Walk after dinner",)),
+        ]
+    )
+
+    assert report["scheduled"] == 0
+    assert report["mean_slots"] == 0.0
+    assert report["slots_by_complexity"] == {}
+    assert report["thin_major_plans"] == []
+
+
+def test_the_reported_plan_is_visible_as_a_major_goal_on_four_day_slots():
+    """
+    The plan the owner was shown, in the shape the harness now measures: four
+    rows, one day each, declared major. Four rows is a perfectly good row
+    count, which is why this needed a second number.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Mondays to Thursdays",
+                (
+                    "Walk for ten minutes",
+                    "Drink a glass of water after waking",
+                    "Go to bed at the same time",
+                    "Cook at home",
+                ),
+                (1, 1, 1, 1),
+                "major",
+            )
+        ]
+    )
+
+    assert report["thin_major_plans"] == ["weight-hundred-pounds"]
+    assert report["mean_slots"] == 4.0
+    assert report["slots_by_complexity"]["major"]["fewest"] == 4
+
+
+def test_a_plan_that_fills_a_week_is_not_flagged():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs, walks home and Sunday cooking",
+                (
+                    "Walk 30 minutes on the way home",
+                    "Cook a batch on Sunday",
+                    "Take the stairs at the office",
+                    "A bowl of vegetables at dinner",
+                ),
+                (5, 1, 5, 7),
+                "major",
+            )
+        ]
+    )
+
+    assert report["thin_major_plans"] == []
+    assert report["mean_slots"] == 18.0
+
+
+def test_coverage_is_reported_per_reading_of_the_goals_size():
+    """
+    The two halves of the reported pair, which is the comparison the whole
+    harness was written for — now on the axis a row count cannot show.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-one-pound",
+                "A walk before the wedding",
+                ("Walk to the shop",),
+                (3,),
+                "small",
+            ),
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs and walks home",
+                ("Walk 30 minutes on the way home", "Take the stairs"),
+                (5, 5),
+                "major",
+            ),
+        ]
+    )
+
+    assert report["scheduled"] == 2
+    assert report["slots_by_complexity"]["small"]["mean"] == 3.0
+    assert report["slots_by_complexity"]["major"]["mean"] == 10.0

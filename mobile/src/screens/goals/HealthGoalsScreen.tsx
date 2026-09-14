@@ -74,6 +74,24 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
    */
   const [savedFor, setSavedFor] = useState(route.params?.savedFor);
 
+  /*
+   * Which rows have their citation open.
+   *
+   * Per activity rather than per screen, so opening one source does not
+   * unfold four others, and closed by default so the everyday state of this
+   * screen is the short one. Held in component state and deliberately not
+   * persisted: which sources somebody expanded yesterday is not a preference,
+   * and this screen already reloads its goals on every focus.
+   */
+  const [openSources, setOpenSources] = useState<Set<string>>(new Set());
+
+  const toggleSource = (activityId: string) =>
+    setOpenSources((current) => {
+      const next = new Set(current);
+      if (!next.delete(activityId)) next.add(activityId);
+      return next;
+    });
+
   const today = localDay();
 
   const load = useCallback(async () => {
@@ -243,32 +261,61 @@ export function HealthGoalsScreen({ navigation, route }: Props) {
                 ) : null}
 
                 {/*
-                  ⛔ THE CITATION ALWAYS CARRIES ITS CAVEAT.
+                  ⛔ THE CITATION IS FOLDED AWAY HERE, AND OPEN ON THE EDITOR.
 
-                  Same rule as the editor: a publisher's name under a
-                  MedHelp-written row reads as approval of that row, and
-                  nothing here has been approved by anybody. `caveat` is
-                  server copy and is rendered every time, never reworded here
-                  and never dropped to save a line.
+                  Reported 2026-09-13: rendered in full on every row this is
+                  four more lines under each of up to five activities, and the
+                  screen a person opens to tick two boxes became a wall of
+                  text. The editor is where the citation earns its place — it
+                  is part of deciding whether to accept a row — and this screen
+                  is what they see every day afterwards.
+
+                  ⛔ FOLDED, NOT DROPPED. The rule in core/goal_evidence.py is
+                  that every surface rendering a citation carries its caveat,
+                  and that still holds: closed, this renders no publisher, no
+                  document and no quote, so there is nothing to read as an
+                  endorsement; open, it renders all four exactly as the editor
+                  does. Never show the publisher's name on the closed control
+                  — a government name under a MedHelp-written row is the
+                  endorsement the caveat exists to prevent, and a control is
+                  not a place the caveat can follow it.
                 */}
                 {activity.evidence ? (
                   <View style={styles.evidence}>
-                    <Text style={styles.evidenceQuote}>
-                      “{activity.evidence.quote}”
-                    </Text>
-                    <Text style={styles.evidenceSource}>
-                      {activity.evidence.publisher} — {activity.evidence.document}
-                    </Text>
-                    <Text
-                      style={styles.evidenceLink}
-                      accessibilityRole="link"
-                      onPress={() => Linking.openURL(activity.evidence!.url)}
+                    <Pressable
+                      onPress={() => toggleSource(activity.id)}
+                      style={styles.sourceToggle}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: openSources.has(activity.id) }}
+                      accessibilityLabel={`Where this kind of activity comes from: ${activity.text}`}
                     >
-                      Read it at the source
-                    </Text>
-                    <Text style={styles.evidenceCaveat}>
-                      {activity.evidence.caveat}
-                    </Text>
+                      <Text style={styles.sourceToggleText}>
+                        {openSources.has(activity.id)
+                          ? "Hide where this comes from"
+                          : "Where this comes from"}
+                      </Text>
+                    </Pressable>
+
+                    {openSources.has(activity.id) && (
+                      <View style={styles.evidenceBody}>
+                        <Text style={styles.evidenceQuote}>
+                          “{activity.evidence.quote}”
+                        </Text>
+                        <Text style={styles.evidenceSource}>
+                          {activity.evidence.publisher} — {activity.evidence.document}
+                        </Text>
+                        <Text
+                          style={styles.evidenceLink}
+                          accessibilityRole="link"
+                          onPress={() => Linking.openURL(activity.evidence!.url)}
+                        >
+                          Read it at the source
+                        </Text>
+                        <Text style={styles.evidenceCaveat}>
+                          {activity.evidence.caveat}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 ) : null}
                 </View>
@@ -386,7 +433,20 @@ const styles = StyleSheet.create({
   evidence: {
     marginLeft: MIN_TAP_TARGET,
     marginTop: 2,
+  },
+  // The closed control. A full tap target, because it is the only thing on
+  // this screen between a person and the source behind a row.
+  sourceToggle: { minHeight: MIN_TAP_TARGET, justifyContent: "center" },
+  sourceToggleText: {
+    ...typography.caption,
+    color: colors.accent,
+    textDecorationLine: "underline",
+  },
+  // The rule and the indent move onto the opened body, so a closed row leaves
+  // no quotation mark hanging under it.
+  evidenceBody: {
     paddingLeft: spacing.sm,
+    paddingBottom: spacing.xs,
     borderLeftWidth: 2,
     borderLeftColor: colors.border,
     gap: 2,

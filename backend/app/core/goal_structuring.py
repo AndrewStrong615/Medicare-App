@@ -635,6 +635,49 @@ ROWS_BY_COMPLEXITY = {
     "major": (4, 5),
 }
 
+# How much of the week a plan may occupy, for each reading of the goal's size,
+# added 2026-09-13 after the owner reported that "lose a hundred pounds in a
+# year" came back as ten minutes of exercise, water and an early night.
+#
+# A slot is one row on one day: a row on all seven days is seven slots, and a
+# plan's total is the sum over its rows. It is the only measure of a plan's
+# size that this module can actually compute, and it is deliberately a measure
+# of COVERAGE rather than of effort.
+#
+# ⛔ WHY COVERAGE AND NOT EFFORT. `ROWS_BY_COMPLEXITY` bounds how many things
+# a plan contains; nothing bounded how much of anyone's week those things
+# touched, so four rows each on one day - a plan present on four days out of
+# seven - satisfied "major" and read as the token plan it was. Coverage is an
+# ordinary planning decision and is checkable arithmetic. How hard any one row
+# is remains a clinician's call, is not checked here, and cannot be: see the
+# prompt's "WHAT SCALE MAY NEVER CHANGE". A model that answers a major goal
+# with one punishing row still gets past this, exactly as it gets past
+# `ROWS_BY_COMPLEXITY`.
+#
+# The bands overlap on purpose. They are meant to catch a plan that did not
+# take the goal's size into account at all - a seven-day programme for
+# something meant once, or a four-day gesture at a year's work - and not to
+# adjudicate between two reasonable readings of the same goal.
+# ⛔ EACH BAND HAS ONE WORKING END, AND IT IS NOT THE SAME END.
+#
+# "major" is enforced by its FLOOR: below fourteen a plan is not present on
+# most days of the week, and a plan that is not present on most days is not an
+# answer to a goal the person described as a year's work. That is the reported
+# failure and the reason this table exists.
+#
+# "small" is enforced by its CEILING: a whole week's programme for something
+# somebody meant to do once is the same mistake pointing the other way.
+#
+# The other end of each band is deliberately slack. A single row on two days
+# is a perfectly good small plan, and a major goal answered across every day
+# of the week is not wrong — so a floor for "small" and a ceiling for "major"
+# would reject real plans in order to enforce nothing.
+WEEK_SLOTS_BY_COMPLEXITY = {
+    "small": (1, 14),
+    "moderate": (6, 21),
+    "major": (14, 35),
+}
+
 # The reading is required, so a plan cannot come back without the model having
 # committed to one. An unrecognised value is a discard rather than a default:
 # silently treating an unknown reading as "moderate" would make the whole
@@ -703,24 +746,66 @@ that the evenings are the hard part, something in the plan is in the evening.
 A row you could paste onto a stranger's plan is a row you have not written
 yet.
 
-SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY
+SCALE CHANGES THE PLAN: MORE OF THE WEEK, NEVER A HARDER DAY
 
 A small, near goal and a large, far-off one are not the same goal and must not
 come back with the same plan.
 
-- Small and near: fewer rows, over a short run of days, one or two things done
-  properly. Do not hand somebody a seven-day programme for something they
-  meant to do once.
-- Large and far off: a plan built to still be there in a few months rather
-  than a push. A steady weekly rhythm, ordinary hours, rows that do not need
-  enthusiasm to survive.
+- Small and near: fewer rows, on fewer days, one or two things done properly.
+  Do not hand somebody a seven-day programme for something they meant to do
+  once.
+- Large and far off: a plan that fills a real week and is built to still be
+  there in a few months rather than a push. More rows, on more days, across
+  more of the day - the morning, the working day and the evening, not three
+  things all at 09:00 - and rows that do not need enthusiasm to survive.
 
-NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN. Scale may change how many rows
-there are, which days they sit on and how long the rhythm is meant to last. It
-may never raise an amount, add intensity, lengthen a session, stack more on a
-day, or set a figure to reach. How hard a person should push is a clinician's
-call and not yours, and every rule below holds whatever size of goal you were
-given.
+WHAT SCALE MAY CHANGE, exactly:
+
+- How many rows there are.
+- How many days of the week each row sits on.
+- How much of the day the plan covers.
+- How many minutes of ordinary walking-pace activity the WEEK adds up to, up
+  to the published figure under HOW MUCH IS ENOUGH below and no further.
+
+WHAT SCALE MAY NEVER CHANGE:
+
+- Intensity. Never harder, faster, heavier, longer-per-session-than-ordinary,
+  never "push", "challenge yourself", "no excuses", never through pain.
+- A figure to reach. No weight, blood pressure, blood sugar, cholesterol or
+  calorie target, at any size of goal.
+- The rules under WHAT YOU MUST NEVER PROPOSE, which hold whatever size of
+  goal you were given.
+
+A bigger goal earns a fuller week. It does not earn a harder day. How hard a
+person should push is a clinician's call and not yours; how much of their week
+a plan occupies is an ordinary planning decision and is yours.
+
+HOW MUCH IS ENOUGH: THE PUBLISHED FIGURE, NOT ONE OF YOURS
+
+Where a goal is about moving more - weight, fitness, energy, stamina, sitting
+too much, getting outdoors - do not propose a token amount. A plan of ten
+minutes a day for a goal the person described as a year's work is not a
+cautious plan, it is an unserious one, and they can see that.
+
+Build the week towards what is already published for adults, and no further:
+
+- About 150 minutes of moderate, walking-pace activity across the week,
+  spread over most days rather than stacked into one.
+- Activity that works the muscles on about 2 days of the week - carrying,
+  hills, stairs, bodyweight movements at an ordinary effort.
+
+That is a WEEKLY total reached by ordinary activity spread across ordinary
+days. It is a ceiling on what you may build up to, not a target to announce:
+never write the figure "150" into a row, never say "you need", and never say
+what reaching it will do for them.
+
+Start lower than it where the person said their week is full, where they said
+they have tried and not kept it up, where they described pain, an injury, an
+illness, a very small goal, or where they said nothing at all about how much
+time they have. Where they described more room than that, build towards it.
+
+Never propose more than it. Above that figure you would be making a judgement
+about how hard this person should work, and that is not yours to make.
 
 THE DAILY SCHEDULE
 
@@ -734,9 +819,10 @@ came for: a plan with no schedule is a list.
   "21:15". Pick an hour the activity plausibly fits: something done after
   lunch is early afternoon, winding down is late evening, something done on
   waking is early morning.
-- Spread the week out and stagger the times. Two or three things on a steady
-  rhythm at sensible hours is a better plan than five things every day at
-  09:00, which nobody keeps up.
+- Spread the week out and stagger the times. A plan on a steady rhythm at
+  sensible hours across the day beats the same number of rows all stacked at
+  09:00, which nobody keeps up. This is about WHEN things sit, not how many
+  there are - see SCALE for that.
 - Waking hours only, and keep them ordinary: nothing before 06:00 or after
   22:00 unless the goal is itself about sleep or shift work.
 
@@ -745,39 +831,78 @@ from the days you give, so they can never disagree with the schedule.
 
 HOW BIG IS THIS GOAL? DECIDE BEFORE YOU WRITE A ROW
 
-Call `complexity` with one of these, and let it shape the plan:
+Call `complexity` with one of these, and let it shape both how many rows the
+plan has and how much of the week they fill.
+
+Count the week as you write: add up, over all your rows, how many days each
+row happens on. That total is how much of their week this plan occupies, and
+the application checks it against the reading you declared.
 
 - "small"    - one thing, soon, or a habit with a single moving part.
-               Two or three rows. Do not hand somebody a whole programme for
-               something they meant to do once.
+               One to three rows, and at most 14 day-slots. Do not hand
+               somebody a whole programme for something they meant to do
+               once.
 - "moderate" - a change to an ordinary week, over weeks rather than days.
-               Three or four rows.
+               Three or four rows, and 6 to 21 day-slots.
 - "major"    - a long, hard change with more than one part to it, or one the
                person says they have tried before and not kept up. Four or
-               five rows, spread across the week rather than stacked on one
-               day, and built to still be there in a few months.
+               five rows, and AT LEAST 14 day-slots: a plan that is present
+               on most days of the week, spread across the week rather than
+               stacked on one day, and built to still be there in a few
+               months.
 
 A goal is major because it is LONG AND COMPLICATED, never because it is
 dangerous or because of anything about the person. Reread SCALE above: a
-bigger goal gets more parts and a longer rhythm, and never a harder day.
+bigger goal gets more parts, more days and a longer rhythm, and never a
+harder day.
 
 WHAT TO PROPOSE
 
-- Between two and five small, ordinary, everyday activities.
+- Between two and five ordinary, everyday activities, sized to the goal by
+  SCALE above.
 - Things a person can do without equipment, a gym, a subscription or money.
 - Plain movement, rest, routine, food habits, time outdoors, time with
   people, and simple daily habits.
-- Modest starting points, not a training programme. Where the person said
-  nothing about their week, assume they have little spare time; where they did
-  say something about it, believe them and plan around it.
+- Not a training programme, and not a token either. Where the person said
+  nothing about their week, assume they have little spare time; where they
+  did say something about it, believe them and plan around it.
 - Write each one as a short plain instruction naming the thing they will
   actually do, built out of the goal in front of you.
-- Make every row checkable. At the end of a day a person has to be able to
-  answer yes or no. "Eat better", "be more active" and "manage stress" are not
-  activities, they are the goal restated; "put a vegetable on the plate at
-  dinner" and "get off the bus one stop early" are activities.
-- You may give a small, gentle amount of time where it helps - "ten minutes",
-  "a short walk". Keep it easy.
+- Say the amount out loud where the row has one - "walk 30 minutes", "take
+  the stairs up four floors", "one bowl of vegetables at dinner". A row with
+  no amount is a row a person cannot tell they have finished. Keep every
+  amount ordinary and walking-pace, and keep the week inside HOW MUCH IS
+  ENOUGH above.
+
+EVERY ROW HAS TO BE DOABLE WITHOUT DECIDING ANYTHING ELSE FIRST
+
+A vague row is not a cautious row. It is a row that gets skipped, because the
+person has to work out what it actually means before they can start, and that
+is the work they came here to have done.
+
+Three tests. A row that fails any of them is not finished:
+
+1. CHECKABLE. At the end of the day they can answer yes or no. "Eat better",
+   "be more active", "manage stress", "drink more water" and "get more sleep"
+   are not activities, they are the goal restated. "Put a bowl of vegetables
+   on the plate at dinner" and "get off the bus one stop early" are
+   activities.
+2. LOCATED. It says where it happens or what it happens with - the stairs at
+   work, the block around the house, the pan already in the cupboard, the
+   walk home from the bus. Not "somewhere convenient".
+3. THE FIRST MOVE IS OBVIOUS. Somebody could start it in the next ten
+   seconds without looking anything up, buying anything, or choosing between
+   options you left open.
+
+Two rows this application has actually produced, for a goal about losing a
+hundred pounds in a year:
+"drink a glass of water after waking", and
+"go to bed at the same time each night".
+Both pass the first test and fail the other two. They are the habits that fit
+every goal and answer none of them, and a person reading them under a year-long
+goal can see that nothing read what they wrote. If a row of that kind genuinely
+belongs in THIS plan, it has to carry this person's own week - which bed time,
+which part of their evening, what is happening instead.
 
 SAY HOW, NOT JUST WHAT
 
@@ -1164,8 +1289,13 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     ⛔ THIS NO LONGER VETOES ON CONTENT. The `_FORBIDDEN` phrase list that used
     to discard a whole plan on one match was removed on 2026-09-12 — see the
     note above it. What is left checks shape only: that there is a title, that
-    there are not too many rows, and that every row carries a schedule this
-    app can actually render.
+    there are not too many rows, that every row carries a schedule this app can
+    actually render, and that the week those schedules add up to matches the
+    size the model said the goal was (`WEEK_SLOTS_BY_COMPLEXITY`).
+
+    The last of those is arithmetic over the plan, not a reading of it. It
+    catches a plan that ignored the size of the goal; it cannot catch one that
+    is the wrong plan, and nothing here looks at what any row says.
 
     A row without a usable day list or a usable "HH:MM" discards the whole
     plan rather than being kept with a blank schedule. A plan the person asked
@@ -1243,6 +1373,22 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
                 detail=detail,
                 evidence_domain=source.domain if source else None,
             )
+        )
+
+    # How much of the week the plan actually occupies, now that every row's
+    # days are known. Checked last because it is a property of the whole plan
+    # rather than of any one row.
+    #
+    # ⛔ A DISCARD HERE COSTS THE PERSON THEIR PLAN, so the bands are wide.
+    # The failure it exists to catch is a plan that ignored the size of the
+    # goal outright - the reported one was four rows over four days answering
+    # "lose a hundred pounds in a year" - and not a plan that read the goal
+    # one notch differently from how someone else would.
+    slots = sum(len(activity.days) for activity in activities)
+    fewest_slots, most_slots = WEEK_SLOTS_BY_COMPLEXITY[complexity]
+    if not fewest_slots <= slots <= most_slots:
+        return _discard(
+            f"plan: {slots} day-slots does not match complexity {complexity!r}"
         )
 
     return GoalDraft(

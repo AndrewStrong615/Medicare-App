@@ -279,6 +279,19 @@ The reading is returned by the API and deliberately not rendered: telling
 somebody their goal is "major" is a judgement about their ambition, and this
 app does not make one.
 
+**A second band was added on 2026-09-13**, after a report that a goal of
+losing a hundred pounds in a year came back as four rows on four days, ten
+minutes of exercise, a glass of water and an early night. Row count could not
+see that: four rows is a perfectly good four rows. `WEEK_SLOTS_BY_COMPLEXITY`
+counts **day-slots** — one row on one day — and requires a "major" plan to
+reach fourteen and a "small" one to stay under fourteen. Each band has one
+working end; the other is slack, because a single row on two days is a fine
+small plan and a major plan on every day is not wrong.
+
+⛔ It bounds **coverage**, never effort. Three gentle rows and three gruelling
+ones on the same schedule are indistinguishable to it, on purpose, and a test
+asserts exactly that so nobody later reads it as a safety control.
+
 
 ## For the reviewer
 
@@ -312,6 +325,26 @@ app does not make one.
    two benefit-shaped quotes in the register belong there? See above.
 10. **Added 2026-09-13.** Are the `detail` sentences within bounds? They are
     the newest place a benefit claim can appear and the roomiest.
+11. **Added 2026-09-13, and the biggest question in this list now.** The
+    prompt used to cap every plan at "modest starting points"; it now builds
+    the week towards the CDC's published adult figure — 150 minutes of
+    moderate activity a week plus strengthening on about two days — and may
+    never go past it. The figure is quoted verbatim in `goal_evidence.py` and
+    is not ours. **Is reading a published adult recommendation as the ceiling
+    for a general-purpose goal box the right call, and is `complexity` the
+    right thing to scale towards it?** A plan that fills more of somebody's
+    week is a bigger intervention than one that fills less, even with every
+    intensity rule held.
+12. **Added 2026-09-13.** `WEEK_SLOTS_BY_COMPLEXITY` requires a plan the
+    model called "major" to be present on at least fourteen row-days of the
+    week. That number is a software engineer's, it is a floor on *coverage*
+    and never on effort, and a plan that misses it is discarded — the person
+    gets an empty editor. Is fourteen right, and is a discard the right
+    failure, or should a thin plan be shown with its thinness stated?
+13. **Added 2026-09-13.** Vagueness is asked for in the prompt and not
+    checked anywhere, because "drink a glass of water after waking" is a
+    concrete row that answers nothing and no deterministic test separates
+    those. Is that the right place to leave it?
 
 
 ## Diagnosing "MedHelp has no suggestions right now"

@@ -13,7 +13,7 @@ from datetime import date
 
 import pytest
 
-from app.core import goal_structuring
+from app.core import goal_evidence, goal_structuring
 from app.models.goal import GoalCompletion
 from app.services.llm import ChatReply, LLMUnavailable, ToolCall
 
@@ -1293,11 +1293,15 @@ def test_scale_changes_the_plan_but_may_never_make_it_harder():
     """
     prompt = goal_structuring.PLAN_SYSTEM_PROMPT
 
-    assert "SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY" in prompt
-    assert "NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN" in prompt
+    assert "SCALE CHANGES THE PLAN: MORE OF THE WEEK, NEVER A HARDER DAY" in prompt
+    assert "WHAT SCALE MAY NEVER CHANGE" in prompt
 
-    bounded = prompt.split("NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN", 1)[1]
-    for forbidden in ("raise an amount", "add intensity", "set a figure to reach"):
+    # Everything after that heading is the list of things a bigger goal may
+    # not buy. The wording was made more precise on 2026-09-13 — scale may now
+    # fill more of the week, and may still never raise intensity or set a
+    # figure — so the assertion moved with it rather than being dropped.
+    bounded = prompt.split("WHAT SCALE MAY NEVER CHANGE", 1)[1]
+    for forbidden in ("Intensity.", "A figure to reach.", "never through pain"):
         assert forbidden in bounded
 
     # The existing absolutes are untouched by the change.
@@ -1426,6 +1430,236 @@ def test_a_major_goal_gets_the_longer_plan_and_says_so(model):
     assert isinstance(draft, goal_structuring.GoalDraft)
     assert draft.complexity == "major"
     assert len(draft.activities) == 4
+
+
+# ---------------------------------------------------------------------------
+# Reported 2026-09-13: "I said I want to lose a hundred pounds in a year and it
+# recommended ten minutes of exercise a day, drink water, go to bed on time."
+#
+# The row count already had to agree with the declared reading. Nothing made
+# the plan occupy any of the person's week, so four rows on one day each — a
+# plan present on four days out of seven — satisfied "major".
+# ---------------------------------------------------------------------------
+
+
+def _on(text, days, time_of_day="08:00"):
+    """A planned row on named days, for counting how much of a week it fills."""
+    return _walk_suggestion(text=text, days=list(days), time_of_day=time_of_day)
+
+
+MON = ("monday",)
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday")
+
+
+def test_a_major_goal_may_not_be_answered_with_a_plan_that_barely_touches_the_week(
+    model,
+):
+    """
+    ⛔ THE REPORTED PLAN, AS A CHECK.
+
+    Four rows, each on one day: enough rows to call itself major, and present
+    on four days of somebody's year-long attempt. The count of rows was never
+    what made that plan feel unserious — how little of the week it occupied
+    was.
+    """
+    rows = [
+        _on("Walk for ten minutes", MON),
+        _on("Drink a glass of water after waking", ("tuesday",)),
+        _on("Go to bed at the same time", ("wednesday",)),
+        _on("Cook at home", ("thursday",)),
+    ]
+    model(_plan(title="Mondays to Thursdays", activities=rows, complexity="major"))
+
+    assert (
+        goal_structuring.suggest_plan("I want to lose a hundred pounds in a year")
+        is None
+    )
+
+
+def test_a_major_goal_is_accepted_when_the_plan_actually_fills_a_week(model):
+    rows = [
+        _on("Walk 30 minutes on the way home", WEEKDAYS, "17:30"),
+        _on("Cook a batch on Sunday", ("sunday",), "11:00"),
+        _on("Take the stairs at the office", WEEKDAYS, "09:00"),
+        _on("A bowl of vegetables at dinner", goal_structuring.DAYS, "18:30"),
+    ]
+    model(
+        _plan(
+            title="Stairs, walks home and Sunday cooking",
+            activities=rows,
+            complexity="major",
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to lose a hundred pounds in a year")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert sum(len(one.days) for one in draft.activities) == 18
+
+
+def test_a_small_goal_may_not_be_answered_with_a_whole_weeks_programme(model):
+    """
+    The same check pointing the other way. Somebody who meant to do one thing
+    once is not handed three daily habits.
+    """
+    rows = [_on(f"Row {n}", goal_structuring.DAYS) for n in range(3)]
+    model(_plan(title="Three daily habits", activities=rows, complexity="small"))
+
+    assert goal_structuring.suggest_plan("I want to walk to the shop tomorrow") is None
+
+
+def test_a_small_goal_is_accepted_on_a_few_days(model):
+    rows = [_on("Walk to the shop", ("saturday", "sunday", "wednesday"))]
+    model(_plan(title="Walks to the shop", activities=rows, complexity="small"))
+    draft = goal_structuring.suggest_plan("I want to walk to the shop")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+
+
+def test_the_coverage_bands_never_measure_how_hard_a_row_is(model):
+    """
+    ⛔ The check is arithmetic over the schedule and nothing else.
+
+    A plan of five gruelling rows and a plan of five gentle ones on the same
+    days are indistinguishable here, on purpose: how hard a person should push
+    is a clinician's call and is not something this module may adjudicate. The
+    test exists so nobody later reads the bands as a safety control.
+    """
+    gentle = [_on(f"Stand up for a minute {n}", WEEKDAYS, "10:00") for n in range(3)]
+    model(
+        _plan(title="Standing up at the desk", activities=gentle, complexity="moderate")
+    )
+    assert isinstance(
+        goal_structuring.suggest_plan("I sit down too much"), goal_structuring.GoalDraft
+    )
+
+    # Identical schedule, wildly different effort, identical verdict.
+    hard = [_on(f"Run five miles {n}", WEEKDAYS, "10:00") for n in range(3)]
+    model(_plan(title="Runs before work", activities=hard, complexity="moderate"))
+    assert isinstance(
+        goal_structuring.suggest_plan("I sit down too much"), goal_structuring.GoalDraft
+    )
+
+
+def test_every_complexity_has_a_usable_coverage_band():
+    """A reading with no band, or an unsatisfiable one, is an unusable plan."""
+    assert set(goal_structuring.WEEK_SLOTS_BY_COMPLEXITY) == set(
+        goal_structuring.ROWS_BY_COMPLEXITY
+    )
+    for name, (fewest, most) in goal_structuring.WEEK_SLOTS_BY_COMPLEXITY.items():
+        rows_fewest, rows_most = goal_structuring.ROWS_BY_COMPLEXITY[name]
+        assert 1 <= fewest <= most, name
+        # The allowed rows have to be able to reach the floor and to sit
+        # inside the ceiling, or that reading could never produce a plan.
+        assert rows_most * len(goal_structuring.DAYS) >= fewest, name
+        assert rows_fewest <= most, name
+
+
+# ---------------------------------------------------------------------------
+# The ambition of a plan, and the one place it is allowed to come from.
+#
+# Reported alongside the template plans: the plans "aren't very that
+# effective". The prompt used to cap every plan at "modest starting points"
+# and "keep it easy", so a year-long goal and an afternoon's goal were offered
+# the same ten minutes.
+# ---------------------------------------------------------------------------
+
+
+def test_the_plan_prompt_anchors_how_much_to_published_guidance():
+    """
+    ⛔ WHERE THE CEILING COMES FROM, AND WHY IT IS NOT OURS.
+
+    A plan may now build the week towards a figure that is *published* — the
+    same CDC recommendation already carried verbatim in `goal_evidence.py` —
+    and may never go past it. A number a software engineer picked would be
+    this app authoring how hard somebody should work, which is the thing the
+    whole feature is built not to do.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "150 minutes" in prompt
+    assert "Never propose more than it." in prompt
+    # And it is a ceiling to build towards, never a target read out to the
+    # person: a clinical figure on their screen is what this app may not do.
+    assert 'never write the figure "150" into a row' in prompt
+
+
+def test_the_published_figure_in_the_prompt_is_the_one_in_the_register():
+    """
+    ⛔ ONE COPY OF THE NUMBER.
+
+    The ceiling the prompt builds towards and the sentence rendered under a
+    row have to be the same published recommendation. Two copies would drift,
+    and the one on screen is the one a person reads as the justification.
+    """
+    quote = goal_evidence.BY_DOMAIN["aerobic_activity"].quote
+
+    assert "150 minutes" in quote
+    assert "150 minutes" in goal_structuring.PLAN_SYSTEM_PROMPT
+
+
+def test_scale_may_fill_more_of_the_week_and_may_never_make_a_day_harder():
+    """
+    The one-directional rule, restated more precisely rather than relaxed.
+    Scale moves coverage; it may not move intensity or set a figure.
+
+    ⛔ The prompt is the only guard on this path. This test is what stops
+    "answer a bigger goal with more of the week" being quietly reread as
+    "answer a bigger goal harder".
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "WHAT SCALE MAY NEVER CHANGE" in prompt
+    assert "It does not earn a harder day." in prompt
+    for forbidden in ("through pain", "weight", "blood pressure", "calorie"):
+        assert forbidden in prompt
+
+
+def test_the_prompt_still_refuses_every_clinical_decision():
+    """
+    Raising the ambition of a plan changed nothing about what a plan may
+    contain. These are the lines the 2026-09-12 removal left standing, and the
+    SCALE and WHAT TO PROPOSE sections were rewritten around them.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "A medication, a dose, a supplement" in prompt
+    assert "A target number for a clinical measurement" in prompt
+    assert "Fasting, purging, detoxes" in prompt
+    assert "Intense, strenuous or competitive exercise" in prompt
+    assert "Propose the activity and stop." in prompt
+
+
+def test_the_prompt_names_the_reported_template_rows_as_the_failure():
+    """
+    The rows the owner was actually shown — ten minutes of exercise, a glass of
+    water, an early night — named in the prompt as what a template looks like.
+
+    Same treatment the generic titles and the copied examples got, and for the
+    same reason this file has now recorded twice: an example offered in a
+    prompt is an example returned in an answer.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+    # The prompt is prose and wraps, so a sentence spanning a line break is
+    # still the sentence. Only the quoted rows are checked literally, because
+    # those are deliberately kept whole on one line.
+    flowed = " ".join(prompt.split())
+
+    assert "drink a glass of water after waking" in prompt
+    assert "go to bed at the same time each night" in prompt
+    assert "the habits that fit every goal and answer none of them" in flowed
+
+
+def test_a_row_has_to_be_startable_without_deciding_anything_else():
+    """
+    Vagueness was reported as a separate complaint from genericness, and it is
+    one: a row nobody can start is skipped, whichever goal it came from.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "EVERY ROW HAS TO BE DOABLE WITHOUT DECIDING ANYTHING ELSE FIRST" in prompt
+    assert "CHECKABLE" in prompt
+    assert "LOCATED" in prompt
+    assert "THE FIRST MOVE IS OBVIOUS" in prompt
 
 
 # ---------------------------------------------------------------------------

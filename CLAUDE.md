@@ -1831,6 +1831,201 @@ which is a genuine improvement on a model asserting things; it is not the
 clinical review this file has been asking for, and it does not lift any release
 blocker.
 
+### Ten minutes a day for a year-long goal (2026-09-13, second report)
+
+Reported by the repository owner, the same day and after the changes above:
+
+> *"I don't trust these goals. I put it, I wanna lose a hundred pounds in a
+> year, and basically recommended me to do ten minutes of exercise a day,
+> drink water, go to bed on time. I also feel like the strictness and the
+> severity of these plans aren't very that effective."*
+
+Two distinct defects, and they need different kinds of fix. It is worth
+separating them before reading the rest, because conflating them is how this
+would get "fixed" by making plans harder, which is fenced.
+
+- **Unserious size.** A plan present on four days of a year-long attempt is
+  not a cautious plan, it is one that did not read the goal. **That is a
+  planning failure and is now checked.**
+- **Vagueness.** "Drink water" and "go to bed on time" are the habits that fit
+  every goal and answer none of them. **That is a prompt failure and is
+  addressed in the prompt**, where it can only be asked for.
+
+#### The ceiling on ambition now comes from published guidance, not from us
+
+`PLAN_SYSTEM_PROMPT` used to cap **every** plan at "modest starting points,
+not a training programme" and "keep it easy", so a goal meant for an afternoon
+and a goal meant for a year were both offered ten minutes. That is where the
+reported plan came from, and it was deliberate: MedHelp has no business
+deciding how hard anyone should work.
+
+The resolution is that it still does not decide. `HOW MUCH IS ENOUGH` in the
+prompt builds the week towards **a figure somebody else published** — the CDC's
+150 minutes of moderate activity a week plus muscle-strengthening on about two
+days — which is the *same recommendation already quoted verbatim* under these
+rows by `goal_evidence.py`'s `aerobic_activity` and `strength_activity`
+entries. `test_the_published_figure_in_the_prompt_is_the_one_in_the_register`
+pins the two together so there is one copy of the number.
+
+- ⛔ **It is a ceiling to build towards, never a target to announce.** The
+  prompt forbids writing "150" into a row and forbids saying what reaching it
+  would do for anyone — a figure on a person's screen with a benefit attached
+  is the app authoring a health claim, which is the line this whole feature is
+  built around.
+- ⛔ **Never propose more than it.** Above a published adult recommendation
+  there is nothing to appeal to but MedHelp's own judgement about this
+  person's capacity, which it does not have.
+- **It starts lower by default.** Where somebody said their week is full, said
+  they have tried and stopped, described pain, injury or illness, wrote a very
+  small goal, or said nothing at all about their time — the plan starts under
+  the figure. Only a person who described room gets built towards it.
+
+⛔ **Read `SCALE` as it is now worded, not as it was.** The rule used to be the
+flat `NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN`. It is now split, because
+the flat version is what produced the reported plan: it forbade a bigger goal
+from buying anything at all.
+
+| A bigger goal may buy | It may never buy |
+|---|---|
+| more rows | intensity — harder, faster, heavier, through pain |
+| more days per row | a figure to reach (weight, BP, blood sugar, calories) |
+| more of the day covered | anything under `WHAT YOU MUST NEVER PROPOSE` |
+| more weekly minutes, **up to the published figure** | more than the published figure |
+
+*A bigger goal earns a fuller week. It does not earn a harder day.* How hard a
+person should push is a clinician's call; how much of their week a plan
+occupies is an ordinary planning decision.
+`test_scale_may_fill_more_of_the_week_and_may_never_make_a_day_harder` and
+`test_the_prompt_still_refuses_every_clinical_decision` hold both halves,
+because the prompt is still the only guard on this path and "answer a bigger
+goal with more of the week" is one careless reading from "answer it harder".
+
+#### `WEEK_SLOTS_BY_COMPLEXITY`: the half of "sized to the goal" a row count cannot see
+
+`ROWS_BY_COMPLEXITY` bounded how many things a plan contained. Nothing bounded
+how much of anyone's week those things touched — so **four rows on one day
+each, a plan present on four days out of seven, satisfied "major"**. That is
+precisely the reported plan, and five rows would not have improved it.
+
+A **day-slot** is one row on one day; a plan's total is the sum over its rows.
+`_validate_plan` now requires that total to match the reading the model
+declared, and discards the plan when it does not.
+
+| reading | rows | day-slots | the end that actually bites |
+|---|---|---|---|
+| `small` | 1–3 | 1–14 | the **ceiling** — no week-long programme for something meant once |
+| `moderate` | 3–4 | 6–21 | — |
+| `major` | 4–5 | **14**–35 | the **floor** — a year's work is present on most days |
+
+- ⛔ **It bounds coverage, not effort**, and that distinction is the whole
+  design. Coverage is arithmetic this module can perform; effort is a
+  clinician's call. A model that reads a goal as major and answers with one
+  punishing row still gets past this, exactly as it gets past
+  `ROWS_BY_COMPLEXITY`. `test_the_coverage_bands_never_measure_how_hard_a_row_is`
+  puts three gentle rows and three gruelling ones on the same schedule and
+  asserts the same verdict — it exists so nobody later reads these bands as a
+  safety control.
+- **Each band has one working end and the other is slack on purpose.** A
+  single row on two days is a perfectly good small plan, and a major goal
+  answered on every day of the week is not wrong. A floor for `small` or a
+  ceiling for `major` would reject real plans to enforce nothing.
+- ⛔ **A discard costs the person their plan**, so the bands are wide. They
+  catch a plan that ignored the goal's size outright, not one that read the
+  goal a notch differently from how somebody else would.
+
+#### Vagueness is asked for, not checked — and that asymmetry is the honest part
+
+`EVERY ROW HAS TO BE DOABLE WITHOUT DECIDING ANYTHING ELSE FIRST` gives three
+tests a row must pass: **checkable** (yes or no at the end of the day),
+**located** (it says where, or with what), and **the first move is obvious**
+(startable in ten seconds without looking anything up or choosing between
+options the plan left open).
+
+The two rows the owner was actually shown — `"drink a glass of water after
+waking"` and `"go to bed at the same time each night"` — are named in the
+prompt as the failure, not offered as examples. ⛔ **An example in a prompt is
+a suggestion, not an illustration**; that has now cost this feature three bugs
+(the generic titles, the copied `WHAT TO PROPOSE` rows, and these), so each set
+is written in as a thing that came back rather than a thing to aim at.
+`test_the_prompt_names_the_reported_template_rows_as_the_failure` keeps them
+there.
+
+⛔ **Be clear about what this half is.** A prompt asks and a check enforces, and
+there is no deterministic check for vagueness — "drink a glass of water after
+waking" is a perfectly concrete row that happens to answer nothing. Telling a
+row that fits this goal from a row that fits every goal is a judgement, which
+is why this is the half that remains an instruction. A template-row veto was
+considered and **not** built: the measured baseline shows the model emits these
+when it has to originate a plan, not from a fixed vocabulary a list could hold,
+and a blunt phrase veto here is how `_FORBIDDEN` made health goals unanswerable
+in the first place.
+
+#### It is measured — on a new axis, and still not run
+
+`goal_plan_eval` now records each plan's `days` and `complexity` and reports
+**day-slots per plan**, broken down by the reading, plus `thin_major_plans` —
+major goals answered on under fourteen day-slots, which is the reported bug by
+name.
+
+- ⛔ **A run that recorded no schedule reports coverage as absent, never as
+  zero.** The committed BEFORE baseline predates the field; printing it as a
+  mean of 0.0 would read as a finding about those plans rather than a fact
+  about the run, and the before/after would compare two different things.
+  `test_a_run_that_recorded_no_days_reports_no_coverage_at_all` pins it.
+- ⛔ **The AFTER numbers still have not been taken**, for the same reason as
+  the section above: the branch is not deployed and there is no key on this
+  machine. Both halves of this change are reasoned about rather than counted
+  until somebody runs `measure.py`, and the coverage half is the one where a
+  count would actually settle it.
+
+#### The citation is folded away on the screen people open every day
+
+Reported in the same message:
+
+> *"when we do the research to support why the AI is picking these plans, it
+> gets too overwhelming in the text… once they've already set the goals, I
+> feel like it's a little redundant to include that information right there."*
+
+Correct, and the split is the right one. `GoalCreateScreen` renders the
+citation open, because there it is part of deciding whether to accept a row.
+`HealthGoalsScreen` — opened every day to tick two boxes — folds it behind
+**"Where this comes from"**, per row, closed by default.
+
+- ⛔ **Folded, not dropped, and that is what makes it permissible.** The rule
+  in `goal_evidence.py` is that every surface rendering a citation carries
+  `EVIDENCE_CAVEAT`. Closed, the screen renders **no publisher, no document
+  and no quotation**, so there is nothing to read as an endorsement; opened, it
+  renders all four exactly as the editor does. The two tests are a pair and
+  must stay one.
+- ⛔ **Never put the publisher's name on the closed control.** "CDC ›" would be
+  a government name under a MedHelp-written row with no room for the caveat to
+  follow it, which is the exact thing the caveat exists to prevent.
+- **The detail stays visible.** It says *how* to do the row on the day, which
+  is the part that earns its place on a screen someone opens every morning.
+  The citation says where the kind of activity came from, which is a question
+  you ask once.
+- State held per activity in component state, not persisted: which sources
+  somebody expanded yesterday is not a preference.
+
+#### Not reviewed, and what this did not change
+
+⛔ **None of this is clinical review, and the ambition change makes that review
+more urgent rather than less.** A plan that fills more of somebody's week is a
+bigger intervention than one that fills less, even with every intensity rule
+held. `PLAN_SYSTEM_PROMPT` remains a software engineer's construction, is still
+the only guard on the authoring path, and is still the most urgent item in the
+outstanding clinical review — now with a reviewer's question attached:
+**is building towards a published adult activity recommendation the right
+ceiling for a general-purpose goal box, and is reading it off `complexity` the
+right way to get there?**
+
+Nothing fenced moved. No disclaimer, no escalation copy, no triage or emergency
+module, and `structure`'s quoting and digit checks are untouched. The owner
+asked for this work in conversation on **2026-09-13** — more realistic and
+effective plans, less specific text after the goals are set — and this
+paragraph is the *record* of that rather than the authorisation for it, the
+same standing every other entry in this file has.
+
 #### 3. Sized to the goal — `complexity` and `ROWS_BY_COMPLEXITY`
 
 The planner must call `complexity` as `small`, `moderate` or `major`, and the
@@ -1844,9 +2039,11 @@ a plan for "lose a hundred".
 
 - ⛔ **It bounds shape, not effort.** How many rows a plan has is a planning
   decision. How hard any one of them is, is a clinician's — see the prompt's
-  `NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN`. A model that reads a goal as
-  major and answers with one punishing row is not caught here and cannot be;
-  the check is deliberately about arithmetic it can actually perform.
+  `WHAT SCALE MAY NEVER CHANGE`. A model that reads a goal as major and answers
+  with one punishing row is not caught here and cannot be; the check is
+  deliberately about arithmetic it can actually perform.
+- **The row count is only half of it.** See `WEEK_SLOTS_BY_COMPLEXITY` above,
+  added after four rows on four days satisfied "major" for a year-long goal.
 - **The floor for a small goal is one row, not two.** Padding a plan so it looks
   like a plan is the template failure pointing the other way.
 - ⛔ **`complexity` is returned by the API and must not be rendered.** It exists

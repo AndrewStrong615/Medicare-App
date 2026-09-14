@@ -763,6 +763,83 @@ describe("HealthGoalsScreen", () => {
     expect(screen.queryByText(/has been saved/i)).toBeNull();
   });
 
+  /*
+   * ⛔ The citation is folded away on the screen people open every day.
+   *
+   * Reported 2026-09-13: rendered in full under every row, four extra lines
+   * per activity turned the tick-off screen into a wall of text. The editor
+   * still shows it open, because that is where it is part of the decision.
+   *
+   * The two tests below are a pair and have to stay one: folding it is only
+   * allowed because nothing readable as an endorsement survives the fold.
+   */
+  describe("where a row comes from is one tap away, not four lines", () => {
+    const cited = () =>
+      goal({
+        activities: [
+          {
+            id: "activity-1",
+            text: "Walk in the mornings",
+            cadence: "daily",
+            timesPerWeek: null,
+            quantityText: null,
+            preferredTime: "morning",
+            days: [...DAYS],
+            timeOfDay: "08:00",
+            completedToday: false,
+            detail: "Put your shoes by the door the night before.",
+            evidence: CITATION,
+          },
+        ],
+      });
+
+    it("⛔ shows no publisher, document or quotation until it is opened", async () => {
+      mockList.mockResolvedValue([cited()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
+
+      // Closed, there is nothing on screen a reader could take as approval:
+      // no government name, no document title, no quoted sentence.
+      expect(screen.queryByText(/Centers for Disease Control/)).toBeNull();
+      expect(screen.queryByText(/Adult Activity/)).toBeNull();
+      expect(screen.queryByText(/150 minutes/)).toBeNull();
+
+      // The detail stays. It says how to do the row, which is the part that
+      // is useful on the day.
+      expect(
+        screen.getByText("Put your shoes by the door the night before.")
+      ).toBeTruthy();
+    });
+
+    it("⛔ shows the caveat with the citation once it is opened", async () => {
+      mockList.mockResolvedValue([cited()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      await waitFor(() => expect(screen.getByText("Where this comes from")).toBeTruthy());
+
+      fireEvent.press(screen.getByText("Where this comes from"));
+
+      // Opened, it is the whole citation exactly as the editor renders it —
+      // the quotation, the publisher, and the sentence that stops the
+      // publisher's name reading as approval of a MedHelp-written row.
+      expect(screen.getByText(/150 minutes/)).toBeTruthy();
+      expect(screen.getByText(/Centers for Disease Control/)).toBeTruthy();
+      expect(screen.getByText(/not advice about you/)).toBeTruthy();
+    });
+
+    it("offers nothing to open for a row with no citation", async () => {
+      mockList.mockResolvedValue([goal()]);
+
+      render(<HealthGoalsScreen navigation={navigation as never} route={route} />);
+      await waitFor(() => expect(screen.getByText("Walk in the mornings")).toBeTruthy());
+
+      // A row MedHelp could not attribute has no source, so there is no
+      // control promising one.
+      expect(screen.queryByText("Where this comes from")).toBeNull();
+    });
+  });
+
   it("invites a first goal rather than showing an empty page", async () => {
     mockList.mockResolvedValue([]);
 

@@ -1595,6 +1595,30 @@ suite and a conversation, not a tidy-up.
 reads quotable activities out of the text and every row it produces must quote
 them — the check below. It now runs only when the planner returned nothing.
 
+#### ⛔ The prompt's length and its order are properties too
+
+Measured 2026-09-13 while adding the ambition sections: `PLAN_SYSTEM_PROMPT`
+has gone **6,019 characters at the start of this branch → 11,957 → 16,366**
+(~4,100 tokens). Most of a tripling, read by whatever free model a deployment
+has configured. **A longer prompt is not a stronger one** — instruction
+following degrades with length, and what degrades first is whatever sits
+furthest from the question. Here that would be the rules about medication,
+clinical targets and benefit claims.
+
+Two tests hold the shape:
+
+- `MAX_PLAN_PROMPT_CHARS` (18,000) is a tripwire, not a validated limit. It
+  makes the next big addition a decision rather than a drift. Raising it should
+  come with a reason and a `goal_plan_eval` run either side.
+- ⛔ **The absolute constraints bracket the ambition material, at 18% and 77%
+  through.** Left to itself, raising how much of a week a plan may fill would
+  have put new ambition-raising text in front of a constraint list already
+  three-quarters of the way down — the worst arrangement available. So
+  `WHAT SCALE MAY NEVER CHANGE` restates weight, blood pressure, calorie
+  targets and "through pain" where the ambition is introduced. **The
+  duplication is the point, not waste**, and a test fails if either copy goes.
+  Verified by deleting the early copy and watching it fail.
+
 ⛔ **Suggestions are not clinically reviewed, and they are what everyone
 sees.** They are written by a software engineer; no clinician has read
 `PLAN_SYSTEM_PROMPT`, and since 2026-09-12 it is the whole of the guard rather

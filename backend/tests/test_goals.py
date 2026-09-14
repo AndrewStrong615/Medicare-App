@@ -1769,6 +1769,88 @@ def test_a_plan_with_one_daily_row_is_never_turned_away_for_being_thin():
 
 
 # ---------------------------------------------------------------------------
+# The prompt is the only guard on this path, so its SHAPE is a property too.
+#
+# Measured 2026-09-13 while adding the ambition sections: the plan prompt has
+# gone 6,019 chars at the start of this branch -> 11,957 -> 16,366. Most of a
+# tripling, and it is read by whatever free model a deployment has configured.
+# Instruction-following degrades with length, and the thing that degrades
+# first is whatever is furthest from the question.
+# ---------------------------------------------------------------------------
+
+
+# ~4,100 tokens at four characters each. Not a limit anyone measured against a
+# model — it is a tripwire, so the next big addition is a decision rather than
+# a drift, and it is honest about being one. Raising it should come with a
+# reason and, ideally, a `goal_plan_eval` run either side.
+MAX_PLAN_PROMPT_CHARS = 18_000
+
+
+def test_the_plan_prompt_has_not_grown_without_anyone_noticing():
+    """
+    ⛔ A LONGER PROMPT IS NOT A STRONGER ONE.
+
+    Everything that constrains a suggested plan lives in this string, and it
+    is read by a small free model. Past some length the rules at the far end
+    stop being followed, and this feature's rules at the far end are the ones
+    about medication, clinical targets and benefit claims.
+
+    This does not say the current length is safe. It says a further jump is a
+    conversation.
+    """
+    assert len(goal_structuring.PLAN_SYSTEM_PROMPT) < MAX_PLAN_PROMPT_CHARS
+
+
+def test_the_absolute_constraints_bracket_the_ambition_material():
+    """
+    ⛔ THE ORDER IS LOAD-BEARING, AND IT IS THE REASON THE GROWTH WAS NOT JUST
+    TRIMMED BACK.
+
+    The 2026-09-13 sections raise how much of a week a plan may fill. Left to
+    itself that would have put new ambition-raising material in front of a
+    constraint list that already sat three-quarters of the way down — the
+    worst possible arrangement, since what a model drops first is what is
+    furthest from the question.
+
+    `WHAT SCALE MAY NEVER CHANGE` therefore states the absolutes again where
+    the ambition is introduced, so the constraints BRACKET it: measured at 18%
+    and 77% through the prompt. The duplication is the point, not waste.
+
+    Each of these is named in both places. If a future edit removes one copy,
+    this fails and the question "which copy, and is the other one early enough"
+    has to be answered rather than assumed.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    def heading(text: str) -> int:
+        """
+        Where a section STARTS.
+
+        On its own line, because the sections cross-reference each other by
+        name: a plain `index` for "WHAT YOU MUST NEVER PROPOSE" finds the
+        pointer to it inside the SCALE block, three-quarters of the prompt
+        earlier, and quietly reports the constraints as arriving before the
+        ambition when they are also restated after it.
+        """
+        newline = chr(10)
+        at = prompt.find(newline + text + newline)
+        assert at != -1, f"no section headed {text!r}"
+        return at
+
+    early = heading("WHAT SCALE MAY NEVER CHANGE:")
+    proposes = heading("WHAT TO PROPOSE")
+    late = heading("WHAT YOU MUST NEVER PROPOSE")
+
+    # Constraints before the ambition, and again after it.
+    assert early < proposes < late
+
+    for concept in ("weight", "blood pressure", "calorie", "through pain"):
+        head, tail = prompt[:proposes], prompt[proposes:]
+        assert concept in head.lower(), f"{concept} is not stated before WHAT TO PROPOSE"
+        assert concept in tail.lower(), f"{concept} is not restated after it"
+
+
+# ---------------------------------------------------------------------------
 # The ambition of a plan, and the one place it is allowed to come from.
 #
 # Reported alongside the template plans: the plans "aren't very that

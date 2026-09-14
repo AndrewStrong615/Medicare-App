@@ -576,6 +576,26 @@ def measure(outcomes: list[Outcome]) -> dict:
     # Only runs that recorded days are counted. A run collected before
     # 2026-09-13 has none, and reporting those as a coverage of zero would
     # read as a finding about the plans rather than about the run.
+    # Where a goal states its own scale, did the plan take it? `ORDER` is
+    # the planner's own ordering, so this compares like with like.
+    ORDER = {"small": 0, "moderate": 1, "major": 2}
+    misread = []
+    for outcome in planned:
+        read_as = ORDER.get(outcome.complexity)
+        if read_as is None:
+            continue  # not recorded by this run
+        floor, ceiling = outcome.goal.not_below, outcome.goal.not_above
+        if floor and read_as < ORDER[floor]:
+            misread.append(
+                f"{outcome.goal.id}: read as {outcome.complexity}, "
+                f"and the goal states a scale no smaller than {floor}"
+            )
+        if ceiling and read_as > ORDER[ceiling]:
+            misread.append(
+                f"{outcome.goal.id}: read as {outcome.complexity}, "
+                f"and the goal states a scale no larger than {ceiling}"
+            )
+
     scheduled = [o for o in planned if o.day_counts]
     by_complexity: dict[str, list[tuple[int, int]]] = {}
     for outcome in scheduled:
@@ -637,6 +657,11 @@ def measure(outcomes: list[Outcome]) -> dict:
             }
             for name, values in sorted(by_complexity.items())
         },
+        # Goals whose stated scale the plan did not take: a year-long,
+        # tried-and-stopped goal read as anything less than major, or a
+        # single-day goal read as major. ⛔ Bounds only, from the corpus, and
+        # only where the goal says its own size out loud — see corpus.Goal.
+        "misread_size": misread,
         # A plan that read its goal as major and then filled four days of the
         # week is the reported failure. It cannot reach a person any more —
         # `_validate_plan` discards it — so a name here means either an old
@@ -684,6 +709,11 @@ def breaches(report: dict) -> list[str]:
     # ⛔ A metric nobody fails on is a metric nobody reads. The coverage figures
     # were reported and not gated when they were added, which would have let
     # the reported bug pass a --strict run in silence.
+    if report["misread_size"]:
+        found.append(
+            "plans that ignored a scale the goal stated outright: "
+            + "; ".join(report["misread_size"])
+        )
     if report["thin_major_plans"]:
         found.append(
             f"plans read as major appearing on under {MAJOR_FLOOR_DAYS} days "
@@ -728,6 +758,12 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
                 "    ⛔ major goals answered on under 14 day-slots: "
                 + ", ".join(report["thin_major_plans"])
             )
+        print()
+
+    if report["misread_size"]:
+        print("  THE GOAL SAID ITS OWN SIZE AND THE PLAN DID NOT TAKE IT")
+        for line in report["misread_size"]:
+            print(f"    {line}")
         print()
 
     if report["failures"]:

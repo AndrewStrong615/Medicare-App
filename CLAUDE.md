@@ -2128,6 +2128,18 @@ name.
   is a metric nobody reads**: the coverage figures were reported and ungated
   when first added, which would have let exactly that plan pass a `--strict`
   run in silence.
+- **The prior question is measured too: did the planner read the two goals as
+  different sizes at all?** The contrast-pair overlap only sees the failure
+  once the ROWS coincide. Four corpus goals now carry a `not_below` /
+  `not_above` bound — a year-long, tried-and-stopped goal may not be read as
+  less than major; a single-day goal may not be read as major — and a
+  violation is both printed and gated by `--strict`.
+  ⛔ **Bounds, never gold labels, and only where the goal states its own scale
+  in so many words.** The other twelve carry neither, because "is this
+  moderate or major" is exactly the judgement this app should not score itself
+  on, and a test asserts an unbounded goal can never be reported. Same
+  standing as `triage_eval`'s gold tiers: consistency with this file's
+  documented intent, assigned by an engineer, not correctness.
 - **Vagueness has a crude proxy too**, since it is the half no check enforces:
   `situated_share`, the share of rows that say **when or where** they happen,
   gated at 70%. Rows like "eat better" and "be more active" cannot score.

@@ -684,3 +684,83 @@ def test_a_row_naming_a_day_of_the_week_is_situated():
     # Still no false positives: an amount is not a moment and not a place.
     assert not measure.situated("Do ten bodyweight squats")
     assert not measure.situated("Stretch for five minutes")
+
+
+# ---------------------------------------------------------------------------
+# Did the plan take a scale the goal stated outright?
+#
+# The reported complaint was that "lose one pound" and "lose a hundred pounds"
+# came back the same. The contrast-pair overlap sees that only when the ROWS
+# coincide. This sees the prior question: did the planner even read them as
+# different sizes?
+#
+# ⛔ Bounds, not gold labels, and only on the four goals that state their own
+# scale in so many words. See the note on corpus.Goal.
+# ---------------------------------------------------------------------------
+
+
+def test_a_year_long_goal_read_as_small_is_reported_and_gated():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "A walk before dinner",
+                ("Take a 15 minute walk after dinner",),
+                ((WEEK[:3]),),
+                "small",
+            )
+        ]
+    )
+
+    assert report["misread_size"], report
+    assert "no smaller than major" in report["misread_size"][0]
+    assert any("stated outright" in line for line in measure.breaches(report))
+
+
+def test_a_one_day_goal_read_as_major_is_reported():
+    report = measure.measure(
+        [
+            _scheduled(
+                "quit-today",
+                "Getting through today",
+                ("Row 1", "Row 2", "Row 3", "Row 4"),
+                (WEEK, WEEK, WEEK, WEEK),
+                "major",
+            )
+        ]
+    )
+
+    assert report["misread_size"], report
+    assert "no larger than moderate" in report["misread_size"][0]
+
+
+def test_a_goal_that_states_no_scale_is_never_reported():
+    """
+    ⛔ THE HALF THAT KEEPS THIS HONEST.
+
+    Twelve of the sixteen goals carry no bound, because "is this moderate or
+    major" is a judgement and this app should not be scoring itself on one.
+    A reading of a goal that never stated its size cannot be wrong here.
+    """
+    for complexity in ("small", "moderate", "major"):
+        report = measure.measure(
+            [
+                _scheduled(
+                    "cooking-budget",
+                    "Cooking at home",
+                    ("Cook a batch on Sunday",),
+                    ((WEEK[:3]),),
+                    complexity,
+                )
+            ]
+        )
+        assert report["misread_size"] == [], (complexity, report["misread_size"])
+
+
+def test_a_run_that_recorded_no_complexity_reports_nothing():
+    """The committed baseline predates the field; absent is not a finding."""
+    report = measure.measure(
+        [_outcome("weight-hundred-pounds", "Evening walks", ("Walk after dinner",))]
+    )
+
+    assert report["misread_size"] == []

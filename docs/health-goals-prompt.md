@@ -280,13 +280,22 @@ somebody their goal is "major" is a judgement about their ambition, and this
 app does not make one.
 
 **A second band was added on 2026-09-13**, after a report that a goal of
-losing a hundred pounds in a year came back as four rows on four days, ten
+losing a hundred pounds in a year came back as four rows on four days: ten
 minutes of exercise, a glass of water and an early night. Row count could not
-see that: four rows is a perfectly good four rows. `WEEK_SLOTS_BY_COMPLEXITY`
-counts **day-slots** — one row on one day — and requires a "major" plan to
-reach fourteen and a "small" one to stay under fourteen. Each band has one
-working end; the other is slack, because a single row on two days is a fine
-small plan and a major plan on every day is not wrong.
+see that — four rows is a perfectly good four rows — so
+`WEEK_SHAPE_BY_COMPLEXITY` bounds the shape of week a plan makes.
+
+⛔ **Its floor and its ceiling count different things.** A floor counts **how
+many days of the week the plan appears on** (major: 5, moderate: 2), because
+that is literally what "present on most days" means. A ceiling counts
+**day-slots**, one row on one day summed over the rows (small: 14), because
+what a ceiling rules out is total volume.
+
+They are not interchangeable, and getting it wrong costs a real person their
+plan. A daily walk plus three weekend errands is only **10 day-slots** and is
+on **all 7 days**; the reported plan is 4 slots on 4 days. A slot floor high
+enough to reject the second also rejects the first, which is a good answer to
+a year-long goal.
 
 ⛔ It bounds **coverage**, never effort. Three gentle rows and three gruelling
 ones on the same schedule are indistinguishable to it, on purpose, and a test
@@ -335,12 +344,12 @@ asserts exactly that so nobody later reads it as a safety control.
     right thing to scale towards it?** A plan that fills more of somebody's
     week is a bigger intervention than one that fills less, even with every
     intensity rule held.
-12. **Added 2026-09-13.** `WEEK_SLOTS_BY_COMPLEXITY` requires a plan the
-    model called "major" to be present on at least fourteen row-days of the
-    week. That number is a software engineer's, it is a floor on *coverage*
-    and never on effort, and a plan that misses it is discarded — the person
-    gets an empty editor. Is fourteen right, and is a discard the right
-    failure, or should a thin plan be shown with its thinness stated?
+12. **Added 2026-09-13.** `WEEK_SHAPE_BY_COMPLEXITY` requires a plan the
+    model called "major" to appear on at least **five days of the week**. That
+    number is a software engineer's, it is a floor on *coverage* and never on
+    effort, and a plan that misses it is discarded — the person gets an empty
+    editor. Is five right, and is a discard the right failure, or should a
+    thin plan be shown with its thinness stated?
 13. **Added 2026-09-13.** Vagueness is asked for in the prompt and not
     checked anywhere, because "drink a glass of water after waking" is a
     concrete row that answers nothing and no deterministic test separates

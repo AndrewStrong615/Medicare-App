@@ -1900,7 +1900,7 @@ occupies is an ordinary planning decision.
 because the prompt is still the only guard on this path and "answer a bigger
 goal with more of the week" is one careless reading from "answer it harder".
 
-#### `WEEK_SLOTS_BY_COMPLEXITY`: the half of "sized to the goal" a row count cannot see
+#### `WEEK_SHAPE_BY_COMPLEXITY`: the half of "sized to the goal" a row count cannot see
 
 `ROWS_BY_COMPLEXITY` bounded how many things a plan contained. Nothing bounded
 how much of anyone's week those things touched — so **four rows on one day
@@ -1911,11 +1911,26 @@ A **day-slot** is one row on one day; a plan's total is the sum over its rows.
 `_validate_plan` now requires that total to match the reading the model
 declared, and discards the plan when it does not.
 
-| reading | rows | day-slots | the end that actually bites |
+⛔ **The floor and the ceiling count different things, and that is the whole
+point.** Two measures of a week disagree in exactly the case that matters:
+
+| | "walk daily" + 3 weekend errands | the reported plan (4 rows, Mon–Thu) |
+|---|---|---|
+| day-slots | 10 | 4 |
+| **days of the week it is on** | **7** | **4** |
+
+A slot floor high enough to reject the reported plan also rejects the first
+one — a good answer to a year-long goal — and hands that person an empty
+editor. So a **floor counts days touched**, which is literally what "present
+on most days" means, and a **ceiling counts day-slots**, because what a
+ceiling rules out is total volume. Days touched cannot do a ceiling's job: one
+daily habit is on all seven days and is a perfectly good small plan.
+
+| reading | rows | floor: days on | ceiling: day-slots |
 |---|---|---|---|
-| `small` | 1–3 | 1–14 | the **ceiling** — no week-long programme for something meant once |
-| `moderate` | 3–4 | **6**–28 | the **floor** — not a plan that touches one day |
-| `major` | 4–5 | **14**–35 | the **floor** — a year's work is present on most days |
+| `small` | 1–3 | — | **14** — no week-long programme for something meant once |
+| `moderate` | 3–4 | **2** — not a plan that touches one day | 28 |
+| `major` | 4–5 | **5** — a year's work is present most days | 35 |
 
 - ⛔ **It bounds coverage, not effort**, and that distinction is the whole
   design. Coverage is arithmetic this module can perform; effort is a
@@ -1933,15 +1948,25 @@ declared, and discards the plan when it does not.
   catch a plan that ignored the goal's size outright, not one that read the
   goal a notch differently from how somebody else would.
 - ⛔ **Read the two tables together, because nothing else does.**
-  `ROWS_BY_COMPLEXITY` bounds how many rows; this one bounds how much week. A
-  ceiling on one that quietly excludes an ordinary plan under the other looks
-  like nothing at all from either table — and that happened: `moderate`
-  shipped at 6–21 for one commit, which rejected **four rows on six or seven
-  days**, four daily habits for a goal about an ordinary week, discarded into
-  an empty editor. `test_the_bands_reject_only_the_shapes_they_are_meant_to`
-  enumerates every (rows × days) the row band allows and asserts exactly which
-  the slot band turns away, so the rejected set is a reviewable list rather
-  than an emergent property of two numbers.
+  `ROWS_BY_COMPLEXITY` bounds how many rows; this one bounds what shape of
+  week they make. A bound on one that quietly excludes an ordinary plan under
+  the other looks like nothing at all from either table, and that has happened
+  twice on this change alone — `moderate` shipped for one commit at a slot
+  ceiling of 21, silently rejecting four daily habits for a goal about an
+  ordinary week; and a slot *floor* for `major` rejected a daily walk plus
+  three weekend errands. Both would have been an empty editor for a real
+  person. `test_the_bands_reject_only_the_shapes_they_are_meant_to` enumerates
+  every (rows × days) the row band allows and asserts exactly which set the
+  shape band turns away, so the rejected shapes are a reviewable list rather
+  than an emergent property of four numbers nobody compares.
+- ⛔ **That enumeration is a uniform grid and real plans are not**, which is
+  how the second bug got past it. The uneven cases are written out as their
+  own tests
+  (`test_a_major_plan_of_one_daily_row_and_a_few_weekly_ones_is_kept`), and a
+  new bound needs one too.
+- **The eval harness gates on the same number**, records `days_touched`
+  separately from the per-row counts because one cannot be derived from the
+  other, and a test asserts `measure.MAJOR_FLOOR_DAYS` equals the table's.
 
 #### Vagueness is asked for, not checked — and that asymmetry is the honest part
 

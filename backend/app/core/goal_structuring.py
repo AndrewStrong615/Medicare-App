@@ -658,37 +658,48 @@ ROWS_BY_COMPLEXITY = {
 # take the goal's size into account at all - a seven-day programme for
 # something meant once, or a four-day gesture at a year's work - and not to
 # adjudicate between two reasonable readings of the same goal.
-# ⛔ EACH BAND HAS ONE WORKING END, AND IT IS NOT THE SAME END.
+# ⛔ EACH READING IS BOUNDED AT ONE END, AND THE TWO ENDS MEASURE DIFFERENT
+# THINGS. That is not an inconsistency; it is the only way either end says what
+# it means.
 #
-# "major" is enforced by its FLOOR: below fourteen a plan is not present on
-# most days of the week, and a plan that is not present on most days is not an
-# answer to a goal the person described as a year's work. That is the reported
-# failure and the reason this table exists.
+# Two measures of a week, and they disagree in exactly the case that matters:
 #
-# "small" is enforced by its CEILING: a whole week's programme for something
-# somebody meant to do once is the same mistake pointing the other way.
+#   DAYS TOUCHED  how many distinct days of the week the plan appears on.
+#   DAY-SLOTS     one row on one day, summed over the rows.
 #
-# The other end of each band is deliberately slack. A single row on two days
-# is a perfectly good small plan, and a major goal answered across every day
-# of the week is not wrong — so a floor for "small" and a ceiling for "major"
-# would reject real plans in order to enforce nothing.
+# A plan of "walk every day" plus three weekend errands touches all 7 days and
+# fills 10 slots. The reported plan - four rows on Monday to Thursday - touches
+# 4 days and fills 4 slots. The first is a good answer to a year-long goal and
+# the second is the bug, and only DAYS TOUCHED tells them apart: a slot floor
+# high enough to reject the bug also rejects the good plan, which would hand
+# that person an empty editor.
 #
-# ⛔ EVERY REJECTED SHAPE IS DELIBERATE, AND THE LIST IS SHORT.
-# `test_the_bands_reject_only_the_shapes_they_are_meant_to` enumerates every
-# (rows x days) a row band allows and asserts which ones the slot band turns
-# away. It is the only way to see this: the two tables are read in different
-# places and a ceiling that quietly excludes an ordinary plan looks like
-# nothing at all from either one.
+# So:
 #
-# `moderate`'s ceiling was 21 for exactly one commit, which rejected four rows
-# on six or seven days - four daily habits for "a change to an ordinary week",
-# which is a perfectly ordinary plan, discarded into an empty editor. That is
-# the accident this table's own rule was written to prevent, so the ceiling is
-# now its arithmetic maximum and the floor is moderate's working end.
-WEEK_SLOTS_BY_COMPLEXITY = {
+#   "major"'s FLOOR is DAYS TOUCHED, because the sentence it is enforcing is
+#   "present on most days of the week", and that is literally what it counts.
+#
+#   "moderate"'s FLOOR is DAYS TOUCHED, for the same reason, one day being the
+#   thing it rules out.
+#
+#   "small"'s CEILING is DAY-SLOTS, because what it rules out is total volume -
+#   a whole week's programme for something meant once. Days touched cannot do
+#   this job: one daily habit touches all 7 days and is a fine small plan.
+#
+# The unbounded end of each is slack on purpose. A floor for "small" and a
+# ceiling for "major" would reject real plans in order to enforce nothing.
+#
+# ⛔ `test_the_bands_reject_only_the_shapes_they_are_meant_to` enumerates what
+# each pair actually turns away. Read it before changing a number here: the two
+# tables are read in different places, and a bound that quietly excludes an
+# ordinary plan looks like nothing at all from either one. That has already
+# happened once - see the moderate ceiling note in CLAUDE.md.
+#
+# (fewest distinct days the plan appears on, most day-slots it may fill)
+WEEK_SHAPE_BY_COMPLEXITY = {
     "small": (1, 14),
-    "moderate": (6, 28),
-    "major": (14, 35),
+    "moderate": (2, 28),
+    "major": (5, 35),
 }
 
 # The reading is required, so a plan cannot come back without the model having
@@ -847,22 +858,30 @@ HOW BIG IS THIS GOAL? DECIDE BEFORE YOU WRITE A ROW
 Call `complexity` with one of these, and let it shape both how many rows the
 plan has and how much of the week they fill.
 
-Count the week as you write: add up, over all your rows, how many days each
-row happens on. That total is how much of their week this plan occupies, and
-the application checks it against the reading you declared.
+Count the week as you write, in two ways, because the application checks
+both against the reading you declare:
+
+- HOW MANY DAYS OF THE WEEK the plan appears on at all. A row on all seven
+  days puts the plan on seven days by itself.
+- HOW MUCH the plan adds up to: over all your rows, the number of days each
+  row happens on, summed.
 
 - "small"    - one thing, soon, or a habit with a single moving part.
-               One to three rows, and at most 14 day-slots. Do not hand
+               One to three rows, adding up to at most 14. Do not hand
                somebody a whole programme for something they meant to do
                once.
 - "moderate" - a change to an ordinary week, over weeks rather than days.
-               Three or four rows, on more than one day of the week.
+               Three or four rows, appearing on at least 2 days of the week.
 - "major"    - a long, hard change with more than one part to it, or one the
                person says they have tried before and not kept up. Four or
-               five rows, and AT LEAST 14 day-slots: a plan that is present
-               on most days of the week, spread across the week rather than
+               five rows, appearing on AT LEAST 5 DAYS of the week: a plan
+               that is there on most days, spread across the week rather than
                stacked on one day, and built to still be there in a few
                months.
+
+One row on every day plus a few weekly ones is a perfectly good major plan -
+it is on the person's week every day. Four rows on four days is not, however
+many rows it has.
 
 A goal is major because it is LONG AND COMPLICATED, never because it is
 dangerous or because of anything about the person. Reread SCALE above: a
@@ -1304,7 +1323,7 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     note above it. What is left checks shape only: that there is a title, that
     there are not too many rows, that every row carries a schedule this app can
     actually render, and that the week those schedules add up to matches the
-    size the model said the goal was (`WEEK_SLOTS_BY_COMPLEXITY`).
+    size the model said the goal was (`WEEK_SHAPE_BY_COMPLEXITY`).
 
     The last of those is arithmetic over the plan, not a reading of it. It
     catches a plan that ignored the size of the goal; it cannot catch one that
@@ -1392,16 +1411,24 @@ def _validate_plan(arguments: dict[str, Any]) -> GoalDraft | None:
     # days are known. Checked last because it is a property of the whole plan
     # rather than of any one row.
     #
-    # ⛔ A DISCARD HERE COSTS THE PERSON THEIR PLAN, so the bands are wide.
-    # The failure it exists to catch is a plan that ignored the size of the
-    # goal outright - the reported one was four rows over four days answering
-    # "lose a hundred pounds in a year" - and not a plan that read the goal
-    # one notch differently from how someone else would.
+    # ⛔ A DISCARD HERE COSTS THE PERSON THEIR PLAN, so both bounds are wide
+    # and each reading is held at one end only. The failure this exists to
+    # catch is a plan that ignored the size of the goal outright - the reported
+    # one was four rows over four days answering "lose a hundred pounds in a
+    # year" - and not a plan that read the goal one notch differently from how
+    # someone else would. See WEEK_SHAPE_BY_COMPLEXITY for why the floor and
+    # the ceiling count different things.
+    days_touched = len({day for activity in activities for day in activity.days})
     slots = sum(len(activity.days) for activity in activities)
-    fewest_slots, most_slots = WEEK_SLOTS_BY_COMPLEXITY[complexity]
-    if not fewest_slots <= slots <= most_slots:
+    fewest_days, most_slots = WEEK_SHAPE_BY_COMPLEXITY[complexity]
+    if days_touched < fewest_days:
         return _discard(
-            f"plan: {slots} day-slots does not match complexity {complexity!r}"
+            f"plan: on {days_touched} days of the week, too few for "
+            f"complexity {complexity!r}"
+        )
+    if slots > most_slots:
+        return _discard(
+            f"plan: {slots} day-slots, too much week for complexity {complexity!r}"
         )
 
     return GoalDraft(

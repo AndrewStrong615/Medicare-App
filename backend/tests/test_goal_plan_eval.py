@@ -388,13 +388,32 @@ def test_the_committed_baseline_still_loads_and_still_shows_the_reported_bug():
 # ---------------------------------------------------------------------------
 
 
-def _scheduled(goal_id: str, title: str, rows, day_counts, complexity: str):
+WEEK = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+
+def _scheduled(goal_id: str, title: str, rows, day_sets, complexity: str):
+    """
+    An outcome carrying a real schedule: one tuple of day names per row.
+
+    ⛔ Day names rather than counts, because `days_touched` cannot be derived
+    from counts and it is the number the gate reads. The helper used to take
+    counts, which silently reported every plan as appearing on zero days.
+    """
     goal = next(g for g in corpus.CORPUS if g.id == goal_id)
     return measure.Outcome(
         goal,
         title=title,
         rows=tuple(rows),
-        day_counts=tuple(day_counts),
+        day_counts=tuple(len(days) for days in day_sets),
+        days_touched=len({day for days in day_sets for day in days}),
         complexity=complexity,
     )
 
@@ -438,7 +457,7 @@ def test_the_reported_plan_is_visible_as_a_major_goal_on_four_day_slots():
                     "Go to bed at the same time",
                     "Cook at home",
                 ),
-                (1, 1, 1, 1),
+                (("monday",), ("tuesday",), ("wednesday",), ("thursday",)),
                 "major",
             )
         ]
@@ -461,7 +480,7 @@ def test_a_plan_that_fills_a_week_is_not_flagged():
                     "Take the stairs at the office",
                     "A bowl of vegetables at dinner",
                 ),
-                (5, 1, 5, 7),
+                (WEEK[:5], ("sunday",), WEEK[:5], WEEK),
                 "major",
             )
         ]
@@ -482,14 +501,14 @@ def test_coverage_is_reported_per_reading_of_the_goals_size():
                 "weight-one-pound",
                 "A walk before the wedding",
                 ("Walk to the shop",),
-                (3,),
+                (("monday", "wednesday", "friday"),),
                 "small",
             ),
             _scheduled(
                 "weight-hundred-pounds",
                 "Stairs and walks home",
                 ("Walk 30 minutes on the way home", "Take the stairs"),
-                (5, 5),
+                (WEEK[:5], WEEK[:5]),
                 "major",
             ),
         ]
@@ -522,14 +541,14 @@ def test_a_major_goal_on_four_day_slots_is_a_strict_breach():
                     "Go to bed at the same time each night",
                     "Cook at home in the evening",
                 ),
-                (1, 1, 1, 1),
+                (("monday",), ("tuesday",), ("wednesday",), ("thursday",)),
                 "major",
             )
         ]
     )
     found = measure.breaches(report)
 
-    assert any("day-slots" in line for line in found), found
+    assert any("days of the week" in line for line in found), found
 
 
 def test_a_plan_that_fills_the_week_raises_no_coverage_breach():
@@ -544,13 +563,13 @@ def test_a_plan_that_fills_the_week_raises_no_coverage_breach():
                     "Take the stairs at the office",
                     "A bowl of vegetables at dinner",
                 ),
-                (5, 1, 5, 7),
+                (WEEK[:5], ("sunday",), WEEK[:5], WEEK),
                 "major",
             )
         ]
     )
 
-    assert not any("day-slots" in line for line in measure.breaches(report))
+    assert not any("days of the week" in line for line in measure.breaches(report))
 
 
 def test_rows_that_name_no_moment_and_no_place_are_a_strict_breach():
@@ -604,3 +623,46 @@ def test_a_concrete_row_that_answers_no_goal_still_counts_as_situated():
     """
     assert measure.situated("Drink a glass of water after waking")
     assert measure.situated("Go to bed at the same time each night")
+
+
+def test_the_harness_keeps_a_daily_row_plus_weekly_ones_off_the_thin_list():
+    """
+    ⛔ THE GATE AND THE CHECK HAVE TO COUNT THE SAME THING.
+
+    "Walk every day" plus three weekend errands is 10 day-slots and appears on
+    all seven days. `goal_structuring` keeps it; so must this, or a --strict
+    run would report a breach for a plan the application was happy with, and
+    somebody would "fix" one of the two to agree with the other.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Daily walks home and a Sunday cook",
+                (
+                    "Walk 30 minutes on the way home",
+                    "Cook a batch for the week on Sunday",
+                    "Do the food shop on Saturday",
+                    "Set out the week's walks on Monday",
+                ),
+                (WEEK, ("sunday",), ("saturday",), ("monday",)),
+                "major",
+            )
+        ]
+    )
+
+    assert report["mean_slots"] == 10.0
+    assert report["mean_days_touched"] == 7.0
+    assert report["thin_major_plans"] == []
+    assert not any("days of the week" in line for line in measure.breaches(report))
+
+
+def test_the_floor_the_harness_gates_on_is_the_one_the_application_enforces():
+    """
+    Two copies of a number in two files is a number that drifts. This is the
+    cheapest possible guard against that.
+    """
+    from app.core import goal_structuring
+
+    fewest_days, _ = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY["major"]
+    assert measure.MAJOR_FLOOR_DAYS == fewest_days

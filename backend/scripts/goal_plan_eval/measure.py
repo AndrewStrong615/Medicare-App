@@ -94,9 +94,16 @@ MAX_REPEAT_SHARE = 0.20  # share of all rows that appear on more than one goal
 MAX_PAIR_OVERLAP = 0.34  # Jaccard between the two halves of a contrast pair
 MIN_ANCHOR_SHARE = 0.70  # goals whose plan uses at least one of their anchors
 MIN_SITUATED_SHARE = 0.70  # rows that say when or where they happen
-# A plan the model called major, on fewer day-slots than this, is the
-# reported failure: present on under half a week for a year-long goal.
-MAJOR_FLOOR_SLOTS = 14
+# A plan the model called major, appearing on fewer days of the week than
+# this, is the reported failure: not present on most of a week the person
+# described as a year's work.
+#
+# ⛔ DAYS OF THE WEEK, NOT DAY-SLOTS. A plan of one daily row plus three
+# weekly ones is only 10 slots and is on every day of somebody's week. A
+# slot floor high enough to fail the reported plan also fails that one.
+# `goal_structuring.WEEK_SHAPE_BY_COMPLEXITY` holds the same number for the
+# same reason - keep the two in step.
+MAJOR_FLOOR_DAYS = 5
 
 
 def normalise(text: str) -> str:
@@ -177,6 +184,7 @@ class Outcome:
         "details",
         "cited",
         "day_counts",
+        "days_touched",
         "complexity",
     )
 
@@ -189,6 +197,7 @@ class Outcome:
         details: tuple[str, ...] = (),
         cited: tuple[bool, ...] = (),
         day_counts: tuple[int, ...] = (),
+        days_touched: int = 0,
         complexity: str = "",
     ):
         self.goal = goal
@@ -201,6 +210,11 @@ class Outcome:
         self.details = details
         self.cited = cited
         self.day_counts = day_counts
+        # ⛔ NOT derivable from `day_counts`. A plan of one daily row and
+        # three weekly ones is 10 day-slots and appears on all 7 days; the
+        # reported plan is 4 slots on 4 days. Only this separates them, which
+        # is why `goal_structuring` enforces its floor on it.
+        self.days_touched = days_touched
         self.complexity = complexity
 
     @property
@@ -240,6 +254,7 @@ def plan(goal: Goal) -> Outcome:
             details=tuple((a.detail or "") for a in result.activities),
             cited=tuple(bool(a.evidence_domain) for a in result.activities),
             day_counts=tuple(len(a.days) for a in result.activities),
+            days_touched=len({d for a in result.activities for d in a.days}),
             complexity=result.complexity or "",
         )
     if isinstance(result, goal_structuring.Refusal):
@@ -270,6 +285,7 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
     details = tuple((a.get("detail") or "") for a in activities)
     cited = tuple(bool(a.get("evidence")) for a in activities)
     day_counts = tuple(len(a.get("days") or ()) for a in activities)
+    days_touched = len({d for a in activities for d in (a.get("days") or ())})
     if not rows:
         # `notice` is the sentence the person would have read, and out here it
         # is the only thing separating a refusal from an outage from a rate
@@ -285,6 +301,7 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
         details=details,
         cited=cited,
         day_counts=day_counts,
+        days_touched=days_touched,
         complexity=payload.get("complexity") or "",
     )
 
@@ -455,6 +472,7 @@ def save(outcomes: list[Outcome], path: Path, label: str, source: str) -> None:
                         "details": list(o.details),
                         "cited": list(o.cited),
                         "day_counts": list(o.day_counts),
+                        "days_touched": o.days_touched,
                         "complexity": o.complexity,
                         "failure": o.failure,
                     }
@@ -490,6 +508,7 @@ def load(path: Path) -> tuple[list[Outcome], str, str]:
                 details=tuple(entry.get("details") or ()),
                 cited=tuple(entry.get("cited") or ()),
                 day_counts=tuple(entry.get("day_counts") or ()),
+                days_touched=entry.get("days_touched") or 0,
                 complexity=entry.get("complexity") or "",
                 failure=entry.get("failure") or "",
             )
@@ -553,10 +572,10 @@ def measure(outcomes: list[Outcome]) -> dict:
     # 2026-09-13 has none, and reporting those as a coverage of zero would
     # read as a finding about the plans rather than about the run.
     scheduled = [o for o in planned if o.day_counts]
-    by_complexity: dict[str, list[int]] = {}
+    by_complexity: dict[str, list[tuple[int, int]]] = {}
     for outcome in scheduled:
         by_complexity.setdefault(outcome.complexity or "unstated", []).append(
-            outcome.slots
+            (outcome.slots, outcome.days_touched)
         )
 
     near_repeats = sorted(
@@ -598,11 +617,18 @@ def measure(outcomes: list[Outcome]) -> dict:
         "mean_slots": (
             sum(o.slots for o in scheduled) / len(scheduled) if scheduled else 0.0
         ),
+        "mean_days_touched": (
+            sum(o.days_touched for o in scheduled) / len(scheduled)
+            if scheduled
+            else 0.0
+        ),
         "slots_by_complexity": {
             name: {
                 "plans": len(values),
-                "mean": sum(values) / len(values),
-                "fewest": min(values),
+                "mean": sum(slots for slots, _ in values) / len(values),
+                "fewest": min(slots for slots, _ in values),
+                "mean_days": sum(days for _, days in values) / len(values),
+                "fewest_days": min(days for _, days in values),
             }
             for name, values in sorted(by_complexity.items())
         },
@@ -613,7 +639,7 @@ def measure(outcomes: list[Outcome]) -> dict:
         "thin_major_plans": [
             o.goal.id
             for o in scheduled
-            if o.complexity == "major" and o.slots < MAJOR_FLOOR_SLOTS
+            if o.complexity == "major" and o.days_touched < MAJOR_FLOOR_DAYS
         ],
     }
 
@@ -655,8 +681,8 @@ def breaches(report: dict) -> list[str]:
     # the reported bug pass a --strict run in silence.
     if report["thin_major_plans"]:
         found.append(
-            f"plans read as major on under {MAJOR_FLOOR_SLOTS} day-slots "
-            f"(present on under half a week for a long goal): "
+            f"plans read as major appearing on under {MAJOR_FLOOR_DAYS} days "
+            f"of the week (not present on most of a long goal's week): "
             + ", ".join(report["thin_major_plans"])
         )
     return found
@@ -678,16 +704,19 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
     print(f"  rows saying when/where   {report['situated_share']:.1%}")
     if report["scheduled"]:
         print(f"  day-slots per plan       {report['mean_slots']:.1f} mean")
+        print(f"  days of the week on      {report['mean_days_touched']:.1f} mean")
     print()
 
     # How much of a week a plan fills, by the size the planner read the goal
     # as. A run from before 2026-09-13 recorded no days and prints nothing.
     if report["slots_by_complexity"]:
-        print("  HOW MUCH OF A WEEK A PLAN FILLS  (day-slots: one row, one day)")
+        print("  HOW MUCH OF A WEEK A PLAN FILLS")
+        print("    (slots: one row on one day.  days: distinct days it is on)")
         for name, data in report["slots_by_complexity"].items():
             print(
                 f"    {name:<10} {data['plans']:>2} plans"
-                f"   mean {data['mean']:>5.1f}   fewest {data['fewest']:>2}"
+                f"   slots {data['mean']:>5.1f} (min {data['fewest']:>2})"
+                f"   days {data['mean_days']:>4.1f} (min {data['fewest_days']})"
             )
         if report["thin_major_plans"]:
             print(

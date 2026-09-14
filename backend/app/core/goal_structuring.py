@@ -672,9 +672,22 @@ ROWS_BY_COMPLEXITY = {
 # is a perfectly good small plan, and a major goal answered across every day
 # of the week is not wrong — so a floor for "small" and a ceiling for "major"
 # would reject real plans in order to enforce nothing.
+#
+# ⛔ EVERY REJECTED SHAPE IS DELIBERATE, AND THE LIST IS SHORT.
+# `test_the_bands_reject_only_the_shapes_they_are_meant_to` enumerates every
+# (rows x days) a row band allows and asserts which ones the slot band turns
+# away. It is the only way to see this: the two tables are read in different
+# places and a ceiling that quietly excludes an ordinary plan looks like
+# nothing at all from either one.
+#
+# `moderate`'s ceiling was 21 for exactly one commit, which rejected four rows
+# on six or seven days - four daily habits for "a change to an ordinary week",
+# which is a perfectly ordinary plan, discarded into an empty editor. That is
+# the accident this table's own rule was written to prevent, so the ceiling is
+# now its arithmetic maximum and the floor is moderate's working end.
 WEEK_SLOTS_BY_COMPLEXITY = {
     "small": (1, 14),
-    "moderate": (6, 21),
+    "moderate": (6, 28),
     "major": (14, 35),
 }
 
@@ -843,7 +856,7 @@ the application checks it against the reading you declared.
                somebody a whole programme for something they meant to do
                once.
 - "moderate" - a change to an ordinary week, over weeks rather than days.
-               Three or four rows, and 6 to 21 day-slots.
+               Three or four rows, on more than one day of the week.
 - "major"    - a long, hard change with more than one part to it, or one the
                person says they have tried before and not kept up. Four or
                five rows, and AT LEAST 14 day-slots: a plan that is present

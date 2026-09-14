@@ -1914,7 +1914,7 @@ declared, and discards the plan when it does not.
 | reading | rows | day-slots | the end that actually bites |
 |---|---|---|---|
 | `small` | 1–3 | 1–14 | the **ceiling** — no week-long programme for something meant once |
-| `moderate` | 3–4 | 6–21 | — |
+| `moderate` | 3–4 | **6**–28 | the **floor** — not a plan that touches one day |
 | `major` | 4–5 | **14**–35 | the **floor** — a year's work is present on most days |
 
 - ⛔ **It bounds coverage, not effort**, and that distinction is the whole
@@ -1932,6 +1932,16 @@ declared, and discards the plan when it does not.
 - ⛔ **A discard costs the person their plan**, so the bands are wide. They
   catch a plan that ignored the goal's size outright, not one that read the
   goal a notch differently from how somebody else would.
+- ⛔ **Read the two tables together, because nothing else does.**
+  `ROWS_BY_COMPLEXITY` bounds how many rows; this one bounds how much week. A
+  ceiling on one that quietly excludes an ordinary plan under the other looks
+  like nothing at all from either table — and that happened: `moderate`
+  shipped at 6–21 for one commit, which rejected **four rows on six or seven
+  days**, four daily habits for a goal about an ordinary week, discarded into
+  an empty editor. `test_the_bands_reject_only_the_shapes_they_are_meant_to`
+  enumerates every (rows × days) the row band allows and asserts exactly which
+  the slot band turns away, so the rejected set is a reviewable list rather
+  than an emergent property of two numbers.
 
 #### Vagueness is asked for, not checked — and that asymmetry is the honest part
 

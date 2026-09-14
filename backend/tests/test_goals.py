@@ -1554,6 +1554,77 @@ def test_every_complexity_has_a_usable_coverage_band():
         assert rows_fewest <= most, name
 
 
+def test_the_bands_reject_only_the_shapes_they_are_meant_to():
+    """
+    ⛔ THE TWO TABLES, READ TOGETHER.
+
+    `ROWS_BY_COMPLEXITY` says how many rows a reading allows;
+    `WEEK_SLOTS_BY_COMPLEXITY` says how much of a week they may fill. They are
+    read in different places, so a ceiling on one that quietly excludes an
+    ordinary plan under the other looks like nothing at all from either table.
+
+    This enumerates every uniform (rows x days-per-row) shape the row band
+    allows and asserts exactly which the slot band turns away. A discard hands
+    the person an empty editor, so a shape appearing here that nobody meant is
+    a real cost to a real person — and that already happened once: `moderate`
+    shipped with a ceiling of 21 for one commit, which rejected four rows on
+    six or seven days. Four daily habits for "a change to an ordinary week" is
+    an ordinary plan, and it was being thrown away.
+
+    The grid is uniform and real plans are not, so this is a model of the
+    space rather than all of it. It is enough to catch a band that excludes a
+    whole shape, which is the failure it is here for.
+    """
+    rejected: dict[str, set[tuple[int, int]]] = {}
+    for name, (fewest_rows, most_rows) in goal_structuring.ROWS_BY_COMPLEXITY.items():
+        fewest, most = goal_structuring.WEEK_SLOTS_BY_COMPLEXITY[name]
+        rejected[name] = {
+            (rows, per_row)
+            for rows in range(fewest_rows, most_rows + 1)
+            for per_row in range(1, len(goal_structuring.DAYS) + 1)
+            if not fewest <= rows * per_row <= most
+        }
+
+    # small — the CEILING is the working end. A whole week's programme is not
+    # an answer to something somebody meant to do once.
+    assert rejected["small"] == {(3, 5), (3, 6), (3, 7)}
+
+    # moderate — the FLOOR. Three or four rows all on the same single day is a
+    # plan that touches one day of the week it claims to be changing.
+    assert rejected["moderate"] == {(3, 1), (4, 1)}
+
+    # major — the FLOOR, and this set is the reported bug: four rows on four
+    # days answering "lose a hundred pounds in a year". (4, 1) is that plan.
+    assert rejected["major"] == {(4, 1), (4, 2), (4, 3), (5, 1), (5, 2)}
+
+
+def test_a_moderate_goal_may_have_four_daily_rows(model):
+    """
+    The regression the enumeration above found, as the plan a person would
+    actually have lost: four everyday habits, every day, for a goal about an
+    ordinary week. 28 day-slots, and it must not be discarded.
+    """
+    rows = [
+        _on("Take the stairs at the office", goal_structuring.DAYS, "09:00"),
+        _on("A bowl of vegetables at dinner", goal_structuring.DAYS, "18:30"),
+        _on("Walk to the bus stop before the usual one", goal_structuring.DAYS, "08:10"),
+        _on("Put the phone in the kitchen at bedtime", goal_structuring.DAYS, "22:00"),
+    ]
+    model(_plan(title="Stairs, stops and a quiet bedroom", activities=rows, complexity="moderate"))
+    draft = goal_structuring.suggest_plan("I want to change how my weeks go")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert sum(len(one.days) for one in draft.activities) == 28
+
+
+def test_a_moderate_goal_on_one_day_of_the_week_is_still_a_discard(model):
+    """The other end of the same band, so widening the ceiling did not empty it."""
+    rows = [_on(f"Row {n}", ("monday",)) for n in range(3)]
+    model(_plan(title="Mondays", activities=rows, complexity="moderate"))
+
+    assert goal_structuring.suggest_plan("I want to change how my weeks go") is None
+
+
 # ---------------------------------------------------------------------------
 # The ambition of a plan, and the one place it is allowed to come from.
 #

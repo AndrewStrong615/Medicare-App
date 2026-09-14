@@ -2101,89 +2101,40 @@ regardless of what the library emits. `GoalCreateScreen`'s day chips,
 browser.** It passes in jsdom whether or not anything reaches the DOM, which
 is how both goals bugs survived a green suite. Assert the label.
 
-#### REPORTED, NOT FIXED: the other six
+#### The other six are fixed too, and a test now holds the rule
 
 Found by grepping `accessibilityState` across `mobile/src` after the two goals
-bugs. Each renders no state attribute on web, and none is in this feature, so
-they are reported rather than swept into a goals branch — CLAUDE.md asks for
-commits scoped to one feature:
+bugs. Checking each against React Native Web's source rather than assuming
+split them in two:
 
-| File | State that is silently lost |
+| Call site | Verdict |
 |---|---|
-| `components/AppNav.tsx` | which tab is selected |
-| `components/SegmentedControl.tsx` | which segment is selected |
-| `components/AppButton.tsx` | disabled, and busy |
-| `components/TextField.tsx` | disabled |
-| `screens/intake/SymptomIntakeScreen.tsx` | whether the consent box is checked |
-| `screens/appointments/ProviderSearchScreen.tsx`, `BookingIdentityScreen.tsx`, `medication-reminders/MedicationRemindersScreen.tsx` | which option is selected |
+| `screens/intake/SymptomIntakeScreen.tsx` | **was broken** — a reader could not tell whether the consent box was ticked |
+| `components/AppNav.tsx`, `components/SegmentedControl.tsx` | **was broken** — every tab announced identically |
+| `ProviderSearchScreen`, `BookingIdentityScreen`, `MedicationRemindersScreen` | **was broken** — three radio groups announcing no selection |
+| `components/AppButton.tsx` | fine: it passes `disabled`, and RNW's `Pressable` sets `aria-disabled` from **that prop** |
+| `components/TextField.tsx` | fine: it passes `editable`, and RNW's `TextInput` derives the DOM state from **that prop** |
 
-The consent checkbox on the intake screen is the one to do first: it is a
-consent control, and a reader cannot currently tell whether it is ticked.
+The consent checkbox was the worst of them: a control whose entire job is to
+make agreement unambiguous, on the most sensitive text in the app. ⛔ That edit
+changes no disclaimer and no escalation copy, but it is still text on the
+intake screen, so it belongs in the clinical reviewer's read of that screen —
+the same standing as the URGENT hand-off.
 
-#### Not reviewed, and what this did not change
+`mobile/__tests__/accessibleState.test.ts` holds the rule for everything
+added later. ⛔ **It reads the source rather than rendering**, because in jsdom
+`accessibilityState` is on the element whether or not anything reaches the DOM
+— that is exactly why the ticks' own test passed while a reader was told
+nothing. It anchors each region on `accessibilityRole` (unique per call site)
+and asserts the label varies. Two cruder detectors were tried and both
+reported already-fixed sites: slicing to the next `>` truncates on `=>` and on
+these files' own ⛔ comments, and a plain character window reaches back into
+the previous element and finds *its* label.
 
-⛔ **None of this is clinical review, and the ambition change makes that review
-more urgent rather than less.** A plan that fills more of somebody's week is a
-bigger intervention than one that fills less, even with every intensity rule
-held. `PLAN_SYSTEM_PROMPT` remains a software engineer's construction, is still
-the only guard on the authoring path, and is still the most urgent item in the
-outstanding clinical review — now with a reviewer's question attached:
-**is building towards a published adult activity recommendation the right
-ceiling for a general-purpose goal box, and is reading it off `complexity` the
-right way to get there?**
-
-Nothing fenced moved. No disclaimer, no escalation copy, no triage or emergency
-module, and `structure`'s quoting and digit checks are untouched. The owner
-asked for this work in conversation on **2026-09-13** — more realistic and
-effective plans, less specific text after the goals are set — and this
-paragraph is the *record* of that rather than the authorisation for it, the
-same standing every other entry in this file has.
-
-#### 3. Sized to the goal — `complexity` and `ROWS_BY_COMPLEXITY`
-
-The planner must call `complexity` as `small`, `moderate` or `major`, and the
-row count has to agree with it (1–3 / 3–4 / 4–5). A missing or unrecognised
-reading **discards the plan** rather than defaulting to "moderate": a model that
-never made a reading has not taken the size of the goal into account, and
-defaulting would make the feature look like it was working.
-
-This is the first structural difference between a plan for "lose one pound" and
-a plan for "lose a hundred".
-
-- ⛔ **It bounds shape, not effort.** How many rows a plan has is a planning
-  decision. How hard any one of them is, is a clinician's — see the prompt's
-  `WHAT SCALE MAY NEVER CHANGE`. A model that reads a goal as major and answers
-  with one punishing row is not caught here and cannot be; the check is
-  deliberately about arithmetic it can actually perform.
-- **The row count is only half of it.** See `WEEK_SLOTS_BY_COMPLEXITY` above,
-  added after four rows on four days satisfied "major" for a year-long goal.
-- **The floor for a small goal is one row, not two.** Padding a plan so it looks
-  like a plan is the template failure pointing the other way.
-- ⛔ **`complexity` is returned by the API and must not be rendered.** It exists
-  so the behaviour is inspectable and testable, not so a screen can tell
-  somebody their goal is major. This app does not judge whether a goal is
-  realistic — the shape of the plan is how the reading shows.
-
-#### Deploying this needs the column script
-
-`detail` and `evidence_domain` went onto the existing `goal_activities` table.
-Run `scripts/add_goal_detail_columns.py` once against any database created
-before 2026-09-13 or `/goals` returns 500s. Idempotent, and the Render start
-command runs it. ⛔ Neither column is backfilled, and in particular **old rows
-are not mapped to a domain by matching words in their text** — an activity
-attributed to guidance nobody chose for it is a fabricated citation on a real
-person's plan.
-
-#### Both new properties are measured
-
-`goal_plan_eval` reports **rows saying how** and **rows with a citation**
-alongside the responsiveness figures. The committed 2026-09-13 baseline reads
-0.0% for both, which is correct — the deployed code has neither — so the
-before/after is clean when the branch is deployed.
-
-Neither number says a plan is good: a detail can be vague and a citation can be
-attached to the wrong row. They say whether the feature is doing the thing at
-all, which is the question a prompt cannot answer about itself.
+⛔ **`EXEMPT` is not a snooze button.** It is for call sites where the state
+genuinely reaches the DOM another way, each entry has to say which route, and
+a test asserts the reasons are real. Adding a file to it to make the suite
+green is how a list like this becomes the place bugs go to be forgotten.
 
 ### The structuring rule is checked, not trusted
 

@@ -168,7 +168,23 @@ export function SymptomIntakeScreen({ navigation, route }: Props) {
         onPress={() => setConsent((value) => !value)}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: consent }}
-        accessibilityLabel="Save this description so it can be reviewed for accuracy"
+        /*
+          ⛔ THE STATE IS IN THE LABEL, AND ON THIS CONTROL IT MATTERS MOST.
+
+          React Native Web 0.19.13 never reads `accessibilityState` — it takes
+          `aria-checked` instead — so this box rendered with no state at all.
+          A reader could not tell whether they had agreed to their own symptom
+          description being stored, which is the one thing a consent control
+          exists to make unambiguous. It stays because it is right on native.
+
+          This changes no disclaimer and no escalation copy. It is still text
+          on the intake screen, so it belongs in the clinical reviewer's read
+          of that screen, the same as the URGENT hand-off.
+        */
+        accessibilityLabel={
+          "Save this description so it can be reviewed for accuracy, " +
+          (consent ? "ticked" : "not ticked")
+        }
         style={styles.consentRow}
         disabled={submitting}
       >

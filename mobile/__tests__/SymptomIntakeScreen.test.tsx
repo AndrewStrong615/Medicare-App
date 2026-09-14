@@ -111,7 +111,7 @@ describe("SymptomIntakeScreen", () => {
     renderScreen();
 
     fireEvent.press(
-      screen.getByLabelText("Save this description so it can be reviewed for accuracy")
+      screen.getByLabelText(/^Save this description so it can be reviewed for accuracy,/)
     );
     await describeSymptoms();
 
@@ -165,7 +165,8 @@ describe("starting a new description", () => {
     fresh mount would pass even with the fix removed.
   */
   const FIELD = "Describe your symptoms";
-  const CONSENT = "Save this description so it can be reviewed for accuracy";
+  // Matches either state — the label now says which, so a reader can tell.
+const CONSENT = /^Save this description so it can be reviewed for accuracy,/;
 
   function renderWithParams(params: object | undefined) {
     const navigation = { navigate: jest.fn(), setParams: jest.fn() };

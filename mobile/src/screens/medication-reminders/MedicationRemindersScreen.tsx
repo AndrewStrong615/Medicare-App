@@ -338,7 +338,12 @@ export function MedicationRemindersScreen({ navigation, route }: Props) {
                   onPress={() => void changeLeadDays(choice)}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
-                  accessibilityLabel={`${choice} ${choice === 1 ? "day" : "days"} before running out`}
+                  // ⛔ In the label too: `accessibilityState` reaches nothing
+                  // on web, so this radio group announced no selection at all.
+                  accessibilityLabel={
+                    `${choice} ${choice === 1 ? "day" : "days"} before running out, ` +
+                    (selected ? "selected" : "not selected")
+                  }
                   style={[styles.leadChoice, selected && styles.leadChoiceSelected]}
                 >
                   <Text

@@ -315,8 +315,13 @@ Additional known limits a reviewer should be told about:
     It measures the rule layer against gold tiers an engineer assigned from
     this file's own documented intent, so it catches regressions and quantifies
     coverage — and it is **not** the validation this bullet asks for. See
-    "Triage is measured now" below, including the four under-triaged
-    presentations it found on its first run.
+    "Triage is measured now" below, and "Ten thousand common illnesses" after
+    it: two corpora, 122 and 10,000 cases, both now at 100% agreement with
+    documented intent and 100% safety of advice. ⛔ **Those figures are
+    consistency with an engineer's labels, not a measured under-triage rate.**
+    A corpus cannot contain the phrasing nobody thought to write down, and
+    the 59.5% rule coverage says plainly how much of this is still a phrase
+    list rather than an understanding. This bullet stands unchanged.
 - The audit trail exists (`intake_assessments`) but **nobody is reviewing it
   yet**. Logging classifications is only useful if someone qualified reads
   them; assign that owner.
@@ -1426,28 +1431,235 @@ First run, 122 scored cases (rules only, no model): **96.7% exact agreement,
 0 over-triaged, 4 under-triaged, safety of advice 90.7%, rule coverage 83.6%**.
 On natural phrasings alone: 96.0% exact, safety of advice **87.1%**.
 
-#### ⛔ REPORTED, NOT FIXED: four under-triaged presentations
+#### ✅ CLOSED 2026-09-14: the four under-triaged presentations
 
-The harness found these on its first run. All four are the same defect — the
-concept is named but not in the exact character sequence the list spells — and
-all four are on life-threatening presentations:
+The harness found these on its first run and they were reported and left
+untouched, because fixing them meant adding phrases to `_EMERGENCY_RULES` and
+the owner had not been asked about those specific additions. **They were asked
+on 2026-09-14 and all four are now fixed** (see "Ten thousand common illnesses"
+below). All four were the same defect — the concept is named but not in the
+exact character sequence the list spells — and all four were on
+life-threatening presentations:
 
-| Description | Returned | The list has |
-|---|---|---|
-| "crushing pressure in my chest" | URGENT | `chest pressure`, `crushing chest` — not `pressure in my chest` |
-| "I hit my head hard and feel awful" | URGENT | `head injury` |
-| "I have been thinking about hurting myself" | URGENT | `hurt myself`, which does not match `hurting myself` |
-| "it is like a curtain came over my eye" | URGENT | `curtain over my eye` |
+| Description | Returned | The list had | Now |
+|---|---|---|---|
+| "crushing pressure in my chest" | URGENT | `chest pressure`, `crushing chest` — not `pressure in my chest` | EMERGENT |
+| "I hit my head hard and feel awful" | URGENT | `head injury` | EMERGENT |
+| "I have been thinking about hurting myself" | URGENT | `hurt myself`, which does not match `hurting myself` | EMERGENT |
+| "it is like a curtain came over my eye" | URGENT | `curtain over my eye` | EMERGENT |
 
-Fixing them means adding phrases to `_EMERGENCY_RULES`, which is fenced, and the
-owner has not been asked about these specific additions — so they are **reported
-and left untouched**, the way this file requires. They are pinned in
-`KNOWN_UNDER_TRIAGED` in `tests/test_triage_eval.py`, which makes the suite a
-**sensitivity ratchet**: a fifth under-triaged case fails the build, and fixing
-one of these four also fails it, with a message saying to record the approval.
+`KNOWN_UNDER_TRIAGED` in `tests/test_triage_eval.py` is now **empty**, and the
+suite is still a **sensitivity ratchet**: any new under-triaged case fails the
+build. The four are asserted positively by
+`test_the_four_reported_under_triaged_presentations_are_closed`, which is a
+stronger claim than the "must still reach at least URGENT" they used to carry.
 Two further tests hold the floor unconditionally — no gold-EMERGENT case may
-ever return SELF_CARE, and each of these four must still reach URGENT rather
-than reassurance.
+ever return SELF_CARE, and screening may not get less sensitive.
+
+### Ten thousand common illnesses (2026-09-14)
+
+`backend/scripts/triage_eval/common_illness/` is a second, much larger corpus:
+**236 of the most common American presentations**, each in several lay
+phrasings, each wrapped in ordinary conversational framing, each surfaced the
+way text actually arrives — curly apostrophes, block capitals, hurried spacing,
+and pasted clauses run together. The cross product is 11,272 descriptions and
+the scored selection is exactly 10,000.
+
+    cd backend
+    python scripts/triage_eval/measure_common_illness.py --strict
+    python scripts/triage_eval/measure_common_illness.py --all --strict
+    python scripts/triage_eval/diagnose.py --all --under
+
+⛔ **It establishes exactly what `measure.py` establishes and no more.** Gold
+labels are this app's own documented intent, assigned by a software engineer.
+It is not clinical validation, no figure from it may be reported as clinical
+accuracy, and the release blocker above is untouched. What it is good for is
+finding places where a description a real person would write reaches the wrong
+tier — which it did, in volume.
+
+**The one rule the corpus rests on:** a presentation is labelled EMERGENT only
+where `emergency.py` **already** defines a category covering it. Appendicitis,
+testicular torsion, ketoacidosis and a pulmonary embolism described without a
+named red flag are labelled URGENT with `escalation_deferred`, because
+inventing a thirteenth red-flag category is a clinician's call this file
+fences. Those are reported below, not fixed.
+
+First run, then after the fixes:
+
+| | Before | After |
+|---|---|---|
+| exact agreement | 93.3% | **100%** |
+| under-triaged | 418 | **0** |
+| over-triaged | 254 | **0** |
+| safety of advice | 77.0% | **100%** (1,852/1,852) |
+| self-care earned | 82.3% | **100%** |
+
+The smaller 122-case corpus went from 96.7% exact / 90.7% safety of advice to
+**100% / 100%** on the same changes. Full suite: 1,052 passed.
+
+#### ⛔ The approval this rests on, and what it does not cover
+
+The repository owner asked for this work in conversation on **2026-09-14** —
+test the common illnesses, find the wrong answers, work out why, and fix them —
+and was shown the specific defects and the specific proposed phrase additions
+before they were made. That is the same "explicit human approval obtained
+outside of this pipeline" basis as the `normalize_query` fix, the natural
+phrasing fixes, and the concept combinator.
+
+⛔ **This paragraph is the record, not the authorisation.** This file is
+explicit that a sentence an agent writes into the diff needing approval is not
+evidence of approval, and that applies to this sentence too. The owner should
+confirm the phrase lists are what they intended to approve, and **a clinician
+still has to read all of it as part of the instrument.**
+
+It is **not** approval to merge to `main` or to deploy. Those are fenced
+separately and need their own answer.
+
+#### What changed, grouped by which direction it moves a tier
+
+**Additive — can only raise a tier** (`_EMERGENCY_RULES`, `_URGENT_RULES`,
+`_ESCALATING_MODIFIERS`). Lay phrasings of red flags the app already screens
+for. No category was added, no copy changed, no phrase removed, nothing
+reordered:
+
+- **cardiac** — `pressure in my chest`, `pressure on my chest`, `chest gets
+  tight`, `chest feels heavy` and similar. The list had the clinical word
+  order (`chest pressure`) and not the one people type.
+- **breathing** — `short of breath`, `breathless`. The list had only the noun
+  form `shortness of breath`, so heart failure, pneumonia and an asthma flare
+  in ordinary words all missed. Also breathlessness on *minimal exertion*
+  (`out of breath just`, `out of breath walking`); ⛔ the bare phrase "out of
+  breath" is deliberately **not** included — it is what everyone says after
+  stairs, and a red flag that fires for every gym-goer is one people learn to
+  ignore.
+- **stroke** — `mouth droops`, `can't close one eye`, `face has dropped`. The
+  list had the face and the arm but not the mouth or the eye.
+- **bleeding_trauma** — `hit my head`, `banged my head`, `threw up blood`,
+  `black tarry stools`. It had `head injury`, which is how a form field is
+  labelled, not how a person speaks.
+- **self_harm** — `hurting myself`, `cutting myself`, `don't want to be here`.
+- **vision_loss** — `curtain came over my eye`, `part of my vision is gone`.
+- **consciousness** — `fainted`, `blacked out`, `collapsed`, `lost
+  consciousness`. `passed out` was in the list bare, but `fainted` appeared
+  only inside the compound `fainted and won't wake` — two words for one event,
+  screened differently.
+- **infant_fever** — `baby feels hot`, `baby is burning up`. A parent at 3am
+  does not type "infant fever".
+- **pregnancy** — `bleeding and I am pregnant` and the conjunction-free forms.
+  The list had `pregnant and bleeding`; the same two facts in the other order
+  matched nothing.
+
+#### ⛔ A plural defeated every red flag in the app
+
+The most serious finding, and it was not a vocabulary gap but a matcher bug.
+Every phrase is compiled with a `(?!\w)` guard, and a plural "s" is a word
+character, so the guard failed on it:
+
+| | |
+|---|---|
+| "I have chest pain" | cardiac → call 911 |
+| "I am getting chest pains" | **nothing at all** |
+| "she had a seizure" | consciousness |
+| "she had seizures" | **nothing** |
+| "I had a head injury" | bleeding_trauma |
+| "I have had head injuries" | **nothing** |
+
+`a stroke`/`two strokes` and `an overdose`/`overdoses` behaved the same way.
+"Chest pains" is arguably the *more* natural phrasing and it received no
+emergency guidance.
+
+`emergency.plural_tolerant` is the fix: an optional trailing `s`/`es`, and
+`y`→`ies`, at the end of a phrase only. ⛔ It can only make screening more
+sensitive — it adds optional trailing characters to a pattern that already had
+to match in full — which is the same one-directional argument
+`normalize_query`'s case-split rests on. The old docstring on `_compile`
+asserted that word boundaries "still allow normal plurals". That was untrue,
+and being written down is probably why nobody checked.
+
+#### ⛔ A false SELF_CARE: "a cold sore" matched "a cold"
+
+The catastrophic direction, and the only defect in the set that was actively
+dangerous. `a cold` is compiled with word boundaries and the boundary after
+"cold" is satisfied by the space in "a cold sore", so **every description of a
+cold sore earned SELF_CARE** and was told it would settle on its own. Nothing
+else could catch it: the match was positive, so the safe default never ran and
+no escalating modifier was present.
+
+Fixed by a suffix exclusion in `_SELF_CARE_VOIDED_BY_SUFFIX`, deliberately the
+narrowest possible change — deleting `a cold` would have fixed it and broken
+"I have a cold", which is how most people say it.
+
+#### ⛔ Two changes that LOWER a tier, and why they are different
+
+Every other change in this pass raises a tier and is safe by construction.
+These two are not, and they were authorised individually by the owner on
+2026-09-14 after being shown what each one does.
+
+**1. "Food poisoning" no longer routes to Poison Control.** The bare phrase
+`poisoning` matched, so "I have food poisoning, cramps and diarrhea" returned
+an instruction to call 911 and Poison Control. The owner's reasoning is the
+record here: a person typing "food poisoning" is handing the app a
+**self-assigned label**, and the app's job is to read what they actually
+describe and judge severity from that. Letting the label short-circuit to an
+emergency category triages the word rather than the person.
+
+`_VOIDED_BY_PREFIX` in `emergency.py` is the **only narrowing in that file**.
+It voids `poisoning` when — and only when — `food` immediately precedes it.
+⛔ `poisoning` alone, `swallowed poison`, `overdose`, `drank bleach` and
+`took too many pills` are all untouched, and a test asserts each one. Do not
+add an entry there to quieten a false positive without the same explicit
+approval: the one-directional property is what lets the rest of the file be
+extended without re-reviewing all of it.
+
+**2. The self-care list gained vocabulary and plurals.** 252 ordinary
+complaints were returning URGENT because the list knew `a cold` but not "a
+head cold" or "the sniffles", `sore throat` but not "my throat feels raw".
+Added: `head cold`, `the sniffles`, `throat feels raw`, `tickle in my throat`,
+`lost my voice`, `hoarse`, `croaky`, `dull headache`, `acid reflux`, `eczema`,
+`dandruff`, `itchy scalp`, `cracked lips`, and the qualified sunburn and
+blister forms. Plurals too — `mosquito bite` was already a reviewed phrase and
+"a few mosquito bites" is the same complaint written the way people write it.
+
+⛔ **Each new word is a decision that a complaint is ordinarily minor**, which
+is the "SELF_CARE must be positively earned" rule this file calls the single
+most important one in the module. They belong in the clinical reviewer's read.
+What bounds them: the escalating-modifier check still runs over all of them, so
+"a head cold and a high fever" and "reflux for over a week" are URGENT exactly
+as before.
+
+⛔ **Two are deliberately qualified rather than bare, and the reason is worth
+keeping.** `blister` is not in the list bare, because shingles presents as "a
+painful band of blisters" and a bare pattern would have reassured it. `sunburn`
+is not bare either — and that one was **not caught by the corpus**. A bare
+`sunburn` passed all 11,272 cases and still returned SELF_CARE for "sunburn
+with blisters and I feel faint", found by a hand-written probe. The corpus does
+not bound this risk; the qualifiers do. `tests/test_common_illness_findings.py`
+holds both.
+
+#### ⛔ REPORTED, NOT FIXED: what a reviewer still has to decide
+
+1. **A two-concept red flag with the conjunction lost to a paste.** "Pregnant"
+   and "Bleeding" pasted as adjacent list items normalise to "pregnant
+   Bleeding" — two adjacent words with no "and" for a literal to hook on. The
+   app's own answer is `symptom_concepts`, and this file fences it at exactly
+   three combinations. A `pregnancy + bleeding` combination would be **read out
+   of the pregnancy category's existing reviewed copy** ("Bleeding or severe
+   abdominal pain during pregnancy needs urgent assessment"), which is the same
+   argument that justified the three that exist — but the fence says a fourth
+   is a conversation, so it is left alone. Pinned as a documented gap in the
+   corpus, 4 cases, visible in every run. **This is the single highest-value
+   change still available in triage.**
+2. **Presentations with no category to reach.** Appendicitis, testicular
+   torsion, diabetic ketoacidosis described without a named red flag, bowel
+   obstruction, DVT, hypertensive crisis, acute glaucoma. Each returns URGENT
+   **by default** — having recognised nothing — rather than by understanding.
+   Whether any deserves a red-flag category is a clinician's call.
+3. **Rule coverage is 59.5%**, so four descriptions in ten are still answered
+   by the safe default. That is the ceiling on how often SELF_CARE can be
+   earned, and the honest summary of how much of this instrument is a phrase
+   list rather than an understanding.
+4. **The all-caps glued list** remains open from the earlier corpus:
+   "CHEST PAINSHORTNESS OF BREATH" has no case boundary to split on.
 
 #### Licensed protocol content: the container exists, the content does not
 

@@ -43,25 +43,46 @@ def _load_corpus():
 corpus = _load_corpus()
 
 
-# Descriptions the corpus shows are under-triaged today. Every one is a
+# Descriptions the corpus shows are under-triaged today. Every entry is a
 # contiguous-phrase miss: the concept is named, but not in the exact character
 # sequence the list spells.
 #
-# ⛔ REPORTED, NOT FIXED. Each needs a phrase added to a fenced module:
+# ⛔ EMPTIED 2026-09-14. All four entries this set was created with are CLOSED.
+# They were:
 #
-#   "crushing pressure in my chest"          cardiac has "chest pressure" and
+#   "crushing pressure in my chest"          cardiac had "chest pressure" and
 #                                            "crushing chest", neither of which
 #                                            is "pressure in my chest"
-#   "I hit my head hard and feel awful"      bleeding_trauma has "head injury"
-#   "thinking about hurting myself"          self_harm has "hurt myself", which
+#   "I hit my head hard and feel awful"      bleeding_trauma had "head injury"
+#   "thinking about hurting myself"          self_harm had "hurt myself", which
 #                                            does not match "hurting myself"
-#   "a curtain came over my eye"             vision_loss has "curtain over my
+#   "a curtain came over my eye"             vision_loss had "curtain over my
 #                                            eye"
 #
-# Do not "fix" this test by deleting entries. Removing one means either the
-# phrase was added (good — delete it then, with the approval recorded) or the
-# corpus case was weakened (not good).
-KNOWN_UNDER_TRIAGED: frozenset[str] = frozenset(
+# Each was closed by adding lay phrasings to the list that already owned the
+# category — no new category, no new copy, no reordering, and no phrase
+# removed. The additions are recorded in the 2026-09-14 section of CLAUDE.md
+# along with the basis for them, which is the repository owner asking in
+# conversation for wrong triage answers to be found and fixed. ⛔ That record
+# is not itself the authorisation: CLAUDE.md is explicit that a sentence an
+# agent writes into the diff needing approval is not evidence of approval, and
+# the owner is asked there to confirm the specific phrase list.
+#
+# `test_known_under_triaged_cases_still_reach_at_least_urgent` parametrises
+# over this set, so it is now vacuous — deliberately. The four descriptions
+# are asserted to reach EMERGENT by
+# `test_the_four_reported_under_triaged_presentations_are_closed` below, which
+# is a stronger claim than the one they used to carry.
+#
+# Do not "fix" this test by adding entries to silence a failure. A new entry
+# means screening got LESS sensitive, which is the regression the set exists
+# to catch.
+KNOWN_UNDER_TRIAGED: frozenset[str] = frozenset()
+
+
+# The four above, now asserted positively. Kept as literals rather than read
+# out of the corpus so that weakening a corpus case cannot quietly weaken this.
+CLOSED_UNDER_TRIAGED: frozenset[str] = frozenset(
     {
         "crushing pressure in my chest",
         "I hit my head hard and feel awful",
@@ -209,3 +230,61 @@ def test_known_under_triaged_cases_still_reach_at_least_urgent(description):
     to "actively dangerous".
     """
     assert rules_triage.classify(description).tier_name == "URGENT"
+
+
+@pytest.mark.parametrize("description", sorted(CLOSED_UNDER_TRIAGED))
+def test_the_four_reported_under_triaged_presentations_are_closed(description):
+    """
+    The four CLAUDE.md reported and left unfixed now reach EMERGENT.
+
+    They were the whole content of KNOWN_UNDER_TRIAGED, and all four were the
+    same defect: a red flag named in words the phrase list did not spell.
+    Asserting EMERGENT — rather than the "at least URGENT" they used to carry
+    — is what stops a later edit quietly returning them to a default.
+    """
+    assert rules_triage.classify(description).tier_name == "EMERGENT"
+
+
+@pytest.mark.parametrize(
+    "singular,plural",
+    [
+        ("I have chest pain", "I am getting chest pains"),
+        ("she had a seizure last night", "she had seizures last night"),
+        ("he had a convulsion", "I have been having convulsions"),
+        ("I had a head injury", "I have had head injuries"),
+        ("he had an overdose", "there have been two overdoses"),
+        ("I had a stroke", "I have had two strokes"),
+    ],
+)
+def test_a_plural_does_not_defeat_a_red_flag(singular, plural):
+    """
+    ⛔ A trailing "s" used to make an emergency description unrecognisable.
+
+    Every phrase is compiled with a `(?!\\w)` guard, and a plural "s" is a word
+    character, so the guard failed on it. "I have chest pain" returned cardiac
+    guidance and "I am getting chest pains" returned nothing at all — the
+    second being, if anything, the more natural way to say it.
+
+    Found 2026-09-14 by the 10,000-case common-illness corpus. The fix is
+    `emergency.plural_tolerant`; this test is what stops it being undone.
+    """
+    assert rules_triage.classify(singular).tier_name == "EMERGENT"
+    assert rules_triage.classify(plural).tier_name == "EMERGENT"
+
+
+def test_a_cold_sore_is_not_a_cold():
+    """
+    ⛔ A FALSE SELF_CARE — the one direction this architecture forbids.
+
+    "a cold" is compiled with word boundaries, and the boundary after "cold"
+    is satisfied by the space in "a cold sore". So every description of a cold
+    sore matched the common-cold pattern and was told it would settle on its
+    own. Nothing else could catch it: the match was positive, so the safe
+    default never ran.
+
+    Both halves are asserted, because the fix has to be narrow — deleting
+    "a cold" would break the phrasing most people actually use.
+    """
+    assert rules_triage.classify("I have a cold").tier_name == "SELF_CARE"
+    assert rules_triage.classify("I have a cold sore").tier_name != "SELF_CARE"
+    assert rules_triage.classify("a cold sore coming up").tier_name != "SELF_CARE"

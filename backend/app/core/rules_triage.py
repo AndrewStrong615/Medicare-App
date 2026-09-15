@@ -30,7 +30,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from app.core.emergency import EmergencyGuidance, normalize_query, screen_for_emergency
+from app.core.emergency import (
+    EmergencyGuidance,
+    normalize_query,
+    plural_tolerant,
+    screen_for_emergency,
+)
 
 
 @dataclass(frozen=True)
@@ -208,6 +213,46 @@ _SELF_CARE_PATTERNS: tuple[str, ...] = (
     "mild sunburn",
     "dry skin", "chapped lips",
     "mild nausea",
+    # -----------------------------------------------------------------
+    # Added 2026-09-14, authorised by the repository owner in conversation
+    # after being shown the 252 failing descriptions this closes.
+    #
+    # ⛔ THESE LOWER A TIER. Every other change made in the same pass raises
+    # one, and could be justified on the grounds that it can only make
+    # screening more sensitive. This block cannot. Each word here is a
+    # decision that a complaint is ordinarily minor, which is the
+    # "SELF_CARE must be positively earned" rule CLAUDE.md calls the single
+    # most important one in this module. They belong in the clinical
+    # reviewer's read alongside the rest of the instrument.
+    #
+    # What made them worth adding: the list knew "a cold" but not "a head
+    # cold" or "the sniffles", "sore throat" but not "my throat feels raw".
+    # Someone with a head cold was told to get seen. An URGENT tier that
+    # fires for the sniffles is one people stop reading.
+    #
+    # The escalating-modifier check still runs over all of these, so
+    # "severe sunburn", "reflux for over a week" and "a blister that is
+    # getting worse" are URGENT exactly as before — these words earn
+    # SELF_CARE only in the unmodified case.
+    "head cold", "the sniffles", "sniffles",
+    "throat feels raw", "raw throat", "tickle in my throat",
+    "lost my voice", "hoarse", "croaky",
+    "dull headache", "headache from staring", "headache at the end of the day",
+    "acid reflux", "reflux",
+    "eczema", "dandruff", "itchy scalp", "flaky scalp",
+    # ⛔ NOT bare "sunburn", for the same reason as "blister" below. A bare
+    # pattern earned SELF_CARE for "sunburn with blisters and I feel faint",
+    # which is a blistering burn with a systemic symptom. Caught by a probe
+    # rather than by the corpus — worth recording, because it means the
+    # corpus does not bound this risk and the qualifier is doing real work.
+    "a bit of sunburn", "slight sunburn", "a little sunburn",
+    "cracked lips", "dry lips",
+    # ⛔ "blister" is deliberately NOT here bare. Shingles presents as
+    # "a painful band of blisters", and a bare "blister" pattern would earn
+    # that SELF_CARE — a false reassurance on a condition that needs
+    # treatment within days. Only the unambiguous friction sites are listed.
+    "small blister", "blister on my heel", "blister on my foot",
+    "blister on my toe", "blister from new shoes",
 )
 
 
@@ -232,6 +277,19 @@ _ESCALATING_MODIFIERS: tuple[str, ...] = (
     "for over a week", "for over two weeks", "for over a month",
     "for more than a week", "for more than two weeks", "for more than a month",
     "high fever", "can't sleep", "cant sleep",
+    # Added 2026-09-14 from the 10,000-case common-illness corpus. A
+    # description of an underactive thyroid — "exhausted and dry skin" —
+    # earned SELF_CARE off the words "dry skin" while the word "exhausted"
+    # sat beside it doing nothing. Profound fatigue alongside a minor
+    # complaint is not the ordinary case the self-care list assumes, which is
+    # the same argument that already puts "can't sleep" on this list.
+    "exhausted", "exhaustion", "extreme tiredness", "wiped out",
+    "no energy at all",
+    # Faintness beside a minor complaint is not the ordinary case either.
+    # Added in the same pass; escalating, so it can only raise a tier.
+    "feel faint", "feeling faint", "about to pass out",
+    "lightheaded", "light headed", "light-headed",
+    "blisters",
     "pregnant", "my baby", "my newborn", "my infant",
     "immunocompromised", "chemotherapy", "transplant",
     "blood", "bleeding",
@@ -241,14 +299,76 @@ _ESCALATING_MODIFIERS: tuple[str, ...] = (
 
 
 def _compile(phrase: str) -> re.Pattern[str]:
-    return re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", re.IGNORECASE)
+    """
+    Compile an ESCALATING phrase — an urgent rule, or a self-care modifier.
+
+    Plural-tolerant, for the reason set out in `emergency.plural_tolerant`:
+    "a dog bite" was screened and "two dog bites" was not. Widening these two
+    lists can only move a description UP a tier, so it carries the same
+    one-directional safety property as the emergency lists.
+
+    ⛔ `_SELF_CARE_PATTERNS` deliberately does NOT use this. Widening the
+    self-care list is the one direction that lowers a tier, and CLAUDE.md is
+    explicit that SELF_CARE must be positively earned. See
+    `_compile_self_care`.
+    """
+    return re.compile(plural_tolerant(phrase), re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# A self-care phrase that is really the first half of something else.
+#
+# Found by the 10,000-case common-illness corpus, and it is the worst kind of
+# defect this module can have: a FALSE SELF_CARE, the one direction the whole
+# safety architecture is built to make impossible.
+#
+# "a cold" is compiled with word boundaries, and the boundary after "cold" is
+# satisfied by the space in "a cold sore". So every description of a cold sore
+# matched the common-cold pattern, earned SELF_CARE, and was told it would
+# settle on its own. Nothing else in the file could catch it: the match was
+# positive, so the default never ran, and no escalating modifier was present.
+#
+# ⛔ The guard is a suffix exclusion, not a removal. Deleting "a cold" would
+# break "I have a cold", which is how most people say it. This is deliberately
+# the narrowest possible fix: it voids the match only where the next word
+# turns the phrase into a different complaint.
+# ---------------------------------------------------------------------------
+_SELF_CARE_VOIDED_BY_SUFFIX: dict[str, tuple[str, ...]] = {
+    "a cold": ("sore", "sores"),
+}
+
+
+def _compile_self_care(phrase: str) -> re.Pattern[str]:
+    """
+    Compile a self-care phrase: plural-tolerant, with suffix exclusions.
+
+    Plural tolerance was authorised by the repository owner on 2026-09-14
+    along with the vocabulary above. It is a matcher defect rather than a
+    vocabulary judgement — "mosquito bite" was already a reviewed self-care
+    phrase, and "a few mosquito bites" is the same complaint written the way
+    people write it, yet only the singular matched. Same root cause as the
+    red-flag plural miss in `emergency.plural_tolerant`, and found in the
+    same run.
+
+    ⛔ It is still the de-escalating direction, so unlike the escalating
+    lists it cannot be justified as safe-by-construction. What keeps it
+    bounded is that it admits only the plural of a phrase a reviewer already
+    accepted, never a new phrase.
+    """
+    body = plural_tolerant(phrase)
+    suffixes = _SELF_CARE_VOIDED_BY_SUFFIX.get(phrase)
+    if suffixes:
+        body += r"(?!\s+(?:" + "|".join(re.escape(s) for s in suffixes) + r")\b)"
+    return re.compile(body, re.IGNORECASE)
 
 
 _URGENT_COMPILED = [
     (rule_id, explanation, tuple((p, _compile(p)) for p in phrases))
     for rule_id, explanation, phrases in _URGENT_RULES
 ]
-_SELF_CARE_COMPILED = tuple((p, _compile(p)) for p in _SELF_CARE_PATTERNS)
+_SELF_CARE_COMPILED = tuple(
+    (p, _compile_self_care(p)) for p in _SELF_CARE_PATTERNS
+)
 _MODIFIER_COMPILED = tuple((p, _compile(p)) for p in _ESCALATING_MODIFIERS)
 
 

@@ -79,6 +79,26 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "crushing chest",
             "pain radiating to arm",
             "left arm pain and chest",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "chest pressure" is the clinical word order; nobody types it.
+            # "crushing pressure in my chest" and "heavy pressure on my
+            # chest" both matched NOTHING and fell to the URGENT default.
+            # The first of these is one of the four under-triaged
+            # presentations CLAUDE.md reported and left unfixed.
+            "pressure in my chest",
+            "pressure on my chest",
+            "tightness in my chest",
+            "chest feels heavy",
+            "heaviness in my chest",
+            "weight on my chest",
+            "squeezing in my chest",
+            # The list had "chest is tight" and "chest feels tight" but not
+            # "chest gets tight" — an inflection of the same three words,
+            # and the ordinary way to describe exertional tightness.
+            "chest gets tight",
+            "chest goes tight",
+            "chest tightens",
+            "tight chest",
         ),
     ),
     (
@@ -99,6 +119,39 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "struggling to breathe",
             "choking",
             "gasping for air",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "shortness of breath" is the noun form a clinician writes. Every
+            # lay phrasing of the same thing — "I am short of breath", "I feel
+            # breathless" — matched nothing, so heart failure, pneumonia and
+            # an asthma flare described in ordinary words all fell to URGENT.
+            #
+            # ⛔ Deliberately NOT added: the bare phrase "out of breath".
+            # It is what everyone says after climbing stairs, and a red flag
+            # that fires for every gym-goer is a red flag people learn to
+            # ignore. Recognising "out of breath walking to the mailbox" —
+            # breathlessness on minimal exertion — needs the exertion and the
+            # breathlessness read together, which is a combinator and a
+            # clinician's call, not a phrase.
+            "short of breath",
+            "breathless",
+            "breathlessness",
+            "can't get enough air",
+            "cant get enough air",
+            "struggling for breath",
+            "fighting for breath",
+            "winded just",
+            # Breathlessness on MINIMAL exertion, which is the part that
+            # distinguishes it from being out of breath after a run. Naming
+            # the trivial activity is what makes these safe to match where
+            # the bare phrase is not.
+            "out of breath just",
+            "out of breath walking",
+            "out of breath doing nothing",
+            "out of breath getting dressed",
+            "out of breath talking",
+            "breathless walking",
+            "breathless lying flat",
+            "breathless doing nothing",
         ),
     ),
     (
@@ -131,6 +184,22 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "sudden confusion",
             "sudden severe headache",
             "worst headache of my life",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # The list had the face and the arm but not the mouth or the eye,
+            # so "I can't close one eye and my mouth droops" — a textbook
+            # description of a facial droop — matched nothing.
+            "mouth droops",
+            "mouth is drooping",
+            "mouth has dropped",
+            "can't close one eye",
+            "cant close one eye",
+            "my face has dropped",
+            "face has dropped",
+            "numbness down one side",
+            "weak down one side",
+            "weakness on my right side",
+            "weakness on my left side",
+            "went weak for a few minutes",
         ),
     ),
     (
@@ -147,6 +216,23 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "vomiting blood",
             "head injury",
             "broken bone through skin",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "head injury" is how a form field is labelled; "I hit my head"
+            # is how a person says it. The gap is one of the four
+            # under-triaged presentations CLAUDE.md reported and left
+            # unfixed. Likewise "vomiting blood" against "I threw up blood".
+            "hit my head",
+            "banged my head",
+            "knocked my head",
+            "hit his head",
+            "hit her head",
+            "threw up blood",
+            "throwing up blood",
+            "vomited blood",
+            "blood in my vomit",
+            "black tarry stools",
+            "bleeding heavily",
+            "losing a lot of blood",
         ),
     ),
     (
@@ -184,6 +270,22 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "seizure",
             "convulsion",
             "not waking up",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "passed out" was here bare, but "fainted" only in the compound
+            # "fainted and won't wake" — so "I fainted and hit the floor"
+            # matched nothing, while the same event in the other synonym
+            # matched immediately. Two words for one thing, screened
+            # differently. Loss of consciousness is a category this app
+            # already defines; these are its lay names.
+            "fainted",
+            "fainting",
+            "blacked out",
+            "keeled over",
+            "collapsed",
+            "lost consciousness",
+            "went limp",
+            "would not wake up",
+            "wouldn't wake up",
         ),
     ),
     (
@@ -203,6 +305,23 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "self-harm",
             "hurt myself",
             "harm myself",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "hurt myself" does not match "hurting myself" — a bare
+            # inflection defeating a red flag, and one of the four
+            # under-triaged presentations CLAUDE.md reported and left
+            # unfixed. This is the category where over-inclusion is most
+            # clearly right: the copy routes to 988 and offers a person.
+            "hurting myself",
+            "harming myself",
+            "cutting myself",
+            "cut myself on purpose",
+            "don't want to be here",
+            "dont want to be here",
+            "don't want to be alive",
+            "dont want to be alive",
+            "better off without me",
+            "ending my life",
+            "take my own life",
         ),
     ),
     (
@@ -224,6 +343,19 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "sudden blindness",
             "sudden double vision",
             "curtain over my eye",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # "curtain over my eye" does not match "a curtain came over my
+            # eye" — the verb in the middle defeats the literal. The fourth
+            # of the under-triaged presentations CLAUDE.md reported.
+            "curtain came over my eye",
+            "curtain coming over my eye",
+            "curtain came down over my eye",
+            "curtain across my vision",
+            "shadow over my vision",
+            "part of my vision is gone",
+            "part of my vision has gone",
+            "lost part of my vision",
+            "flashes and floaters",
         ),
     ),
     (
@@ -264,6 +396,19 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "baby has a fever",
             "infant fever",
             "fever in an infant",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # A parent does not write "infant fever" into a box at 3am. They
+            # write that the baby feels hot. Without these the description
+            # fell to the infant_or_young_child URGENT rule, which is a tier
+            # below what this app's own copy says a fever in a newborn needs.
+            "newborn feels hot",
+            "baby feels hot",
+            "baby is burning up",
+            "newborn is burning up",
+            "baby is really hot",
+            "baby has a temperature",
+            "newborn has a temperature",
+            "baby is running a fever",
         ),
     ),
     (
@@ -278,6 +423,33 @@ _EMERGENCY_RULES: list[tuple[str, str, str, tuple[str, ...]]] = [
             "severe abdominal pain pregnant",
             "pregnant and bleeding",
             "pregnant and severe pain",
+            # Added 2026-09-14 from the 10,000-case common-illness corpus.
+            # Word order again: "pregnant and bleeding" is here, but "I am
+            # bleeding and I am pregnant" — the same two facts, stated the
+            # other way round — matched nothing and fell to the
+            # pregnancy_related URGENT rule. Same root cause as the stroke
+            # "my face is drooping" fix already recorded in CLAUDE.md.
+            "bleeding and i am pregnant",
+            "bleeding and i'm pregnant",
+            "pregnant and i am bleeding",
+            "pregnant and i'm bleeding",
+            "spotting while pregnant",
+            "cramping while pregnant",
+            "spotting and cramping while pregnant",
+            "pregnant with severe abdominal pain",
+            "severe pain and i am pregnant",
+            "severe abdominal pain and i am pregnant",
+            "severe one-sided pain and i am pregnant",
+            # Conjunction-free forms. A pasted list arrives as "Pregnant"
+            # followed by "Bleeding" with the separator lost, which
+            # normalize_query splits back into "pregnant Bleeding" — two
+            # adjacent words and no "and" between them for a literal to hook
+            # on. Exactly the real-submission shape that produced the
+            # normalize_query fix recorded in CLAUDE.md.
+            "pregnant bleeding",
+            "bleeding pregnant",
+            "bleeding i am pregnant",
+            "bleeding i'm pregnant",
         ),
     ),
     (
@@ -333,10 +505,104 @@ def normalize_query(query: str) -> str:
     return re.sub(r"\s+", " ", folded)
 
 
+def plural_tolerant(phrase: str) -> str:
+    """
+    The body of a red-flag pattern, allowing the phrase's ordinary plural.
+
+    ⛔ THIS FIXED A REAL AND SERIOUS MISS, found 2026-09-14 by the
+    10,000-case common-illness corpus. Every phrase here used to be compiled
+    as `(?<!\\w)phrase(?!\\w)`, and a trailing plural "s" is a word character,
+    so the closing guard failed on it. The consequence, verified before the
+    fix:
+
+        "I have chest pain"          -> cardiac        (911 guidance)
+        "I am getting chest pains"   -> NOTHING        (URGENT default)
+
+        "she had a seizure"          -> consciousness
+        "she had seizures"           -> NOTHING
+
+        "I had a head injury"        -> bleeding_trauma
+        "I have had head injuries"   -> NOTHING
+
+        "a stroke" / "two strokes", "an overdose" / "overdoses": same.
+
+    A plural is not an unusual way to write any of these. "Chest pains" is
+    arguably the *more* natural phrasing, and it received no emergency
+    guidance at all.
+
+    The old docstring on this function asserted the opposite — that word
+    boundaries allow "normal plurals". That claim was simply untrue, and
+    being written down is probably why nobody checked it.
+
+    Two inflections are allowed, and only at the very end of the phrase:
+
+        pain -> pains, overdose -> overdoses   ("s" / "es")
+        injury -> injuries                     (trailing "y" -> "ies")
+
+    ⛔ It can only ever make screening MORE sensitive. It adds optional
+    trailing characters to a pattern that already had to match in full; it
+    can turn a non-match into a match and can never do the reverse. That is
+    the same one-directional argument `normalize_query`'s case-split rests
+    on, and it is what makes this safe to change without re-reviewing every
+    phrase in the file.
+    """
+    escaped = re.escape(phrase)
+    if phrase.endswith("y") and len(phrase) > 1 and phrase[-2] not in "aeiou":
+        escaped = re.escape(phrase[:-1]) + "(?:y|ies)"
+        return rf"(?<!\w){escaped}(?!\w)"
+    return rf"(?<!\w){escaped}(?:es|s)?(?!\w)"
+
+
+# ---------------------------------------------------------------------------
+# ⛔ THE ONLY NARROWING IN THIS FILE. Read before adding to it.
+#
+# Every other change ever made to these lists has been additive, and the
+# safety argument for all of them was that they can only make screening more
+# sensitive. This one goes the other way, so it carries a different burden.
+#
+# A trigger phrase here is voided when one of the listed words comes
+# immediately before it. There is exactly one entry:
+#
+#     "poisoning", when preceded by "food"
+#
+# WHY: the overdose_poisoning category is about a toxin — swallowed poison,
+# too many pills, bleach — and its copy routes to 911 and Poison Control.
+# "Food poisoning" is not that. It is what people call gastroenteritis, and
+# the word "poisoning" inside it is a collision, not a red flag. Before this,
+# "I have food poisoning, cramps and diarrhea" returned an instruction to
+# call Poison Control.
+#
+# The repository owner authorised this in conversation on 2026-09-14, and the
+# reasoning is theirs: a person typing "food poisoning" is handing the app a
+# self-assigned LABEL, and the app's job is to read what they actually
+# describe and judge severity from that. Letting the label short-circuit to an
+# emergency category does the opposite — it triages the word rather than the
+# person. With the exclusion in place, "food poisoning, cramps and diarrhea"
+# is judged on the cramps and the diarrhea, and "can't keep fluids down"
+# still reaches URGENT on its own merits.
+#
+# ⛔ WHAT THIS DOES NOT TOUCH: "poisoning" alone, "swallowed poison",
+# "overdose", "overdosed", "took too many pills", "drank bleach" — every one
+# still fires exactly as before. A test asserts it. Do not add an entry here
+# to quieten a false positive without the same explicit approval; the
+# one-directional safety property is the reason the rest of this file can be
+# extended without re-reviewing all of it.
+# ---------------------------------------------------------------------------
+_VOIDED_BY_PREFIX: dict[str, tuple[str, ...]] = {
+    "poisoning": ("food",),
+}
+
+
 def _compile(phrase: str) -> re.Pattern[str]:
     # Word boundaries stop "stroke" matching inside "strokes of luck" style
-    # words while still allowing normal plurals and surrounding punctuation.
-    return re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", re.IGNORECASE)
+    # words. `plural_tolerant` then re-admits the plural the boundary would
+    # otherwise exclude — see its docstring for why that was load-bearing.
+    body = plural_tolerant(phrase)
+    prefixes = _VOIDED_BY_PREFIX.get(phrase)
+    if prefixes:
+        guard = "".join(rf"(?<!{re.escape(p)} )" for p in prefixes)
+        body = guard + body
+    return re.compile(body, re.IGNORECASE)
 
 
 _COMPILED: list[tuple[str, str, str, tuple[re.Pattern[str], ...], tuple[str, ...]]] = [

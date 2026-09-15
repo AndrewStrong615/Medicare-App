@@ -1685,6 +1685,25 @@ column added by any route is caught — including the near-misses this file
 names, `patient_name` and a `user_id`. Adding either one now fails, which is
 what those tests promised.
 
+#### Data that must not outlive what it described
+
+The `integrity` group, four rules, all caught: deleting a medication takes its
+reminders, deleting a goal takes its ticks, `forecast()` never gains a
+`frequency` argument, and a **fourth** concept combination fails
+`test_the_set_of_combinations_is_fenced`. The first is the one this file calls
+"not untidy data, it is an alarm telling someone to take a medication they
+have stopped", and SQLite does not enforce the cascade — so that test is
+load-bearing in the literal sense.
+
+⛔ **A mutation that changes nothing reports SURVIVED, and looks exactly like
+a missing test.** That happened here: `db.query(...).delete()` was rewritten
+to `_unused = db.query(...)`, which still calls `.delete()` on the same chain.
+It read as a cascade nobody tested; the cascade was fine and the mutation was
+worthless. The anchor count catches a mutation that could not be applied;
+nothing can catch one that applied and meant nothing. **Read the diff a
+survivor implies before believing it** — the script's own docstring says so
+where someone will be looking.
+
 #### The client has one too
 
 `mobile/scripts/mutation_check.mjs`, same idea on the other side of the wire,

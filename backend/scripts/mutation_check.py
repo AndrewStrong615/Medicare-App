@@ -40,6 +40,17 @@ opened for writing — check `git status` after a run and it will say so.
 
 ⛔ A SURVIVOR IS NOT FIXED BY DELETING THE MUTATION. Fix the test.
 
+⛔ BUT CHECK THE MUTATION ACTUALLY CHANGES BEHAVIOUR FIRST. A mutation that
+edits the source without changing what it does reports SURVIVED and is
+indistinguishable, in this output, from a rule nothing tests. It has happened
+here: `db.query(...).delete()` was rewritten to `_unused = db.query(...)`,
+which still calls `.delete()` on the same chain. That read as a missing test
+for a cascade that was working perfectly.
+
+The anchor count catches a mutation that could not be applied. Nothing can
+catch one that applied and meant nothing — that is a judgement about the code,
+so read the diff a survivor implies before believing it.
+
 Not part of `pytest`: it runs the suite once per mutation, which takes minutes.
 """
 
@@ -68,6 +79,10 @@ MAIN = "app/main.py"
 SESSION = "app/db/session.py"
 APPOINTMENT_MODEL = "app/models/appointment.py"
 PROVIDER_LOCATION_MODEL = "app/models/provider_location.py"
+MEDICATIONS_API = "app/api/medications.py"
+GOALS_API = "app/api/goals.py"
+REFILL = "app/services/refill_forecast.py"
+CONCEPTS = "app/core/symptom_concepts.py"
 
 # Copied per mutation. Nothing here is worth carrying into a scratch tree, and
 # a stale __pycache__ would shadow the mutated source.
@@ -253,6 +268,42 @@ MUTATIONS = [
         '    __tablename__ = "provider_locations"',
         '    __tablename__ = "provider_locations"\n\n    user_id: Mapped[str | None] = mapped_column(String, nullable=True)',
     ),
+    # -------------------------------------------------------------------
+    # Data that must not outlive what it described, and the lines this
+    # app draws around what it is willing to read.
+    # -------------------------------------------------------------------
+    (
+        'integrity',
+        'deleting a medication leaves its reminders behind',
+        MEDICATIONS_API,
+        '    db.query(MedicationReminder).filter(\n        MedicationReminder.medication_id == medication.id\n    ).delete()',
+        '    pass',
+    ),
+    (
+        'integrity',
+        'deleting a goal leaves its ticks behind',
+        GOALS_API,
+        # ⛔ Skip the block, do not merely rename it. The first attempt here
+        # was `_unused = db.query(...)`, which still runs `.delete()` on the
+        # same chain — a semantic no-op that reported SURVIVED and looked
+        # exactly like a test gap. See the warning in the module docstring.
+        '    activity_ids = [activity.id for activity in goal.activities]\n    if activity_ids:',
+        '    activity_ids = [activity.id for activity in goal.activities]\n    if False:',
+    ),
+    (
+        'integrity',
+        'the refill forecast starts reading the printed directions',
+        REFILL,
+        '    quantity_remaining: int | None,',
+        '    frequency: str | None = None,\n    quantity_remaining: int | None,',
+    ),
+    (
+        'integrity',
+        'a fourth concept combination is added to the emergency combinator',
+        CONCEPTS,
+        '_COMBINATIONS: tuple[ConceptCombination, ...] = (',
+        '_COMBINATIONS: tuple[ConceptCombination, ...] = (\n    ConceptCombination(\n        rule_id="invented_fourth",\n        category="sepsis_meningitis",\n        required=("fever", "rash"),\n        basis="invented by a mutation, which is the point",\n    ),',
+    ),
 ]
 
 
@@ -268,6 +319,14 @@ SUITES = {
                 "tests/test_provider_directory.py",
                 "tests/test_appointments_api.py",
                 "tests/test_intake_api.py"),
+    # Rules about data that must not outlive the thing it described, and
+    # about lines this app draws around what it will read.
+    "integrity": ("tests/test_medications_api.py",
+                  "tests/test_reminders_api.py",
+                  "tests/test_goals.py",
+                  "tests/test_refill_forecast.py",
+                  "tests/test_symptom_concepts.py",
+                  "tests/test_protocol_content.py"),
 }
 
 

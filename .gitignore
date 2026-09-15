@@ -73,3 +73,8 @@ mobile/eng.traineddata
 # asserts no protocol-shaped file exists anywhere in the repository.
 backend/protocol_content/
 **/*.protocols.json
+
+# The mutation checker's scratch copy. It lives under mobile/ because jest
+# resolves node_modules by walking up from rootDir, and it is removed in a
+# finally — this is here for the run that gets interrupted anyway.
+mobile/.mutation-scratch/

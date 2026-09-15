@@ -1665,6 +1665,31 @@ It says the tests fail when the code stops doing what this file says it does.
 Whether what this file says is clinically right is the question a clinician has
 to answer, and nothing here goes near it.
 
+#### The client has one too
+
+`mobile/scripts/mutation_check.mjs`, same idea on the other side of the wire,
+and for the same reason: two of the four "green for the wrong reason" tests
+were here. Six rules, all caught:
+
+| rule, in this file's own words | |
+|---|---|
+| an empty emergency-card field renders "Not provided", never a missing row | caught |
+| the session token stays in `sessionStorage`, never `localStorage` | caught |
+| the goals screen is not an adherence record — no "3 of 4 done" | caught |
+| the tick says in its label whether it is ticked | caught |
+| the source disclosure says in its label whether it is open | caught |
+| a closed disclosure renders no citation at all | caught |
+
+The second is worth singling out. This file claims both halves of the
+storage split are "asserted by tests so that 'fixing the inconsistency' in
+either direction fails the suite" — moving the token to `localStorage` does
+fail, so that claim holds.
+
+⛔ **The scratch copy lives under `mobile/` rather than the system temp
+directory**, because jest resolves `node_modules` by walking up from
+`rootDir`. It is removed in a `finally` and `.gitignore`d for the run that is
+interrupted anyway.
+
 It exists because that failure happened **four times in one sitting**, on this
 feature, under a green suite:
 

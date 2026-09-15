@@ -1718,6 +1718,8 @@ were here. Six rules, all caught:
 | the tick says in its label whether it is ticked | caught |
 | the source disclosure says in its label whether it is open | caught |
 | a closed disclosure renders no citation at all | caught |
+| the emergency card is never posted to a server | caught |
+| a fired reminder never phones home with the medication name | caught |
 
 The second is worth singling out. This file claims both halves of the
 storage split are "asserted by tests so that 'fixing the inconsistency' in

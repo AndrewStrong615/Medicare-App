@@ -27,6 +27,14 @@
  *
  * ⛔ A SURVIVOR IS NOT FIXED BY DELETING THE MUTATION. Fix the test.
  *
+ * ⛔ BUT CHECK THE MUTATION ACTUALLY CHANGES BEHAVIOUR FIRST. One that edits
+ * the source without changing what it does reports SURVIVED and is
+ * indistinguishable here from a rule nothing tests. It has happened on the
+ * backend side: `db.query(...).delete()` rewritten as `_unused = db.query(...)`
+ * still calls `.delete()` on the same chain, and read as a missing test for a
+ * cascade that was working. The anchor count catches a mutation that could not
+ * be applied; nothing catches one that applied and meant nothing.
+ *
  * Not part of `npm test`: it runs the suite once per mutation.
  */
 
@@ -41,6 +49,8 @@ const SCRATCH = join(MOBILE, ".mutation-scratch");
 const GOALS = "src/screens/goals/HealthGoalsScreen.tsx";
 const CARD = "src/screens/emergency/EmergencyCardScreen.tsx";
 const TOKEN = "src/services/tokenStorage.web.ts";
+const CARD_STORE = "src/services/emergencyCard.ts";
+const NOTIFY = "src/services/notificationService.web.ts";
 
 /**
  * Each entry: the rule, in CLAUDE.md's own words, and the smallest edit that
@@ -118,6 +128,33 @@ const MUTATIONS = [
     find: "                    {openSources.has(activity.id) && (",
     replace: "                    {true && (",
     tests: ["__tests__/GoalScreens.test.tsx"],
+  },
+  {
+    group: "no-network",
+    // "There is no endpoint, no table, and no `fetch` on this path — a
+    // test asserts it." The card is the most sensitive thing this app
+    // holds and the one thing that has to work with no signal at all.
+    label: "the emergency card is posted to a server when it is saved",
+    file: CARD_STORE,
+    find: "export async function saveCard(card: EmergencyCard): Promise<EmergencyCard> {",
+    replace:
+      "export async function saveCard(card: EmergencyCard): Promise<EmergencyCard> {" +
+      "\n  await fetch('/emergency-card', { method: 'POST', body: JSON.stringify(card) });",
+    tests: ["__tests__/emergencyCard.test.ts", "__tests__/EmergencyCardScreen.test.tsx"],
+  },
+  {
+    group: "no-network",
+    // "Nothing about a reminder leaves the device. Both services make no
+    // network call; a test asserts `fetch` is never called when one fires."
+    // A payload naming a person's medication is exactly what would make a
+    // push vendor a processor of PHI.
+    label: "a fired reminder phones home with the medication name",
+    file: NOTIFY,
+    find: '    new window.Notification("Time to take your medication", {',
+    replace:
+      "    void fetch('/telemetry', { method: 'POST', body: reminder.medicationName });" +
+      '\n    new window.Notification("Time to take your medication", {',
+    tests: ["__tests__/notificationServiceWeb.test.ts"],
   },
 ];
 

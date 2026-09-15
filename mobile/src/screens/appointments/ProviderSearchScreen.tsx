@@ -359,7 +359,9 @@ export function ProviderSearchScreen({ navigation, route }: Props) {
                   onPress={() => setCareSetting(setting.value)}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
-                  accessibilityLabel={setting.label}
+                  // ⛔ In the label too: `accessibilityState` reaches nothing
+                  // on web, so this radio group announced no selection at all.
+                  accessibilityLabel={`${setting.label}, ${selected ? "selected" : "not selected"}`}
                   style={({ pressed }) => [
                     styles.chip,
                     selected && styles.chipSelected,

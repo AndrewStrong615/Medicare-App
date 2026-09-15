@@ -377,3 +377,390 @@ def test_the_committed_baseline_still_loads_and_still_shows_the_reported_bug():
     assert report["pairs"]["weight-scale"]["overlap"] > 0.3
     assert report["anchor_share"] < measure.MIN_ANCHOR_SHARE
     assert measure.breaches(report), "the baseline is the failing state"
+
+
+# ---------------------------------------------------------------------------
+# How much of a week a plan fills.
+#
+# Added 2026-09-13 with the coverage check in `_validate_plan`. A row count
+# cannot see the reported failure — four rows on four days answering a
+# year-long goal — so the harness could not have reported it either.
+# ---------------------------------------------------------------------------
+
+
+WEEK = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+
+def _scheduled(goal_id: str, title: str, rows, day_sets, complexity: str):
+    """
+    An outcome carrying a real schedule: one tuple of day names per row.
+
+    ⛔ Day names rather than counts, because `days_touched` cannot be derived
+    from counts and it is the number the gate reads. The helper used to take
+    counts, which silently reported every plan as appearing on zero days.
+    """
+    goal = next(g for g in corpus.CORPUS if g.id == goal_id)
+    return measure.Outcome(
+        goal,
+        title=title,
+        rows=tuple(rows),
+        day_counts=tuple(len(days) for days in day_sets),
+        days_touched=len({day for days in day_sets for day in days}),
+        complexity=complexity,
+    )
+
+
+def test_a_run_that_recorded_no_days_reports_no_coverage_at_all():
+    """
+    ⛔ ABSENT, NOT ZERO.
+
+    The committed BEFORE run predates the schedule being recorded. Reporting
+    it as a mean of 0.0 day-slots would read as a damning finding about those
+    plans rather than as a fact about the run, and the before/after comparison
+    this harness exists for would be a comparison of two different things.
+    """
+    report = measure.measure(
+        [
+            _outcome("weight-one-pound", "A walk before the wedding", ("Walk on Sunday",)),
+            _outcome("weight-hundred-pounds", "Steady weeks", ("Walk after dinner",)),
+        ]
+    )
+
+    assert report["scheduled"] == 0
+    assert report["mean_slots"] == 0.0
+    assert report["slots_by_complexity"] == {}
+    assert report["thin_major_plans"] == []
+
+
+def test_the_reported_plan_is_visible_as_a_major_goal_on_four_day_slots():
+    """
+    The plan the owner was shown, in the shape the harness now measures: four
+    rows, one day each, declared major. Four rows is a perfectly good row
+    count, which is why this needed a second number.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Mondays to Thursdays",
+                (
+                    "Walk for ten minutes",
+                    "Drink a glass of water after waking",
+                    "Go to bed at the same time",
+                    "Cook at home",
+                ),
+                (("monday",), ("tuesday",), ("wednesday",), ("thursday",)),
+                "major",
+            )
+        ]
+    )
+
+    assert report["thin_major_plans"] == ["weight-hundred-pounds"]
+    assert report["mean_slots"] == 4.0
+    assert report["slots_by_complexity"]["major"]["fewest"] == 4
+
+
+def test_a_plan_that_fills_a_week_is_not_flagged():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs, walks home and Sunday cooking",
+                (
+                    "Walk 30 minutes on the way home",
+                    "Cook a batch on Sunday",
+                    "Take the stairs at the office",
+                    "A bowl of vegetables at dinner",
+                ),
+                (WEEK[:5], ("sunday",), WEEK[:5], WEEK),
+                "major",
+            )
+        ]
+    )
+
+    assert report["thin_major_plans"] == []
+    assert report["mean_slots"] == 18.0
+
+
+def test_coverage_is_reported_per_reading_of_the_goals_size():
+    """
+    The two halves of the reported pair, which is the comparison the whole
+    harness was written for — now on the axis a row count cannot show.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-one-pound",
+                "A walk before the wedding",
+                ("Walk to the shop",),
+                (("monday", "wednesday", "friday"),),
+                "small",
+            ),
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs and walks home",
+                ("Walk 30 minutes on the way home", "Take the stairs"),
+                (WEEK[:5], WEEK[:5]),
+                "major",
+            ),
+        ]
+    )
+
+    assert report["scheduled"] == 2
+    assert report["slots_by_complexity"]["small"]["mean"] == 3.0
+    assert report["slots_by_complexity"]["major"]["mean"] == 10.0
+
+
+# ---------------------------------------------------------------------------
+# The --strict gates.
+#
+# ⛔ A METRIC NOBODY FAILS ON IS A METRIC NOBODY READS. Coverage and
+# situatedness were both reported before they were gated, which would have let
+# the reported bug pass a --strict run in silence. These tests are here so a
+# future metric is not added the same way.
+# ---------------------------------------------------------------------------
+
+
+def test_a_major_goal_on_four_day_slots_is_a_strict_breach():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Mondays to Thursdays",
+                (
+                    "Walk for ten minutes after breakfast",
+                    "Drink a glass of water after waking",
+                    "Go to bed at the same time each night",
+                    "Cook at home in the evening",
+                ),
+                (("monday",), ("tuesday",), ("wednesday",), ("thursday",)),
+                "major",
+            )
+        ]
+    )
+    found = measure.breaches(report)
+
+    assert any("days of the week" in line for line in found), found
+
+
+def test_a_plan_that_fills_the_week_raises_no_coverage_breach():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Stairs, walks home and Sunday cooking",
+                (
+                    "Walk 30 minutes on the way home from work",
+                    "Cook a batch on Sunday morning",
+                    "Take the stairs at the office",
+                    "A bowl of vegetables at dinner",
+                ),
+                (WEEK[:5], ("sunday",), WEEK[:5], WEEK),
+                "major",
+            )
+        ]
+    )
+
+    assert not any("days of the week" in line for line in measure.breaches(report))
+
+
+def test_rows_that_name_no_moment_and_no_place_are_a_strict_breach():
+    report = measure.measure(
+        [
+            _outcome(
+                "vague-healthier",
+                "Feeling better",
+                ("Eat better", "Be more active", "Manage stress"),
+            )
+        ]
+    )
+    found = measure.breaches(report)
+
+    assert any("when or where" in line for line in found), found
+    assert report["situated_share"] == 0.0
+
+
+def test_a_row_that_names_a_moment_counts_as_situated():
+    assert measure.situated("Walk 30 minutes on the way home from work")
+    assert measure.situated("Put a bowl of vegetables on the plate at dinner")
+    assert measure.situated("Take the stairs at the office")
+
+    # The goal restated, which is the thing the prompt's first test rejects.
+    assert not measure.situated("Eat better")
+    assert not measure.situated("Be more active")
+    assert not measure.situated("Drink more water")
+
+
+def test_word_boundaries_are_respected_so_an_activity_word_is_not_a_place():
+    """
+    "workout" is not "work" and "beforehand" is not "before". Without this the
+    list would creep into matching the activity words themselves and report
+    every plan as situated, which is the failure mode of a crude measure that
+    nobody notices.
+    """
+    assert not measure.situated("Do a workout")
+    assert not measure.situated("Stretch beforehand")
+
+
+def test_a_concrete_row_that_answers_no_goal_still_counts_as_situated():
+    """
+    ⛔ THE LIMIT, PINNED SO IT IS NOT OVER-READ.
+
+    "Drink a glass of water after waking" is one of the two rows that were
+    actually reported, and it scores as situated, because it does name a
+    moment. This measure sees whether a row says WHEN or WHERE; it cannot see
+    whether the row answers the goal. That is what `repeat_share` and the
+    contrast pairs are for, and it is why no deterministic vagueness check was
+    built in `goal_structuring`.
+    """
+    assert measure.situated("Drink a glass of water after waking")
+    assert measure.situated("Go to bed at the same time each night")
+
+
+def test_the_harness_keeps_a_daily_row_plus_weekly_ones_off_the_thin_list():
+    """
+    ⛔ THE GATE AND THE CHECK HAVE TO COUNT THE SAME THING.
+
+    "Walk every day" plus three weekend errands is 10 day-slots and appears on
+    all seven days. `goal_structuring` keeps it; so must this, or a --strict
+    run would report a breach for a plan the application was happy with, and
+    somebody would "fix" one of the two to agree with the other.
+    """
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "Daily walks home and a Sunday cook",
+                (
+                    "Walk 30 minutes on the way home",
+                    "Cook a batch for the week on Sunday",
+                    "Do the food shop on Saturday",
+                    "Set out the week's walks on Monday",
+                ),
+                (WEEK, ("sunday",), ("saturday",), ("monday",)),
+                "major",
+            )
+        ]
+    )
+
+    assert report["mean_slots"] == 10.0
+    assert report["mean_days_touched"] == 7.0
+    assert report["thin_major_plans"] == []
+    assert not any("days of the week" in line for line in measure.breaches(report))
+
+
+def test_the_floor_the_harness_gates_on_is_the_one_the_application_enforces():
+    """
+    Two copies of a number in two files is a number that drifts. This is the
+    cheapest possible guard against that.
+    """
+    from app.core import goal_structuring
+
+    fewest_days, _ = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY["major"]
+    assert measure.MAJOR_FLOOR_DAYS == fewest_days
+
+
+def test_a_row_naming_a_day_of_the_week_is_situated():
+    """
+    A named day is a moment, and rows do name them — "cook a batch on Sunday".
+    These were false misses until the day names were added, which is the shape
+    of error a short keyword list makes: it under-reports rather than
+    over-reports, so the figure is a floor.
+
+    ⛔ This is about the row TEXT, which is what the person reads on the card.
+    The plan's own `days` field is a separate thing and is not consulted here.
+    """
+    assert measure.situated("Cook a batch for the week on Sunday")
+    assert measure.situated("Call your sister on Saturday")
+
+    # Still no false positives: an amount is not a moment and not a place.
+    assert not measure.situated("Do ten bodyweight squats")
+    assert not measure.situated("Stretch for five minutes")
+
+
+# ---------------------------------------------------------------------------
+# Did the plan take a scale the goal stated outright?
+#
+# The reported complaint was that "lose one pound" and "lose a hundred pounds"
+# came back the same. The contrast-pair overlap sees that only when the ROWS
+# coincide. This sees the prior question: did the planner even read them as
+# different sizes?
+#
+# ⛔ Bounds, not gold labels, and only on the four goals that state their own
+# scale in so many words. See the note on corpus.Goal.
+# ---------------------------------------------------------------------------
+
+
+def test_a_year_long_goal_read_as_small_is_reported_and_gated():
+    report = measure.measure(
+        [
+            _scheduled(
+                "weight-hundred-pounds",
+                "A walk before dinner",
+                ("Take a 15 minute walk after dinner",),
+                ((WEEK[:3]),),
+                "small",
+            )
+        ]
+    )
+
+    assert report["misread_size"], report
+    assert "no smaller than major" in report["misread_size"][0]
+    assert any("stated outright" in line for line in measure.breaches(report))
+
+
+def test_a_one_day_goal_read_as_major_is_reported():
+    report = measure.measure(
+        [
+            _scheduled(
+                "quit-today",
+                "Getting through today",
+                ("Row 1", "Row 2", "Row 3", "Row 4"),
+                (WEEK, WEEK, WEEK, WEEK),
+                "major",
+            )
+        ]
+    )
+
+    assert report["misread_size"], report
+    assert "no larger than moderate" in report["misread_size"][0]
+
+
+def test_a_goal_that_states_no_scale_is_never_reported():
+    """
+    ⛔ THE HALF THAT KEEPS THIS HONEST.
+
+    Twelve of the sixteen goals carry no bound, because "is this moderate or
+    major" is a judgement and this app should not be scoring itself on one.
+    A reading of a goal that never stated its size cannot be wrong here.
+    """
+    for complexity in ("small", "moderate", "major"):
+        report = measure.measure(
+            [
+                _scheduled(
+                    "cooking-budget",
+                    "Cooking at home",
+                    ("Cook a batch on Sunday",),
+                    ((WEEK[:3]),),
+                    complexity,
+                )
+            ]
+        )
+        assert report["misread_size"] == [], (complexity, report["misread_size"])
+
+
+def test_a_run_that_recorded_no_complexity_reports_nothing():
+    """The committed baseline predates the field; absent is not a finding."""
+    report = measure.measure(
+        [_outcome("weight-hundred-pounds", "Evening walks", ("Walk after dinner",))]
+    )
+
+    assert report["misread_size"] == []

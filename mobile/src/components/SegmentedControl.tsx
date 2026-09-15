@@ -71,7 +71,9 @@ function SegmentButton({
       {...hoverProps}
       onPress={onPress}
       accessibilityRole="tab"
-      accessibilityLabel={segment.label}
+      // ⛔ In the label, not only in `accessibilityState`, which reaches
+      // nothing on web. See CLAUDE.md.
+      accessibilityLabel={`${segment.label}, ${active ? "selected" : "not selected"}`}
       accessibilityHint={segment.hint}
       accessibilityState={{ selected: active }}
       style={({ pressed }) => [

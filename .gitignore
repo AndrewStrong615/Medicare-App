@@ -73,3 +73,15 @@ mobile/eng.traineddata
 # asserts no protocol-shaped file exists anywhere in the repository.
 backend/protocol_content/
 **/*.protocols.json
+
+# The mutation checker's scratch copy. It lives under mobile/ because jest
+# resolves node_modules by walking up from rootDir, and it is removed in a
+# finally — this is here for the run that gets interrupted anyway.
+mobile/.mutation-scratch/
+
+# Local SQLite databases. A dev run creates one, and `git add -A` swept one
+# into a commit on 2026-09-14 — synthetic, but it carried an account row and a
+# password hash, and a database file has no business in this repository.
+*.db
+*.sqlite
+*.sqlite3

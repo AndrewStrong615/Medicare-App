@@ -37,12 +37,29 @@ class Goal:
     pair: str | None = None
     # Why these two are a pair, printed beside the overlap figure.
     note: str = ""
+    # Bounds on how big a reader should find this goal, where the goal states
+    # its own scale in so many words. Both None everywhere else.
+    #
+    # ⛔ WHAT THESE ARE, AND WHAT THEY ARE NOT. Bounds, never an exact answer,
+    # assigned from `goal_structuring`'s OWN published definitions of small /
+    # moderate / major. Same standing as the gold tiers in `triage_eval`,
+    # which CLAUDE.md is careful to call consistency with documented intent
+    # rather than correctness. Nobody clinically qualified assigned them.
+    #
+    # ⛔ They are set ONLY where the goal says its own size out loud — a
+    # stated span of years, a stated history of trying and stopping, a stated
+    # single day. "Is this moderate or major" is exactly the judgement this
+    # app should not be scoring itself on, so a goal that could fairly be read
+    # either way carries neither bound.
+    not_below: str | None = None
+    not_above: str | None = None
 
 
 CORPUS: tuple[Goal, ...] = (
     # --- the reported pair: one domain at two very different scales --------
     Goal(
         id="weight-one-pound",
+        not_above="moderate",
         text="I want to lose one pound before my sister's wedding next month.",
         anchors=("pound", "wedding", "month"),
         pair="weight-scale",
@@ -50,6 +67,7 @@ CORPUS: tuple[Goal, ...] = (
     ),
     Goal(
         id="weight-hundred-pounds",
+        not_below="major",
         text=(
             "I want to lose a hundred pounds. I know it is going to take a "
             "couple of years and I have started and stopped a lot of times."
@@ -103,6 +121,7 @@ CORPUS: tuple[Goal, ...] = (
     # --- near and small against far and large, outside weight --------------
     Goal(
         id="quit-today",
+        not_above="moderate",
         text="I want to get through today without a cigarette.",
         anchors=("cigarette", "smok", "today"),
         pair="quit-scale",
@@ -110,6 +129,7 @@ CORPUS: tuple[Goal, ...] = (
     ),
     Goal(
         id="quit-year",
+        not_below="major",
         text=(
             "I want to stop smoking for good. I have smoked twenty a day for "
             "fifteen years."

@@ -79,7 +79,9 @@ function ChoiceRow<T extends string>({
               onPress={() => onSelect(option.value)}
               accessibilityRole="radio"
               accessibilityState={{ selected: isSelected }}
-              accessibilityLabel={option.label}
+              // ⛔ In the label too: `accessibilityState` reaches nothing on
+              // web, so this radio group announced no selection at all.
+              accessibilityLabel={`${option.label}, ${isSelected ? "selected" : "not selected"}`}
               style={({ pressed }) => [
                 styles.chip,
                 isSelected && styles.chipSelected,

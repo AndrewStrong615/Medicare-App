@@ -9,11 +9,12 @@ that invents something and asserts the whole draft is discarded.
 """
 
 import inspect
+import itertools
 from datetime import date
 
 import pytest
 
-from app.core import goal_structuring
+from app.core import goal_evidence, goal_structuring
 from app.models.goal import GoalCompletion
 from app.services.llm import ChatReply, LLMUnavailable, ToolCall
 
@@ -1293,11 +1294,15 @@ def test_scale_changes_the_plan_but_may_never_make_it_harder():
     """
     prompt = goal_structuring.PLAN_SYSTEM_PROMPT
 
-    assert "SCALE CHANGES THE PLAN, AND IN ONE DIRECTION ONLY" in prompt
-    assert "NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN" in prompt
+    assert "SCALE CHANGES THE PLAN: MORE OF THE WEEK, NEVER A HARDER DAY" in prompt
+    assert "WHAT SCALE MAY NEVER CHANGE" in prompt
 
-    bounded = prompt.split("NEVER ANSWER A BIGGER GOAL WITH A HARDER PLAN", 1)[1]
-    for forbidden in ("raise an amount", "add intensity", "set a figure to reach"):
+    # Everything after that heading is the list of things a bigger goal may
+    # not buy. The wording was made more precise on 2026-09-13 — scale may now
+    # fill more of the week, and may still never raise intensity or set a
+    # figure — so the assertion moved with it rather than being dropped.
+    bounded = prompt.split("WHAT SCALE MAY NEVER CHANGE", 1)[1]
+    for forbidden in ("Intensity.", "A figure to reach.", "never through pain"):
         assert forbidden in bounded
 
     # The existing absolutes are untouched by the change.
@@ -1350,33 +1355,53 @@ def test_the_planner_does_not_decode_greedily_and_nothing_else_follows_it(
 # ---------------------------------------------------------------------------
 
 
+# ⛔ THESE TWO USE A PLAN THAT IS VALID UNDER THE DEFAULT, AND THAT IS THE
+# WHOLE POINT OF THEM.
+#
+# Both were written with a single activity, and both passed a mutation that
+# replaced the discard with `complexity = "moderate"` — because a one-row plan
+# fails the moderate ROW COUNT anyway. They demonstrated "one row is not three
+# to four rows" while claiming to demonstrate "a missing reading is refused".
+#
+# Three rows on five weekdays is 15 day-slots: comfortably inside moderate's
+# 3-4 rows and 6-28 slots. So nothing downstream can reject it, and the only
+# thing that can is the check these tests are about.
+def _plan_that_moderate_would_accept(**overrides):
+    rows = [
+        _walk_suggestion(text=f"Row {n}", days=list(goal_structuring.DAYS[:5]))
+        for n in range(3)
+    ]
+    return _plan(title="Walks after lunch", activities=rows, **overrides)
+
+
 def test_a_plan_must_commit_to_a_reading_of_how_big_the_goal_is(model):
     """
     The reading is required rather than defaulted. A model that never made one
     has not taken the size of the goal into account, and quietly calling it
     "moderate" would make the feature look like it was working.
     """
-    model(
-        _plan(
-            title="Walks after lunch",
-            activities=[_walk_suggestion()],
-            complexity=None,
-        )
-    )
+    model(_plan_that_moderate_would_accept(complexity=None))
 
     assert goal_structuring.suggest_plan("I want to walk more") is None
 
 
 def test_an_unrecognised_reading_is_a_discard_and_not_a_default(model):
-    model(
-        _plan(
-            title="Walks after lunch",
-            activities=[_walk_suggestion()],
-            complexity="enormous",
-        )
-    )
+    model(_plan_that_moderate_would_accept(complexity="enormous"))
 
     assert goal_structuring.suggest_plan("I want to walk more") is None
+
+
+def test_the_fixture_those_two_rely_on_really_would_be_accepted(model):
+    """
+    ⛔ The load-bearing half. If this plan stopped being valid under
+    "moderate", the two tests above would go back to passing for the wrong
+    reason and nothing would say so.
+    """
+    model(_plan_that_moderate_would_accept(complexity="moderate"))
+    draft = goal_structuring.suggest_plan("I want to walk more")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert draft.complexity == "moderate"
 
 
 def test_a_major_goal_may_not_be_answered_with_a_two_row_plan(model):
@@ -1426,6 +1451,531 @@ def test_a_major_goal_gets_the_longer_plan_and_says_so(model):
     assert isinstance(draft, goal_structuring.GoalDraft)
     assert draft.complexity == "major"
     assert len(draft.activities) == 4
+
+
+# ---------------------------------------------------------------------------
+# Reported 2026-09-13: "I said I want to lose a hundred pounds in a year and it
+# recommended ten minutes of exercise a day, drink water, go to bed on time."
+#
+# The row count already had to agree with the declared reading. Nothing made
+# the plan occupy any of the person's week, so four rows on one day each — a
+# plan present on four days out of seven — satisfied "major".
+# ---------------------------------------------------------------------------
+
+
+def _on(text, days, time_of_day="08:00"):
+    """A planned row on named days, for counting how much of a week it fills."""
+    return _walk_suggestion(text=text, days=list(days), time_of_day=time_of_day)
+
+
+MON = ("monday",)
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday")
+
+
+def test_a_major_goal_may_not_be_answered_with_a_plan_that_barely_touches_the_week(
+    model,
+):
+    """
+    ⛔ THE REPORTED PLAN, AS A CHECK.
+
+    Four rows, each on one day: enough rows to call itself major, and present
+    on four days of somebody's year-long attempt. The count of rows was never
+    what made that plan feel unserious — how little of the week it occupied
+    was.
+    """
+    rows = [
+        _on("Walk for ten minutes", MON),
+        _on("Drink a glass of water after waking", ("tuesday",)),
+        _on("Go to bed at the same time", ("wednesday",)),
+        _on("Cook at home", ("thursday",)),
+    ]
+    model(_plan(title="Mondays to Thursdays", activities=rows, complexity="major"))
+
+    assert (
+        goal_structuring.suggest_plan("I want to lose a hundred pounds in a year")
+        is None
+    )
+
+
+def test_a_major_goal_is_accepted_when_the_plan_actually_fills_a_week(model):
+    rows = [
+        _on("Walk 30 minutes on the way home", WEEKDAYS, "17:30"),
+        _on("Cook a batch on Sunday", ("sunday",), "11:00"),
+        _on("Take the stairs at the office", WEEKDAYS, "09:00"),
+        _on("A bowl of vegetables at dinner", goal_structuring.DAYS, "18:30"),
+    ]
+    model(
+        _plan(
+            title="Stairs, walks home and Sunday cooking",
+            activities=rows,
+            complexity="major",
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to lose a hundred pounds in a year")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert sum(len(one.days) for one in draft.activities) == 18
+
+
+def test_a_small_goal_may_not_be_answered_with_a_whole_weeks_programme(model):
+    """
+    The same check pointing the other way. Somebody who meant to do one thing
+    once is not handed three daily habits.
+    """
+    rows = [_on(f"Row {n}", goal_structuring.DAYS) for n in range(3)]
+    model(_plan(title="Three daily habits", activities=rows, complexity="small"))
+
+    assert goal_structuring.suggest_plan("I want to walk to the shop tomorrow") is None
+
+
+def test_a_small_goal_is_accepted_on_a_few_days(model):
+    rows = [_on("Walk to the shop", ("saturday", "sunday", "wednesday"))]
+    model(_plan(title="Walks to the shop", activities=rows, complexity="small"))
+    draft = goal_structuring.suggest_plan("I want to walk to the shop")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+
+
+def test_the_coverage_bands_never_measure_how_hard_a_row_is(model):
+    """
+    ⛔ The check is arithmetic over the schedule and nothing else.
+
+    A plan of five gruelling rows and a plan of five gentle ones on the same
+    days are indistinguishable here, on purpose: how hard a person should push
+    is a clinician's call and is not something this module may adjudicate. The
+    test exists so nobody later reads the bands as a safety control.
+    """
+    gentle = [_on(f"Stand up for a minute {n}", WEEKDAYS, "10:00") for n in range(3)]
+    model(
+        _plan(title="Standing up at the desk", activities=gentle, complexity="moderate")
+    )
+    assert isinstance(
+        goal_structuring.suggest_plan("I sit down too much"), goal_structuring.GoalDraft
+    )
+
+    # Identical schedule, wildly different effort, identical verdict.
+    hard = [_on(f"Run five miles {n}", WEEKDAYS, "10:00") for n in range(3)]
+    model(_plan(title="Runs before work", activities=hard, complexity="moderate"))
+    assert isinstance(
+        goal_structuring.suggest_plan("I sit down too much"), goal_structuring.GoalDraft
+    )
+
+
+def test_every_complexity_has_a_usable_shape_band():
+    """A reading with no bound, or an unsatisfiable one, is an unusable plan."""
+    assert set(goal_structuring.WEEK_SHAPE_BY_COMPLEXITY) == set(
+        goal_structuring.ROWS_BY_COMPLEXITY
+    )
+    for name, (fewest_days, most_slots) in goal_structuring.WEEK_SHAPE_BY_COMPLEXITY.items():
+        rows_fewest, rows_most = goal_structuring.ROWS_BY_COMPLEXITY[name]
+        assert 1 <= fewest_days <= len(goal_structuring.DAYS), name
+        # One row can reach the day floor on its own, and the fewest allowed
+        # rows can sit inside the slot ceiling — or that reading could never
+        # produce a plan at all.
+        assert most_slots >= rows_fewest, name
+        assert most_slots >= fewest_days, name
+        assert rows_most >= rows_fewest >= 1, name
+
+
+def test_the_bands_reject_only_the_shapes_they_are_meant_to():
+    """
+    ⛔ THE TWO TABLES, READ TOGETHER.
+
+    `ROWS_BY_COMPLEXITY` says how many rows a reading allows;
+    `WEEK_SHAPE_BY_COMPLEXITY` says what shape of week they may make. They are
+    read in different places, so a bound on one that quietly excludes an
+    ordinary plan under the other looks like nothing at all from either table.
+
+    This enumerates every uniform (rows x days-per-row) shape the row band
+    allows and asserts exactly which the shape band turns away. A discard hands
+    the person an empty editor, so a shape appearing here that nobody meant is
+    a real cost to a real person — and that has already happened once, when
+    `moderate` shipped with a slot ceiling of 21 and silently rejected four
+    rows on six or seven days.
+
+    ⛔ The grid is uniform and real plans are not. That is a known blind spot
+    of THIS test rather than of the check, and it is why the uneven cases are
+    written out separately below — the first version of these bands passed
+    this enumeration while rejecting "walk every day, plus three weekend
+    errands".
+    """
+    rejected: dict[str, set[tuple[int, int]]] = {}
+    for name, (fewest_rows, most_rows) in goal_structuring.ROWS_BY_COMPLEXITY.items():
+        fewest_days, most_slots = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY[name]
+        rejected[name] = {
+            (rows, per_row)
+            for rows in range(fewest_rows, most_rows + 1)
+            for per_row in range(1, len(goal_structuring.DAYS) + 1)
+            # A uniform plan on `per_row` days touches exactly that many days.
+            if per_row < fewest_days or rows * per_row > most_slots
+        }
+
+    # small — the CEILING is the working end, and it counts VOLUME. A whole
+    # week's programme is not an answer to something meant to be done once.
+    assert rejected["small"] == {(3, 5), (3, 6), (3, 7)}
+
+    # moderate — the FLOOR, counting DAYS TOUCHED. Rows all on one day is a
+    # plan that touches one day of the week it claims to be changing.
+    assert rejected["moderate"] == {(3, 1), (4, 1)}
+
+    # major — the FLOOR, counting DAYS TOUCHED. The reported plan is (4, 1):
+    # four rows, one day each, answering "lose a hundred pounds in a year".
+    assert rejected["major"] == {
+        (rows, per_row) for rows in (4, 5) for per_row in (1, 2, 3, 4)
+    }
+
+
+def test_a_major_plan_of_one_daily_row_and_a_few_weekly_ones_is_kept(model):
+    """
+    ⛔ THE CASE THAT DECIDED WHAT THE FLOOR COUNTS.
+
+    "Walk every day", plus a Sunday cook, a Saturday shop and a Monday check:
+    on the person's week every single day, and only 10 day-slots. A floor on
+    day-slots high enough to reject the reported plan (4 slots) also rejects
+    this one, which is a good answer to a year-long goal — so the floor counts
+    DAYS TOUCHED, which is what "present on most days" actually means.
+
+    The uniform grid in the test above cannot see this shape. It is written
+    out because the first version of these bands passed that enumeration and
+    would have thrown this plan away.
+    """
+    rows = [
+        _on("Walk 30 minutes on the way home", goal_structuring.DAYS, "17:30"),
+        _on("Cook a batch for the week", ("sunday",), "11:00"),
+        _on("Do the food shop", ("saturday",), "10:00"),
+        _on("Set out the week's walks", ("monday",), "08:00"),
+    ]
+    model(_plan(title="Daily walks home and a Sunday cook", activities=rows, complexity="major"))
+    draft = goal_structuring.suggest_plan("I want to lose a hundred pounds in a year")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert sum(len(one.days) for one in draft.activities) == 10
+    assert len({d for one in draft.activities for d in one.days}) == 7
+
+
+def test_a_moderate_goal_may_have_four_daily_rows(model):
+    """
+    The regression the enumeration found, as the plan a person would have
+    lost: four everyday habits, every day, for a goal about an ordinary week.
+    28 day-slots, and it must not be discarded.
+    """
+    rows = [
+        _on("Take the stairs at the office", goal_structuring.DAYS, "09:00"),
+        _on("A bowl of vegetables at dinner", goal_structuring.DAYS, "18:30"),
+        _on("Get off the bus a stop early", goal_structuring.DAYS, "08:10"),
+        _on("Put the phone in the kitchen at bedtime", goal_structuring.DAYS, "22:00"),
+    ]
+    model(
+        _plan(
+            title="Stairs, stops and a quiet bedroom",
+            activities=rows,
+            complexity="moderate",
+        )
+    )
+    draft = goal_structuring.suggest_plan("I want to change how my weeks go")
+
+    assert isinstance(draft, goal_structuring.GoalDraft)
+    assert sum(len(one.days) for one in draft.activities) == 28
+
+
+def test_a_moderate_goal_on_one_day_of_the_week_is_still_a_discard(model):
+    """The other end of the same band, so widening the ceiling did not empty it."""
+    rows = [_on(f"Row {n}", ("monday",)) for n in range(3)]
+    model(_plan(title="Mondays", activities=rows, complexity="moderate"))
+
+    assert goal_structuring.suggest_plan("I want to change how my weeks go") is None
+
+
+def test_no_plausible_plan_is_rejected_for_a_reason_its_band_does_not_enforce():
+    """
+    ⛔ THE COST OF THIS CHECK, SWEPT RATHER THAN REASONED ABOUT.
+
+    A discard hands the person an empty editor, so the question that matters is
+    not "does the check catch the bug" but "what else does it catch". Two
+    versions of these bands shipped in this branch and BOTH rejected ordinary
+    plans — four daily habits for a moderate goal, and a daily walk plus three
+    weekend errands for a major one. Neither was visible from reading the
+    numbers.
+
+    So this enumerates every plan that can be built from the day-patterns real
+    plans actually use, at every allowed row count, and asserts that each
+    rejection is attributable to the one end that band is meant to enforce:
+
+        small     the CEILING on day-slots  - a week's programme for a one-off
+        moderate  the FLOOR on days touched - a plan that touches one day
+        major     the FLOOR on days touched - not present across a real week
+
+    A rejection that cannot be attributed is a plan somebody would have wanted
+    and did not get. The sweep is ~74,000 shapes and runs offline.
+    """
+    # Day-sets real plans use: daily, the working week, a couple of days, a
+    # single weekend task. Not every subset of the week — the point is
+    # plausible plans, not exhaustive ones.
+    patterns = (
+        tuple(goal_structuring.DAYS),
+        goal_structuring.DAYS[:5],
+        ("saturday", "sunday"),
+        ("sunday",),
+        ("saturday",),
+        ("monday", "wednesday", "friday"),
+        ("tuesday", "thursday"),
+        ("monday",),
+        ("monday", "tuesday", "wednesday", "thursday"),
+    )
+
+    unattributed: list[str] = []
+    counts: dict[str, tuple[int, int]] = {}
+
+    for name, (fewest_rows, most_rows) in goal_structuring.ROWS_BY_COMPLEXITY.items():
+        fewest_days, most_slots = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY[name]
+        kept = turned_away = 0
+        for rows in range(fewest_rows, most_rows + 1):
+            for combination in itertools.product(patterns, repeat=rows):
+                slots = sum(len(days) for days in combination)
+                touched = len({day for days in combination for day in days})
+                if touched >= fewest_days and slots <= most_slots:
+                    kept += 1
+                    continue
+                turned_away += 1
+                # Attribute it. Every band has exactly one working end, so a
+                # rejection has to be explained by that end.
+                if name == "small" and slots > most_slots:
+                    continue
+                if name in ("moderate", "major") and touched < fewest_days:
+                    continue
+                unattributed.append(
+                    f"{name}: {rows} rows, {touched} days, {slots} slots"
+                )
+        counts[name] = (turned_away, turned_away + kept)
+
+    assert unattributed == [], unattributed[:5]
+
+    # ⛔ ATTRIBUTION ALONE IS NOT ENOUGH, AND THIS IS NOT THEORY.
+    #
+    # Checked by re-introducing both bugs this branch shipped. Attribution
+    # catches the first (a moderate ceiling of 21 rejects "4 rows, 7 days, 28
+    # slots", which nothing explains). It does NOT catch the second: express
+    # the major floor on DAY-SLOTS instead of days touched and set it to 14,
+    # and the rule "touched < fewest_days" explains every rejection — because
+    # a days floor of 14 can never be met, so everything is rejected and
+    # everything is 'attributable'.
+    #
+    # A band that turns away almost every plausible plan is as broken as one
+    # that turns away the wrong ones, so the rate is checked too. As shipped
+    # these are 94.6% / 99.9% / 94.8% kept.
+    for name, (turned_away, total) in counts.items():
+        fewest_days, _ = goal_structuring.WEEK_SHAPE_BY_COMPLEXITY[name]
+        # A floor above the length of a week cannot be satisfied by anything.
+        assert fewest_days <= len(goal_structuring.DAYS), name
+        assert (total - turned_away) / total > 0.5, (name, turned_away, total)
+
+    # And the sweep has to be big enough to mean something. A patterns list
+    # someone trimmed to two entries would pass the assertions above by
+    # testing almost nothing.
+    assert sum(total for _, total in counts.values()) > 50_000, counts
+
+
+def test_a_plan_with_one_daily_row_is_never_turned_away_for_being_thin():
+    """
+    The corollary worth stating on its own, because it is the case that broke
+    the first version of these bands: one row on every day puts the plan on
+    somebody's week seven days out of seven, whatever else is in it. It can
+    never fail a floor that counts days touched.
+    """
+    for name, (fewest_days, _) in goal_structuring.WEEK_SHAPE_BY_COMPLEXITY.items():
+        assert fewest_days <= len(goal_structuring.DAYS), name
+        # A single daily row already reaches every floor in the table.
+        assert len(goal_structuring.DAYS) >= fewest_days, name
+
+
+# ---------------------------------------------------------------------------
+# The prompt is the only guard on this path, so its SHAPE is a property too.
+#
+# Measured 2026-09-13 while adding the ambition sections: the plan prompt has
+# gone 6,019 chars at the start of this branch -> 11,957 -> 16,366. Most of a
+# tripling, and it is read by whatever free model a deployment has configured.
+# Instruction-following degrades with length, and the thing that degrades
+# first is whatever is furthest from the question.
+# ---------------------------------------------------------------------------
+
+
+# ~4,100 tokens at four characters each. Not a limit anyone measured against a
+# model — it is a tripwire, so the next big addition is a decision rather than
+# a drift, and it is honest about being one. Raising it should come with a
+# reason and, ideally, a `goal_plan_eval` run either side.
+MAX_PLAN_PROMPT_CHARS = 18_000
+
+
+def test_the_plan_prompt_has_not_grown_without_anyone_noticing():
+    """
+    ⛔ A LONGER PROMPT IS NOT A STRONGER ONE.
+
+    Everything that constrains a suggested plan lives in this string, and it
+    is read by a small free model. Past some length the rules at the far end
+    stop being followed, and this feature's rules at the far end are the ones
+    about medication, clinical targets and benefit claims.
+
+    This does not say the current length is safe. It says a further jump is a
+    conversation.
+    """
+    assert len(goal_structuring.PLAN_SYSTEM_PROMPT) < MAX_PLAN_PROMPT_CHARS
+
+
+def test_the_absolute_constraints_bracket_the_ambition_material():
+    """
+    ⛔ THE ORDER IS LOAD-BEARING, AND IT IS THE REASON THE GROWTH WAS NOT JUST
+    TRIMMED BACK.
+
+    The 2026-09-13 sections raise how much of a week a plan may fill. Left to
+    itself that would have put new ambition-raising material in front of a
+    constraint list that already sat three-quarters of the way down — the
+    worst possible arrangement, since what a model drops first is what is
+    furthest from the question.
+
+    `WHAT SCALE MAY NEVER CHANGE` therefore states the absolutes again where
+    the ambition is introduced, so the constraints BRACKET it: measured at 18%
+    and 77% through the prompt. The duplication is the point, not waste.
+
+    Each of these is named in both places. If a future edit removes one copy,
+    this fails and the question "which copy, and is the other one early enough"
+    has to be answered rather than assumed.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    def heading(text: str) -> int:
+        """
+        Where a section STARTS.
+
+        On its own line, because the sections cross-reference each other by
+        name: a plain `index` for "WHAT YOU MUST NEVER PROPOSE" finds the
+        pointer to it inside the SCALE block, three-quarters of the prompt
+        earlier, and quietly reports the constraints as arriving before the
+        ambition when they are also restated after it.
+        """
+        newline = chr(10)
+        at = prompt.find(newline + text + newline)
+        assert at != -1, f"no section headed {text!r}"
+        return at
+
+    early = heading("WHAT SCALE MAY NEVER CHANGE:")
+    proposes = heading("WHAT TO PROPOSE")
+    late = heading("WHAT YOU MUST NEVER PROPOSE")
+
+    # Constraints before the ambition, and again after it.
+    assert early < proposes < late
+
+    for concept in ("weight", "blood pressure", "calorie", "through pain"):
+        head, tail = prompt[:proposes], prompt[proposes:]
+        assert concept in head.lower(), f"{concept} is not stated before WHAT TO PROPOSE"
+        assert concept in tail.lower(), f"{concept} is not restated after it"
+
+
+# ---------------------------------------------------------------------------
+# The ambition of a plan, and the one place it is allowed to come from.
+#
+# Reported alongside the template plans: the plans "aren't very that
+# effective". The prompt used to cap every plan at "modest starting points"
+# and "keep it easy", so a year-long goal and an afternoon's goal were offered
+# the same ten minutes.
+# ---------------------------------------------------------------------------
+
+
+def test_the_plan_prompt_anchors_how_much_to_published_guidance():
+    """
+    ⛔ WHERE THE CEILING COMES FROM, AND WHY IT IS NOT OURS.
+
+    A plan may now build the week towards a figure that is *published* — the
+    same CDC recommendation already carried verbatim in `goal_evidence.py` —
+    and may never go past it. A number a software engineer picked would be
+    this app authoring how hard somebody should work, which is the thing the
+    whole feature is built not to do.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "150 minutes" in prompt
+    assert "Never propose more than it." in prompt
+    # And it is a ceiling to build towards, never a target read out to the
+    # person: a clinical figure on their screen is what this app may not do.
+    assert 'never write the figure "150" into a row' in prompt
+
+
+def test_the_published_figure_in_the_prompt_is_the_one_in_the_register():
+    """
+    ⛔ ONE COPY OF THE NUMBER.
+
+    The ceiling the prompt builds towards and the sentence rendered under a
+    row have to be the same published recommendation. Two copies would drift,
+    and the one on screen is the one a person reads as the justification.
+    """
+    quote = goal_evidence.BY_DOMAIN["aerobic_activity"].quote
+
+    assert "150 minutes" in quote
+    assert "150 minutes" in goal_structuring.PLAN_SYSTEM_PROMPT
+
+
+def test_scale_may_fill_more_of_the_week_and_may_never_make_a_day_harder():
+    """
+    The one-directional rule, restated more precisely rather than relaxed.
+    Scale moves coverage; it may not move intensity or set a figure.
+
+    ⛔ The prompt is the only guard on this path. This test is what stops
+    "answer a bigger goal with more of the week" being quietly reread as
+    "answer a bigger goal harder".
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "WHAT SCALE MAY NEVER CHANGE" in prompt
+    assert "It does not earn a harder day." in prompt
+    for forbidden in ("through pain", "weight", "blood pressure", "calorie"):
+        assert forbidden in prompt
+
+
+def test_the_prompt_still_refuses_every_clinical_decision():
+    """
+    Raising the ambition of a plan changed nothing about what a plan may
+    contain. These are the lines the 2026-09-12 removal left standing, and the
+    SCALE and WHAT TO PROPOSE sections were rewritten around them.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "A medication, a dose, a supplement" in prompt
+    assert "A target number for a clinical measurement" in prompt
+    assert "Fasting, purging, detoxes" in prompt
+    assert "Intense, strenuous or competitive exercise" in prompt
+    assert "Propose the activity and stop." in prompt
+
+
+def test_the_prompt_names_the_reported_template_rows_as_the_failure():
+    """
+    The rows the owner was actually shown — ten minutes of exercise, a glass of
+    water, an early night — named in the prompt as what a template looks like.
+
+    Same treatment the generic titles and the copied examples got, and for the
+    same reason this file has now recorded twice: an example offered in a
+    prompt is an example returned in an answer.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+    # The prompt is prose and wraps, so a sentence spanning a line break is
+    # still the sentence. Only the quoted rows are checked literally, because
+    # those are deliberately kept whole on one line.
+    flowed = " ".join(prompt.split())
+
+    assert "drink a glass of water after waking" in prompt
+    assert "go to bed at the same time each night" in prompt
+    assert "the habits that fit every goal and answer none of them" in flowed
+
+
+def test_a_row_has_to_be_startable_without_deciding_anything_else():
+    """
+    Vagueness was reported as a separate complaint from genericness, and it is
+    one: a row nobody can start is skipped, whichever goal it came from.
+    """
+    prompt = goal_structuring.PLAN_SYSTEM_PROMPT
+
+    assert "EVERY ROW HAS TO BE DOABLE WITHOUT DECIDING ANYTHING ELSE FIRST" in prompt
+    assert "CHECKABLE" in prompt
+    assert "LOCATED" in prompt
+    assert "THE FIRST MOVE IS OBVIOUS" in prompt
 
 
 # ---------------------------------------------------------------------------

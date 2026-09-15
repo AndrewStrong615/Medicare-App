@@ -93,6 +93,17 @@ REPEATED_ON = 3
 MAX_REPEAT_SHARE = 0.20  # share of all rows that appear on more than one goal
 MAX_PAIR_OVERLAP = 0.34  # Jaccard between the two halves of a contrast pair
 MIN_ANCHOR_SHARE = 0.70  # goals whose plan uses at least one of their anchors
+MIN_SITUATED_SHARE = 0.70  # rows that say when or where they happen
+# A plan the model called major, appearing on fewer days of the week than
+# this, is the reported failure: not present on most of a week the person
+# described as a year's work.
+#
+# ⛔ DAYS OF THE WEEK, NOT DAY-SLOTS. A plan of one daily row plus three
+# weekly ones is only 10 slots and is on every day of somebody's week. A
+# slot floor high enough to fail the reported plan also fails that one.
+# `goal_structuring.WEEK_SHAPE_BY_COMPLEXITY` holds the same number for the
+# same reason - keep the two in step.
+MAJOR_FLOOR_DAYS = 5
 
 
 def normalise(text: str) -> str:
@@ -107,10 +118,80 @@ def normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
+# ---------------------------------------------------------------------------
+# Is a row situated in somebody's day, or is it a habit that fits any goal?
+#
+# Reported 2026-09-13 alongside the template plans: the rows were "a little too
+# vague". The prompt now asks for a row to be CHECKABLE, LOCATED and obvious to
+# start, and this is the crude proxy for the middle one.
+#
+# ⛔ READ WHAT THIS CAN AND CANNOT SEE BEFORE QUOTING IT.
+#
+# "Drink a glass of water after waking" is a perfectly CONCRETE row that
+# answers no goal in particular, and it scores as situated here, because it
+# names a moment in a day. That is not a defect in this measure so much as the
+# reason a deterministic vagueness check was not built at all: telling a row
+# that fits this goal from one that fits every goal is a judgement. Genericness
+# is what `repeat_share` and the contrast pairs measure; this measures only
+# whether a row says WHEN or WHERE it happens.
+#
+# So a high figure here is necessary and nowhere near sufficient. A low one is
+# the finding worth acting on: rows like "eat better" and "be more active" —
+# the goal restated — cannot score.
+# ---------------------------------------------------------------------------
+
+# Words that place an activity somewhere in a day or somewhere in a building.
+# Lay vocabulary only, and deliberately short: a long list would eventually
+# start matching the activity words themselves and report everything as
+# situated.
+_SITUATING = (
+    # when
+    "after", "before", "during", "while", "morning", "afternoon", "evening",
+    "night", "breakfast", "lunch", "dinner", "bed", "bedtime", "waking",
+    "wake", "lunchtime", "weekday", "weekend", "shift", "work",
+    # A named day is a moment, and rows do name them - "cook a batch on
+    # Sunday". The plan's own `days` field is a separate thing; this is about
+    # what the row TEXT says, which is what the person reads on the card.
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday",
+    # where, and with what
+    "office", "desk", "home", "kitchen", "stairs", "lift", "door", "outside",
+    "outdoors", "garden", "park", "street", "block", "bus", "train", "car",
+    "shop", "walk home", "phone", "kettle", "cupboard", "fridge", "plate",
+)
+
+
+def situated(row: str) -> bool:
+    """
+    True if the row says when or where it happens.
+
+    Word-boundary matching on a normalised row, so "workout" does not count as
+    "work" and "beforehand" does not count as "before".
+    """
+    words = set(normalise(row).split())
+    for term in _SITUATING:
+        if " " in term:
+            if term in normalise(row):
+                return True
+        elif term in words:
+            return True
+    return False
+
+
 class Outcome:
     """One goal, planned — or not."""
 
-    __slots__ = ("goal", "title", "rows", "failure", "details", "cited")
+    __slots__ = (
+        "goal",
+        "title",
+        "rows",
+        "failure",
+        "details",
+        "cited",
+        "day_counts",
+        "days_touched",
+        "complexity",
+    )
 
     def __init__(
         self,
@@ -120,16 +201,37 @@ class Outcome:
         failure: str = "",
         details: tuple[str, ...] = (),
         cited: tuple[bool, ...] = (),
+        day_counts: tuple[int, ...] = (),
+        days_touched: int = 0,
+        complexity: str = "",
     ):
         self.goal = goal
         self.title = title
         self.rows = rows
         self.failure = failure
-        # Parallel to `rows`. A run collected before 2026-09-13 has neither,
-        # which reads as 0% rather than as an error - the old baseline is
-        # still a valid measurement of the things it did measure.
+        # Parallel to `rows`. A run collected before 2026-09-13 has none of
+        # these, which reads as absent rather than as an error - the old
+        # baseline is still a valid measurement of the things it did measure.
         self.details = details
         self.cited = cited
+        self.day_counts = day_counts
+        # ⛔ NOT derivable from `day_counts`. A plan of one daily row and
+        # three weekly ones is 10 day-slots and appears on all 7 days; the
+        # reported plan is 4 slots on 4 days. Only this separates them, which
+        # is why `goal_structuring` enforces its floor on it.
+        self.days_touched = days_touched
+        self.complexity = complexity
+
+    @property
+    def slots(self) -> int:
+        """
+        How much of the week the plan occupies: one row on one day is one.
+
+        The reported failure was a plan of four rows on four days answering a
+        year-long goal, which no count of ROWS can see. Zero means the run
+        did not record days, not that the plan had none - see `measure`.
+        """
+        return sum(self.day_counts)
 
     @property
     def planned(self) -> bool:
@@ -156,6 +258,9 @@ def plan(goal: Goal) -> Outcome:
             rows=tuple(a.text for a in result.activities),
             details=tuple((a.detail or "") for a in result.activities),
             cited=tuple(bool(a.evidence_domain) for a in result.activities),
+            day_counts=tuple(len(a.days) for a in result.activities),
+            days_touched=len({d for a in result.activities for d in a.days}),
+            complexity=result.complexity or "",
         )
     if isinstance(result, goal_structuring.Refusal):
         return Outcome(goal, failure=f"refused ({result.reason})")
@@ -184,6 +289,8 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
     rows = tuple(a["text"] for a in activities)
     details = tuple((a.get("detail") or "") for a in activities)
     cited = tuple(bool(a.get("evidence")) for a in activities)
+    day_counts = tuple(len(a.get("days") or ()) for a in activities)
+    days_touched = len({d for a in activities for d in (a.get("days") or ())})
     if not rows:
         # `notice` is the sentence the person would have read, and out here it
         # is the only thing separating a refusal from an outage from a rate
@@ -198,6 +305,9 @@ def outcome_from_draft(goal: Goal, status_code: int, payload: dict) -> Outcome:
         rows=rows,
         details=details,
         cited=cited,
+        day_counts=day_counts,
+        days_touched=days_touched,
+        complexity=payload.get("complexity") or "",
     )
 
 
@@ -366,6 +476,9 @@ def save(outcomes: list[Outcome], path: Path, label: str, source: str) -> None:
                         "rows": list(o.rows),
                         "details": list(o.details),
                         "cited": list(o.cited),
+                        "day_counts": list(o.day_counts),
+                        "days_touched": o.days_touched,
+                        "complexity": o.complexity,
                         "failure": o.failure,
                     }
                     for o in outcomes
@@ -399,6 +512,9 @@ def load(path: Path) -> tuple[list[Outcome], str, str]:
                 rows=tuple(entry.get("rows") or ()),
                 details=tuple(entry.get("details") or ()),
                 cited=tuple(entry.get("cited") or ()),
+                day_counts=tuple(entry.get("day_counts") or ()),
+                days_touched=entry.get("days_touched") or 0,
+                complexity=entry.get("complexity") or "",
                 failure=entry.get("failure") or "",
             )
         )
@@ -450,6 +566,42 @@ def measure(outcomes: list[Outcome]) -> dict:
     # question a prompt cannot answer about itself.
     detailed = sum(1 for o in planned for d in o.details if d.strip())
     with_citation = sum(1 for o in planned for flag in o.cited if flag)
+    in_a_day = sum(1 for row in rows if situated(row))
+
+    # How much of a week each plan occupies, which is the half of "sized to
+    # the goal" that a row count cannot see. The reported plan was four rows
+    # on four days answering a year-long goal: five rows would not have made
+    # it a fuller week, and four daily rows would have.
+    #
+    # Only runs that recorded days are counted. A run collected before
+    # 2026-09-13 has none, and reporting those as a coverage of zero would
+    # read as a finding about the plans rather than about the run.
+    # Where a goal states its own scale, did the plan take it? `ORDER` is
+    # the planner's own ordering, so this compares like with like.
+    ORDER = {"small": 0, "moderate": 1, "major": 2}
+    misread = []
+    for outcome in planned:
+        read_as = ORDER.get(outcome.complexity)
+        if read_as is None:
+            continue  # not recorded by this run
+        floor, ceiling = outcome.goal.not_below, outcome.goal.not_above
+        if floor and read_as < ORDER[floor]:
+            misread.append(
+                f"{outcome.goal.id}: read as {outcome.complexity}, "
+                f"and the goal states a scale no smaller than {floor}"
+            )
+        if ceiling and read_as > ORDER[ceiling]:
+            misread.append(
+                f"{outcome.goal.id}: read as {outcome.complexity}, "
+                f"and the goal states a scale no larger than {ceiling}"
+            )
+
+    scheduled = [o for o in planned if o.day_counts]
+    by_complexity: dict[str, list[tuple[int, int]]] = {}
+    for outcome in scheduled:
+        by_complexity.setdefault(outcome.complexity or "unstated", []).append(
+            (outcome.slots, outcome.days_touched)
+        )
 
     near_repeats = sorted(
         {
@@ -482,8 +634,43 @@ def measure(outcomes: list[Outcome]) -> dict:
         "pairs": pair_overlaps,
         "detail_share": (detailed / len(rows)) if rows else 0.0,
         "citation_share": (with_citation / len(rows)) if rows else 0.0,
+        "situated_share": (in_a_day / len(rows)) if rows else 0.0,
+        "unsituated_rows": sorted({row for row in rows if not situated(row)}),
         "anchor_share": (len(anchor_hits) / len(anchored)) if anchored else 0.0,
         "anchor_misses": [o.goal.id for o in anchored if not o.anchors_hit],
+        "scheduled": len(scheduled),
+        "mean_slots": (
+            sum(o.slots for o in scheduled) / len(scheduled) if scheduled else 0.0
+        ),
+        "mean_days_touched": (
+            sum(o.days_touched for o in scheduled) / len(scheduled)
+            if scheduled
+            else 0.0
+        ),
+        "slots_by_complexity": {
+            name: {
+                "plans": len(values),
+                "mean": sum(slots for slots, _ in values) / len(values),
+                "fewest": min(slots for slots, _ in values),
+                "mean_days": sum(days for _, days in values) / len(values),
+                "fewest_days": min(days for _, days in values),
+            }
+            for name, values in sorted(by_complexity.items())
+        },
+        # Goals whose stated scale the plan did not take: a year-long,
+        # tried-and-stopped goal read as anything less than major, or a
+        # single-day goal read as major. ⛔ Bounds only, from the corpus, and
+        # only where the goal says its own size out loud — see corpus.Goal.
+        "misread_size": misread,
+        # A plan that read its goal as major and then filled four days of the
+        # week is the reported failure. It cannot reach a person any more —
+        # `_validate_plan` discards it — so a name here means either an old
+        # run or a deployment without the check.
+        "thin_major_plans": [
+            o.goal.id
+            for o in scheduled
+            if o.complexity == "major" and o.days_touched < MAJOR_FLOOR_DAYS
+        ],
     }
 
 
@@ -513,6 +700,26 @@ def breaches(report: dict) -> list[str]:
             f"only {report['anchor_share']:.0%} of plans use any word from "
             f"their own goal (threshold {MIN_ANCHOR_SHARE:.0%})"
         )
+    if report["rows_total"] and report["situated_share"] < MIN_SITUATED_SHARE:
+        found.append(
+            f"only {report['situated_share']:.0%} of rows say when or where "
+            f"they happen (threshold {MIN_SITUATED_SHARE:.0%}); the vaguest: "
+            + ", ".join(report["unsituated_rows"][:4])
+        )
+    # ⛔ A metric nobody fails on is a metric nobody reads. The coverage figures
+    # were reported and not gated when they were added, which would have let
+    # the reported bug pass a --strict run in silence.
+    if report["misread_size"]:
+        found.append(
+            "plans that ignored a scale the goal stated outright: "
+            + "; ".join(report["misread_size"])
+        )
+    if report["thin_major_plans"]:
+        found.append(
+            f"plans read as major appearing on under {MAJOR_FLOOR_DAYS} days "
+            f"of the week (not present on most of a long goal's week): "
+            + ", ".join(report["thin_major_plans"])
+        )
     return found
 
 
@@ -529,7 +736,35 @@ def render(report: dict, outcomes: list[Outcome], show: bool) -> None:
     print(f"  rows saying how          {report['detail_share']:.1%}")
     print(f"  rows with a citation     {report['citation_share']:.1%}")
     print(f"  plans using a goal word  {report['anchor_share']:.1%}")
+    print(f"  rows saying when/where   {report['situated_share']:.1%}")
+    if report["scheduled"]:
+        print(f"  day-slots per plan       {report['mean_slots']:.1f} mean")
+        print(f"  days of the week on      {report['mean_days_touched']:.1f} mean")
     print()
+
+    # How much of a week a plan fills, by the size the planner read the goal
+    # as. A run from before 2026-09-13 recorded no days and prints nothing.
+    if report["slots_by_complexity"]:
+        print("  HOW MUCH OF A WEEK A PLAN FILLS")
+        print("    (slots: one row on one day.  days: distinct days it is on)")
+        for name, data in report["slots_by_complexity"].items():
+            print(
+                f"    {name:<10} {data['plans']:>2} plans"
+                f"   slots {data['mean']:>5.1f} (min {data['fewest']:>2})"
+                f"   days {data['mean_days']:>4.1f} (min {data['fewest_days']})"
+            )
+        if report["thin_major_plans"]:
+            print(
+                "    ⛔ major goals answered on under 14 day-slots: "
+                + ", ".join(report["thin_major_plans"])
+            )
+        print()
+
+    if report["misread_size"]:
+        print("  THE GOAL SAID ITS OWN SIZE AND THE PLAN DID NOT TAKE IT")
+        for line in report["misread_size"]:
+            print(f"    {line}")
+        print()
 
     if report["failures"]:
         print("  NO PLAN")

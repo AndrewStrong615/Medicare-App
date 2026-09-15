@@ -1665,6 +1665,26 @@ It says the tests fail when the code stops doing what this file says it does.
 Whether what this file says is clinically right is the question a clinician has
 to answer, and nothing here goes near it.
 
+#### Three "closed" findings are now verified as actually closed
+
+The `privacy` group probes the data-handling rules this file states and
+attaches "a test asserts it" to. Five, all caught — and three of them are
+items listed above under **Closed (fixed, with tests)**, which until now had
+only ever been *recorded* as closed:
+
+| rule | |
+|---|---|
+| a rejected value is not echoed back in a 422 (closed finding 1) | caught |
+| SQLAlchemy does not put bound values into its exception text (closed finding 5) | caught |
+| `BookingIdentity.__repr__` is redacted | caught |
+| `appointments` gains no column that could hold an identity | caught |
+| `provider_locations` gains no column saying who looked | caught |
+
+The last two are the structural ones: the test checks the mapped table, so a
+column added by any route is caught — including the near-misses this file
+names, `patient_name` and a `user_id`. Adding either one now fails, which is
+what those tests promised.
+
 #### The client has one too
 
 `mobile/scripts/mutation_check.mjs`, same idea on the other side of the wire,

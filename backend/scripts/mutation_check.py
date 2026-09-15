@@ -63,6 +63,11 @@ EVID = "app/core/goal_evidence.py"
 API = "app/api/goals.py"
 TRIAGE = "app/core/triage.py"
 RULES = "app/core/rules_triage.py"
+IDENTITY = "app/schemas/booking_identity.py"
+MAIN = "app/main.py"
+SESSION = "app/db/session.py"
+APPOINTMENT_MODEL = "app/models/appointment.py"
+PROVIDER_LOCATION_MODEL = "app/models/provider_location.py"
 
 # Copied per mutation. Nothing here is worth carrying into a scratch tree, and
 # a stale __pycache__ would shadow the mutated source.
@@ -207,6 +212,47 @@ MUTATIONS = [
         "    return max(candidates)",
         "    return candidates[-1]",
     ),
+    # -------------------------------------------------------------------
+    # Data handling. Each is a rule CLAUDE.md states and attaches
+    # "a test asserts it" to. Three of them are findings that file lists
+    # as CLOSED, so this is the first check that they are closed rather
+    # than merely recorded as closed.
+    # -------------------------------------------------------------------
+    (
+        "privacy",
+        'a rejected value is echoed back in the validation error',
+        MAIN,
+        '            "msg": error.get("msg"),',
+        '            "msg": error.get("msg"),\n            "input": error.get("input"),',
+    ),
+    (
+        "privacy",
+        "BookingIdentity's repr prints its fields",
+        IDENTITY,
+        '        return "BookingIdentity(<redacted>)"',
+        '        return super().__repr__()',
+    ),
+    (
+        "privacy",
+        'SQLAlchemy puts bound values back into its exception text',
+        SESSION,
+        '    hide_parameters=True,',
+        '    hide_parameters=False,',
+    ),
+    (
+        "privacy",
+        'the appointments table gains a column that could hold an identity',
+        APPOINTMENT_MODEL,
+        '    __tablename__ = "appointments"',
+        '    __tablename__ = "appointments"\n\n    patient_name: Mapped[str | None] = mapped_column(String, nullable=True)',
+    ),
+    (
+        "privacy",
+        'provider_locations gains a column saying who looked',
+        PROVIDER_LOCATION_MODEL,
+        '    __tablename__ = "provider_locations"',
+        '    __tablename__ = "provider_locations"\n\n    user_id: Mapped[str | None] = mapped_column(String, nullable=True)',
+    ),
 ]
 
 
@@ -214,6 +260,14 @@ SUITES = {
     "goals": ("tests/test_goals.py", "tests/test_goal_evidence.py"),
     "triage": ("tests/test_triage.py", "tests/test_rules_triage.py",
                "tests/test_emergency.py", "tests/test_triage_eval.py"),
+    # The data-handling claims. CLAUDE.md attaches "a test asserts it" to
+    # each of these; until now nobody had checked whether that was true.
+    "privacy": ("tests/test_booking_identity.py",
+                "tests/test_security_hardening.py",
+                "tests/test_providers_api.py",
+                "tests/test_provider_directory.py",
+                "tests/test_appointments_api.py",
+                "tests/test_intake_api.py"),
 }
 
 

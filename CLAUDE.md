@@ -2414,6 +2414,21 @@ screens show it is fenced by this file, and adding it to a new screen is a
 reviewer's call, not a layout one. They carry a plain statement about the
 software instead.
 
+⛔ **The authorship sentence is conditional; the rest of that footnote is
+not.** Found 2026-09-14 by exercising the no-model path, which is what every
+deployment without a key produces: `draft` returns nothing, the person types
+the plan themselves, and the screen then told them their own choices were
+"suggestions written by MedHelp". Untrue, on the one thing on that screen
+whose job is to say what a person is looking at.
+
+⛔ **A test was pinning it.** That test drafted with *no* suggestions and then
+asserted the suggestion wording — green, and enforcing something false. It now
+covers each state, and a second test covers the no-model one. Only the
+authorship clause differs: "nobody medically qualified has checked" this and
+"speak to a healthcare professional" about a condition, a medicine or a big
+change to eating or exercise are required in **both** and must not become
+conditional.
+
 ⛔ **That statement was rewritten on 2026-09-12 and the old one must not come
 back.** It used to read "MedHelp tracks what you decide to do, does not decide
 what your goals should be" — which stopped being true the moment the app began

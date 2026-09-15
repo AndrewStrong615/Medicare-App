@@ -464,13 +464,36 @@ export function GoalCreateScreen({ navigation }: Props) {
             never carried — which screens show that is fenced in CLAUDE.md and
             is a reviewer's call, not a layout one.
           */}
+          {/*
+            ⛔ THE FIRST SENTENCE IS CONDITIONAL, AND THE REST IS NOT.
+
+            This block renders whenever there is any row at all, and a row
+            is not always MedHelp's. Where no model is configured — every
+            deployment without a key — `draft` returns nothing, the person
+            types the plan themselves, and the screen was then telling them
+            their own careful choices were "suggestions written by MedHelp".
+            Simply untrue, about the one thing on this screen whose job is
+            to say what a person is looking at.
+
+            ⛔ The remainder is NOT conditional and must not become so.
+            Nobody medically qualified has checked any of this either way,
+            and a goal about a condition, a medicine or a big change to
+            eating or exercise is worth a professional's view whoever wrote
+            the rows. CLAUDE.md requires all three of those statements.
+          */}
           <Text style={styles.footnote}>
-            These suggestions were written by MedHelp, not by a doctor or nurse.
-            Nobody medically qualified has checked them or knows anything about
-            your health. Change anything that does not suit you, and speak to a
-            healthcare professional before acting on a goal about a medical
-            condition, a medicine, or a big change to what you eat or how you
-            exercise.
+            {suggested.some(Boolean)
+              ? "These suggestions were written by MedHelp, not by a doctor or " +
+                "nurse. Nobody medically qualified has checked them or knows " +
+                "anything about your health. Change anything that does not suit " +
+                "you, and speak to a healthcare professional before acting on a " +
+                "goal about a medical condition, a medicine, or a big change to " +
+                "what you eat or how you exercise."
+              : "MedHelp had no suggestions for this goal, so everything here is " +
+                "your own. Nobody medically qualified has checked it or knows " +
+                "anything about your health. Speak to a healthcare professional " +
+                "before acting on a goal about a medical condition, a medicine, " +
+                "or a big change to what you eat or how you exercise."}
           </Text>
         </View>
       )}

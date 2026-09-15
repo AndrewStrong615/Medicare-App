@@ -434,10 +434,53 @@ describe("GoalCreateScreen", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it("says the plan was written by software and checked by nobody", async () => {
-    // ⛔ Since the medical-goal refusal was removed, this footnote is the
-    // only thing on the screen telling the person what they are looking at.
+  it("⛔ does not call the person's own rows suggestions when MedHelp had none", async () => {
+    // The no-model path, which is every deployment without a key: `draft`
+    // returns nothing, the person types the plan, and the screen must not
+    // then tell them MedHelp wrote it.
     mockDraft.mockResolvedValue(emptyDraft({ notice: "No suggestions." }));
+
+    render(
+      <GoalCreateScreen
+        navigation={navigation as never}
+        route={{ key: "k", name: "GoalCreate" }}
+      />
+    );
+    fireEvent.changeText(
+      screen.getByLabelText(/What would you like to work towards/i),
+      "I want to lose a hundred pounds in a year"
+    );
+    fireEvent.press(screen.getByText("Suggest a plan"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/everything here is your own/i)).toBeTruthy()
+    );
+    expect(screen.queryByText(/These suggestions were written by MedHelp/i)).toBeNull();
+
+    // ⛔ The parts CLAUDE.md requires survive in this state too. The
+    // authorship clause is the only thing that may differ.
+    expect(screen.getByText(/Nobody medically qualified has checked it/i)).toBeTruthy();
+    expect(
+      screen.getByText(/speak to a healthcare professional/i)
+    ).toBeTruthy();
+  });
+
+  /*
+   * ⛔ THIS TEST USED TO PIN THE BUG.
+   *
+   * It drafted with NO suggestions and then asserted the screen said
+   * "These suggestions were written by MedHelp" — about rows the person
+   * had typed themselves, which is what every deployment without a model
+   * key produces. Green, and enforcing something untrue.
+   *
+   * ⛔ Since the medical-goal refusal was removed, this footnote is the
+   * only thing on the screen telling the person what they are looking at,
+   * which is exactly why it has to be true in both states.
+   */
+  it("says a suggested plan was written by software and checked by nobody", async () => {
+    mockDraft.mockResolvedValue(
+      emptyDraft({ title: "Walks", activities: [plannedRow()] })
+    );
 
     render(
       <GoalCreateScreen
